@@ -4,7 +4,6 @@ Atomic Lab v2.0 — Read · Organize · Write
 """
 
 import gradio as gr
-from gradio_pdf import PDF
 import os
 import json
 import re
@@ -170,13 +169,8 @@ def handle_upload(files, lib, stats):
 
 
 def handle_select_pdf(pid, lib):
-    """选择文献 → PDF 组件 + 文本提取"""
-    pdf_path = None
-    if pid and pid in lib:
-        fp = lib[pid].get("filepath", "")
-        if fp and os.path.exists(fp):
-            pdf_path = fp
-    return pdf_path, render_pdf_text(pid, lib)
+    """选择文献 → 文本提取阅读"""
+    return render_pdf_text(pid, lib)
 
 
 def handle_save_note(page, content, notes, pid):
@@ -461,7 +455,7 @@ button.stop:hover{background:#f7fafc!important;border-color:#cbd5e0!important;}
 .prose,.markdown{color:#4a5568!important;}
 
 /* ── PDF Text Reader ── */
-.txt-reader{max-height:650px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;
+.txt-reader{max-height:750px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;
   border-radius:8px;padding:16px 20px;}
 .txt-empty{color:#a0aec0;font-size:.84em;padding:20px;text-align:center;}
 .txt-page{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #edf2f7;}
@@ -555,10 +549,10 @@ with gr.Blocks(title="Atomic Lab v2.0") as demo:
         # TAB 1: READ
         # ════════════════════════════════════════════════
         with gr.Tab("📖 阅读"):
-            gr.HTML("<div class='tip'>上传 PDF，阅读原文并记录笔记</div>")
+            gr.HTML("<div class='tip'>上传 PDF，阅读提取文本并记录笔记</div>")
             with gr.Row():
-                # ── LEFT: PDF ──
-                with gr.Column(scale=5, min_width=400):
+                # ── LEFT: Upload + Text Reader ──
+                with gr.Column(scale=6, min_width=400):
                     with gr.Group():
                         upload_f = gr.File(
                             label="上传文献 (PDF / TXT / MD)",
@@ -568,21 +562,13 @@ with gr.Blocks(title="Atomic Lab v2.0") as demo:
                         pdf_selector = gr.Dropdown(
                             choices=[], label="选择文献", allow_custom_value=False
                         )
-                    pdf_viewer = PDF(
-                        label="PDF 阅读器",
-                        height=780,
-                        interactive=False,
-                    )
-
-                # ── CENTER: Extracted Text ──
-                with gr.Column(scale=3, min_width=300):
                     gr.Markdown("### 文献文本")
                     pdf_text_html = gr.HTML(
                         "<div class='txt-empty'>选择文献后，文本将在此显示</div>"
                     )
 
                 # ── RIGHT: Notes ──
-                with gr.Column(scale=2, min_width=240):
+                with gr.Column(scale=3, min_width=240):
                     with gr.Group():
                         note_page = gr.Number(
                             value=1, label="页码", precision=0, minimum=1
@@ -660,11 +646,11 @@ with gr.Blocks(title="Atomic Lab v2.0") as demo:
         outputs=[lib_st, stats_st, pdf_selector, stats_html, pdf_text_html],
     )
 
-    # Tab 1: Select PDF → viewer + text
+    # Tab 1: Select PDF → text display
     pdf_selector.change(
         fn=handle_select_pdf,
         inputs=[pdf_selector, lib_st],
-        outputs=[pdf_viewer, pdf_text_html],
+        outputs=[pdf_text_html],
     )
 
     # Tab 1: Save note
