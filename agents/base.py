@@ -81,6 +81,15 @@ class BaseAgent:
         return True, ""
 
 
+def _is_rate_limit_error(e: Exception) -> bool:
+    """Check if an exception is a rate limit / quota error."""
+    # Check status_code attribute (openai library sets this)
+    if getattr(e, "status_code", None) == 429:
+        return True
+    err_str = str(e).lower()
+    return any(kw in err_str for kw in ("429", "quota", "rate limit", "exceeded"))
+
+
 def call_llm(
     system_prompt: str,
     user_prompt: str,
@@ -90,6 +99,7 @@ def call_llm(
     """Call the LLM API with automatic fallback on rate limit (429).
 
     Tries MODEL_NAME first, then each FALLBACK_MODELS in order.
+    Disables built-in retries since quota errors won't resolve with retries.
 
     Args:
         system_prompt: System message
@@ -103,7 +113,7 @@ def call_llm(
     Raises:
         Exception: If all models fail
     """
-    client = OpenAI(base_url=API_BASE, api_key=MS_KEY)
+    client = OpenAI(base_url=API_BASE, api_key=MS_KEY, max_retries=0)
     models = [MODEL_NAME] + list(FALLBACK_MODELS)
     last_error = None
 
@@ -121,9 +131,8 @@ def call_llm(
             return response.choices[0].message.content
         except Exception as e:
             last_error = e
-            err_str = str(e)
-            # Only fallback on rate limit (429) or quota errors
-            if "429" in err_str or "quota" in err_str.lower() or "exceeded" in err_str.lower():
+            if _is_rate_limit_error(e):
+                print(f"[call_llm] {model} rate-limited, trying next...")
                 continue
             # Other errors: raise immediately
             raise

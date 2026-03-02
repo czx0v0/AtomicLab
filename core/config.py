@@ -18,9 +18,9 @@ MODEL_NAME = "deepseek-ai/DeepSeek-V3.2"
 
 # Fallback models when primary model hits rate limit (429)
 FALLBACK_MODELS = [
-    "Qwen/Qwen2.5-72B-Instruct",
-    "Qwen/Qwen2.5-Coder-32B-Instruct",
-    "deepseek-ai/DeepSeek-V3",
+    "Qwen/Qwen3-235B-A22B",
+    "Qwen/Qwen3-32B",
+    "ZhipuAI/GLM-4.7-Flash",
 ]
 
 # ══════════════════════════════════════════════════════════════
