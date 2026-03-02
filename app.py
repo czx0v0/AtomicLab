@@ -21,7 +21,7 @@ load_dotenv()  # 本地开发用，魔搭空间通过环境变量配置
 # ══════════════════════════════════════════════════════════════
 MS_KEY = os.environ.get("MS_KEY", "")
 API_BASE = "https://api-inference.modelscope.cn/v1"
-MODEL_NAME = "Qwen/Qwen2.5-72B-Instruct"
+MODEL_NAME = "deepseek-ai/DeepSeek-V3.2"
 ATOM_CTR = {"v": 0}
 NOTE_CTR = {"v": 0}
 
