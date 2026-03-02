@@ -1,902 +1,692 @@
 """
-Atomic Lab | 科研驾驶舱 v1.0
-沉浸式多智能体科研辅助系统
+Atomic Lab v2.0 — Read · Organize · Write
+基于 Atomic-RAG 的原子化科研工作站
 """
 
 import gradio as gr
-import plotly.graph_objects as go
 import os
 import json
 import re
-import random
 import time
+import hashlib
+import tempfile
+import html as html_lib
 from openai import OpenAI
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv()  # 本地开发用，魔搭空间通过环境变量配置
 
 # ══════════════════════════════════════════════════════════════
 # CONFIG
 # ══════════════════════════════════════════════════════════════
-MODELSCOPE_TOKEN = os.environ.get("MODELSCOPE_TOKEN", "")
+MS_KEY = os.environ.get("MS_KEY", "")
 API_BASE = "https://api-inference.modelscope.cn/v1"
 MODEL_NAME = "Qwen/Qwen2.5-72B-Instruct"
+ATOM_CTR = {"v": 0}
+NOTE_CTR = {"v": 0}
 
 
 # ══════════════════════════════════════════════════════════════
-# SESSION STATE (全局状态容器)
+# UTILS
 # ══════════════════════════════════════════════════════════════
-class SessionState:
-    """全局会话状态，跨组件共享"""
-
-    def __init__(self):
-        self.mission_log = []  # 航行日志
-        self.atomic_storage = []  # 原子知识库
-        self.flight_stats = {
-            "docs_processed": 0,
-            "atoms_generated": 0,
-            "focus_minutes": 0,
-        }
-        self.atom_counter = 0  # 原子编号递增
-
-    def next_atom_id(self):
-        self.atom_counter += 1
-        return f"ATC-{self.atom_counter:04d}"
+def esc(t):
+    return html_lib.escape(str(t))
 
 
-SESSION = SessionState()
+def next_atom_id():
+    ATOM_CTR["v"] += 1
+    return f"ATC-{ATOM_CTR['v']:04d}"
 
 
-# ══════════════════════════════════════════════════════════════
-# PDF EXTRACTION
-# ══════════════════════════════════════════════════════════════
-def extract_pdf_text(file_path: str) -> str:
-    """从 PDF 提取文本"""
-    try:
-        from PyPDF2 import PdfReader
-
-        reader = PdfReader(file_path)
-        text = ""
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-        return text.strip()
-    except Exception as e:
-        return f"[PDF PARSE ERROR] {str(e)}"
+def next_note_id():
+    NOTE_CTR["v"] += 1
+    return f"NT-{NOTE_CTR['v']:04d}"
 
 
-# ══════════════════════════════════════════════════════════════
-# ENGINEER AGENT (首席工程师 — 语义粉碎引擎)
-# ══════════════════════════════════════════════════════════════
-ENGINEER_SYSTEM_PROMPT = """你是 Atomic Lab 首席工程师，代号"裂变引擎"。
-你的唯一职责：将学术文本解构为知识原子。
-
-## 输出规则（必须严格遵循）
-1. 输出且仅输出一个 JSON 对象，不带 ```json 标记，不带任何额外文字。
-2. JSON 结构如下：
-{
-  "atoms": [
-    {
-      "axiom": "公理化结论，纯陈述句，不超过30字",
-      "methodology": "核心实验路径或推导逻辑，不超过50字，可含 LaTeX 如 $E=mc^2$",
-      "variable_data": "关键数据指标、公式或边界条件，不超过50字"
-    }
-  ],
-  "domain": "所属学科领域（2-4字）",
-  "confidence": 0.0到1.0之间的浮点数
-}
-3. atoms 数组恰好包含 3 个元素。
-4. 语气冷峻、无感情、纯学术，禁止修饰词。"""
-
-ENGINEER_USER_TEMPLATE = """对以下学术文本执行语义粉碎，提取 3 个知识原子。
-
---- 待处理文本 ---
-{text}
---- 文本结束 ---
-
-仅输出 JSON。"""
+def phash(name):
+    return "PDF-" + hashlib.md5(name.encode()).hexdigest()[:6].upper()
 
 
-def call_qwen(text: str) -> str:
-    """调用 Qwen 模型执行原子化处理"""
-    client = OpenAI(base_url=API_BASE, api_key=MODELSCOPE_TOKEN)
-    response = client.chat.completions.create(
+def call_llm(sys_p, usr_p, temp=0.15, maxt=800):
+    c = OpenAI(base_url=API_BASE, api_key=MS_KEY)
+    r = c.chat.completions.create(
         model=MODEL_NAME,
         messages=[
-            {"role": "system", "content": ENGINEER_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": ENGINEER_USER_TEMPLATE.format(text=text[:4000]),
-            },
+            {"role": "system", "content": sys_p},
+            {"role": "user", "content": usr_p},
         ],
-        temperature=0.15,
-        max_tokens=800,
+        temperature=temp,
+        max_tokens=maxt,
     )
-    return response.choices[0].message.content
+    return r.choices[0].message.content
 
 
-def parse_atoms(raw: str) -> dict | None:
-    """从 LLM 输出中提取 JSON"""
-    # 尝试直接解析
+def pjson(raw):
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         pass
-    # 尝试提取 JSON 块
-    match = re.search(r"\{[\s\S]*\}", raw)
-    if match:
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if m:
         try:
-            return json.loads(match.group())
+            return json.loads(m.group())
         except json.JSONDecodeError:
             pass
     return None
 
 
-def format_atom_cards(atoms_data: dict) -> str:
-    """将原子数据渲染为 HUD 风格 HTML 卡片"""
-    if not atoms_data or "atoms" not in atoms_data:
-        return "<div class='atom-card atom-error'>[PARSE FAILURE] 原子化解析未命中目标结构</div>"
-
-    domain = atoms_data.get("domain", "UNKNOWN")
-    confidence = atoms_data.get("confidence", 0)
-    conf_pct = (
-        f"{confidence * 100:.0f}%"
-        if isinstance(confidence, (int, float))
-        else str(confidence)
-    )
-
-    cards = ""
-    for atom in atoms_data["atoms"]:
-        atom_id = SESSION.next_atom_id()
-        cards += f"""
-        <div class="atom-card">
-            <div class="atom-card-header">
-                <span class="atom-id">#{atom_id}</span>
-                <span class="atom-status-dot"></span>
-                <span class="atom-status-text">ACTIVE</span>
-            </div>
-            <div class="atom-field">
-                <span class="field-label">[Core Axiom]</span>
-                <span class="field-value">{atom.get('axiom', 'N/A')}</span>
-            </div>
-            <div class="atom-field">
-                <span class="field-label">[Methodology]</span>
-                <span class="field-value">{atom.get('methodology', 'N/A')}</span>
-            </div>
-            <div class="atom-field">
-                <span class="field-label">[Variable/Data]</span>
-                <span class="field-value">{atom.get('variable_data', 'N/A')}</span>
-            </div>
-            <div class="atom-scanline"></div>
-        </div>
-        """
-
-    return f"""
-    <div class="atom-container">
-        <div class="atom-meta">
-            DOMAIN: {domain} &nbsp;|&nbsp; CONFIDENCE: {conf_pct}
-        </div>
-        {cards}
-        <div class="atom-footer">
-            [Engineer Info] 目标文本已解构，共生成 {len(atoms_data['atoms'])} 个原子。逻辑链路已对齐。
-        </div>
-    </div>
-    """
-
-
-# ══════════════════════════════════════════════════════════════
-# NAVIGATOR AGENT (领航员 — 任务 & 状态管理)
-# ══════════════════════════════════════════════════════════════
-def navigator_advice(atoms_data: dict) -> str:
-    """基于新生成的原子，给出航行建议"""
-    if not atoms_data or "atoms" not in atoms_data:
-        return ""
-    domain = atoms_data.get("domain", "未知领域")
-    axiom = atoms_data["atoms"][0].get("axiom", "") if atoms_data["atoms"] else ""
-    timestamp = time.strftime("%H:%M:%S")
-    return (
-        f"[{timestamp}] [Navigator] 新原子已入库 | "
-        f"领域 <{domain}> 与当前航线匹配度较高。"
-        f"建议围绕「{axiom[:15]}...」展开深度扫描。"
-    )
-
-
-def format_stats_html() -> str:
-    """渲染统计面板 HTML"""
-    s = SESSION.flight_stats
-    return f"""
-    <div class="stats-panel">
-        <div class="stat-row">
-            <span class="stat-label">DOCS SCANNED</span>
-            <span class="stat-value">{s['docs_processed']}</span>
-        </div>
-        <div class="stat-row">
-            <span class="stat-label">ATOMS GENERATED</span>
-            <span class="stat-value">{s['atoms_generated']}</span>
-        </div>
-        <div class="stat-row">
-            <span class="stat-label">FOCUS TIME</span>
-            <span class="stat-value">{s['focus_minutes']} min</span>
-        </div>
-    </div>
-    """
-
-
-# ══════════════════════════════════════════════════════════════
-# RADAR CHART (遥测雷达图)
-# ══════════════════════════════════════════════════════════════
-def create_radar(atoms_data: dict = None) -> go.Figure:
-    """生成科研遥测雷达图"""
-    categories = ["理论深度", "方法严谨", "数据密度", "创新性", "可复现性", "应用前景"]
-
-    if atoms_data and "atoms" in atoms_data:
-        random.seed(hash(json.dumps(atoms_data, ensure_ascii=False)) % 2**32)
-        values = [round(random.uniform(0.55, 0.95), 2) for _ in categories]
-    else:
-        values = [0.15, 0.10, 0.20, 0.10, 0.15, 0.10]
-
-    # 闭合多边形
-    values_closed = values + [values[0]]
-    cats_closed = categories + [categories[0]]
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatterpolar(
-            r=values_closed,
-            theta=cats_closed,
-            fill="toself",
-            fillcolor="rgba(0, 212, 255, 0.08)",
-            line=dict(color="#00d4ff", width=2),
-            marker=dict(color="#00d4ff", size=5),
-        )
-    )
-    fig.update_layout(
-        polar=dict(
-            bgcolor="rgba(0,0,0,0)",
-            radialaxis=dict(
-                visible=True,
-                range=[0, 1],
-                gridcolor="rgba(0, 212, 255, 0.12)",
-                linecolor="rgba(0, 212, 255, 0.25)",
-                tickfont=dict(color="#00d4ff", size=9),
-            ),
-            angularaxis=dict(
-                gridcolor="rgba(0, 212, 255, 0.12)",
-                linecolor="rgba(0, 212, 255, 0.25)",
-                tickfont=dict(color="#c0c0c0", size=11),
-            ),
-        ),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#00d4ff", family="Consolas, Courier New, monospace"),
-        showlegend=False,
-        margin=dict(l=55, r=55, t=30, b=30),
-        height=340,
-    )
-    return fig
-
-
-# ══════════════════════════════════════════════════════════════
-# CORE HANDLER: 原子粉碎主流程
-# ══════════════════════════════════════════════════════════════
-def crush_handler(file, text_input):
-    """
-    执行原子粉碎：
-    1. 提取文本（PDF 或直接输入）
-    2. 调用 Qwen 解构
-    3. 渲染卡片 + 雷达图 + 统计 + 航行日志
-    """
-    # ── 1. 获取文本 ──
-    text = ""
-    if file is not None:
-        file_path = file.name if hasattr(file, "name") else str(file)
-        if file_path.lower().endswith(".pdf"):
-            text = extract_pdf_text(file_path)
-        else:
-            try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    text = f.read()
-            except Exception as e:
-                text = f"[FILE READ ERROR] {e}"
-
-    if text_input and text_input.strip():
-        text = (text + "\n" + text_input.strip()) if text else text_input.strip()
-
-    if not text.strip():
-        return (
-            "<div class='atom-card'>[WARNING] 未检测到输入信号。请载入文献或输入文本。</div>",
-            create_radar(),
-            format_stats_html(),
-            "<div class='nav-log'>[Navigator] 输入信号为空，等待数据载入...</div>",
-        )
-
-    # ── 2. 调用 LLM 粉碎 ──
+def extract_pdf(fp):
     try:
-        raw = call_qwen(text)
-        atoms_data = parse_atoms(raw)
+        from PyPDF2 import PdfReader
 
-        if atoms_data is None:
+        r = PdfReader(fp)
+        return "\n".join([p.extract_text() or "" for p in r.pages]).strip()
+    except Exception as e:
+        return f"[PDF ERROR] {e}"
+
+
+def extract_pdf_by_page(fp):
+    """提取 PDF 文本，按页分段"""
+    try:
+        from PyPDF2 import PdfReader
+
+        r = PdfReader(fp)
+        pages = []
+        for i, p in enumerate(r.pages):
+            txt = p.extract_text() or ""
+            if txt.strip():
+                pages.append((i + 1, txt.strip()))
+        return pages
+    except Exception as e:
+        return [(0, f"[PDF ERROR] {e}")]
+
+
+def _read_txt(fp):
+    try:
+        with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except Exception as e:
+        return f"[READ ERROR] {e}"
+
+
+# ══════════════════════════════════════════════════════════════
+# AGENT A — CRUSHER
+# ══════════════════════════════════════════════════════════════
+CRUSH_SYS = """你是 Atomic Lab 的知识解构引擎 Crusher。
+职责：将学术文本或用户笔记解构为知识原子。
+
+## 输出规则
+1. 仅输出 JSON，不带 markdown 标记。
+2. 结构：
+{
+  "atoms": [
+    {
+      "axiom": "公理化结论，≤30字，纯陈述句",
+      "methodology": "实验路径或推导逻辑，≤50字",
+      "boundary": "适用边界或实验局限，≤40字"
+    }
+  ],
+  "domain": "学科领域（2-4字）",
+  "confidence": 0.0-1.0
+}
+3. atoms 恰好 3 个。语气冷峻、无修饰。"""
+
+CRUSH_USR = """## 上下文
+{context}
+
+## 待解构文本
+{text}
+
+执行语义解构。仅输出 JSON。"""
+
+
+# ══════════════════════════════════════════════════════════════
+# HANDLERS — Tab 1: Read
+# ══════════════════════════════════════════════════════════════
+def handle_upload(files, lib, stats):
+    """文献上传 → 入库"""
+    if not files:
+        return lib, stats, gr.update(), render_stats(stats), render_pdf_text(None, lib)
+    for f in files:
+        fp = f if isinstance(f, str) else (f.name if hasattr(f, "name") else str(f))
+        fn = os.path.basename(fp)
+        pid = phash(fn)
+        if pid in lib:
+            continue
+        text = extract_pdf(fp) if fp.lower().endswith(".pdf") else _read_txt(fp)
+        lib[pid] = {"name": fn, "text": text, "atoms": [], "filepath": fp}
+        stats["docs"] += 1
+
+    choices = [(v["name"], k) for k, v in lib.items()]
+    last_pid = choices[-1][1] if choices else None
+    return (
+        lib,
+        stats,
+        gr.update(choices=choices, value=last_pid),
+        render_stats(stats),
+        render_pdf_text(last_pid, lib),
+    )
+
+
+def handle_select_pdf(pid, lib):
+    """选择文献 → 文本提取阅读"""
+    return render_pdf_text(pid, lib)
+
+
+def handle_save_note(page, content, notes, pid):
+    """保存阅读笔记"""
+    if not content or not content.strip():
+        return notes, render_note_cards(notes)
+    nid = next_note_id()
+    note = {
+        "id": nid,
+        "type": "文字笔记",
+        "content": content.strip(),
+        "page": int(page) if page else 1,
+        "ts": time.strftime("%H:%M"),
+        "source_pid": pid or "",
+    }
+    notes.append(note)
+    return notes, render_note_cards(notes)
+
+
+# ══════════════════════════════════════════════════════════════
+# HANDLERS — Tab 2: Organize
+# ══════════════════════════════════════════════════════════════
+def handle_generate(extra_notes, notes, pid, lib, stats):
+    """智能解构：合并笔记 → Crusher"""
+    all_text_parts = []
+    for n in notes:
+        prefix = f"[p.{n['page']}]"
+        if n["content"]:
+            all_text_parts.append(f"{prefix} {n['content']}")
+    if extra_notes and extra_notes.strip():
+        all_text_parts.append(extra_notes.strip())
+
+    merged = "\n".join(all_text_parts)
+    if not merged.strip():
+        return (
+            "<div class='nc-empty'>暂无笔记可解构。请先在「阅读」页记录笔记。</div>",
+            lib,
+            stats,
+            render_stats(stats),
+            "<span class='agent-st'>等待输入...</span>",
+            get_all_atom_cards(lib),
+        )
+
+    ctx = lib[pid]["text"][:3000] if pid and pid in lib else "(无文献上下文)"
+
+    try:
+        raw = call_llm(CRUSH_SYS, CRUSH_USR.format(context=ctx, text=merged))
+        data = pjson(raw)
+        if not data or "atoms" not in data:
             return (
-                f"<div class='atom-card'>[PARSE ERROR] 模型返回未命中预期结构。<br>原始输出片段: {raw[:300]}...</div>",
-                create_radar(),
-                format_stats_html(),
-                "<div class='nav-log'>[Engineer Info] 解构失败，链路未对齐。</div>",
+                f"<div class='nc-empty'>解析失败: {esc(raw[:120])}</div>",
+                lib,
+                stats,
+                render_stats(stats),
+                "<span class='agent-st'>Crusher: 解析失败</span>",
+                get_all_atom_cards(lib),
             )
 
-        # ── 3. 更新全局状态 ──
-        SESSION.flight_stats["docs_processed"] += 1
-        SESSION.flight_stats["atoms_generated"] += len(atoms_data.get("atoms", []))
-        SESSION.atomic_storage.append(atoms_data)
+        new_ids = _register_atoms(data, pid, lib, stats)
+        stats["notes"] += len(notes)
 
-        # ── 4. 渲染输出 ──
-        cards_html = format_atom_cards(atoms_data)
-        radar = create_radar(atoms_data)
-        stats_html = format_stats_html()
-        nav_msg = navigator_advice(atoms_data)
-
+        status_msg = f"Crusher: {len(notes)} 条笔记 → {len(new_ids)} atoms"
         return (
-            cards_html,
-            radar,
-            stats_html,
-            f"<div class='nav-log'>{nav_msg}</div>",
+            render_cards(data, new_ids, lib),
+            lib,
+            stats,
+            render_stats(stats),
+            f"<span class='agent-st'>{esc(status_msg)}</span>",
+            get_all_atom_cards(lib),
         )
-
     except Exception as e:
         return (
-            f"<div class='atom-card atom-error'>[SYSTEM ERROR] {str(e)}</div>",
-            create_radar(),
-            format_stats_html(),
-            f"<div class='nav-log' style='color:#ff6b6b'>[Navigator] 粉碎流程异常: {str(e)[:80]}</div>",
+            f"<div class='nc-empty'>Error: {esc(str(e)[:80])}</div>",
+            lib,
+            stats,
+            render_stats(stats),
+            f"<span class='agent-st'>Error: {esc(str(e)[:40])}</span>",
+            get_all_atom_cards(lib),
         )
 
 
+def _register_atoms(data, pid, lib, stats):
+    new_ids = []
+    for atom in data["atoms"]:
+        aid = next_atom_id()
+        atom["id"] = aid
+        atom["source_pid"] = pid or ""
+        atom["domain"] = data.get("domain", "")
+        new_ids.append(aid)
+        if pid and pid in lib:
+            lib[pid]["atoms"].append(atom)
+        stats["atoms"] += 1
+    return new_ids
+
+
 # ══════════════════════════════════════════════════════════════
-# CSS — HUD 驾驶舱主题
+# HANDLERS — Tab 3: Write
+# ══════════════════════════════════════════════════════════════
+def handle_download(text):
+    """下载草稿为 Markdown"""
+    if not text or not text.strip():
+        return None
+    path = os.path.join(tempfile.gettempdir(), "atomic_lab_draft.md")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return path
+
+
+def get_all_atom_cards(lib):
+    """获取所有原子卡片"""
+    all_atoms = []
+    for doc in lib.values():
+        for a in doc["atoms"]:
+            all_atoms.append(a)
+    if not all_atoms:
+        return "<div class='nc-empty'>暂无原子卡片。请先在「整理」页解构笔记。</div>"
+    return render_all_cards(all_atoms, lib)
+
+
+# ══════════════════════════════════════════════════════════════
+# RENDERERS
+# ══════════════════════════════════════════════════════════════
+def render_pdf_text(pid, lib):
+    """渲染 PDF 提取文本（模拟高亮阅读）"""
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，文本将在此显示</div>"
+    fp = lib[pid].get("filepath", "")
+    if not fp or not fp.lower().endswith(".pdf"):
+        text = lib[pid].get("text", "")
+        if not text:
+            return "<div class='txt-empty'>无文本内容</div>"
+        paras = [p.strip() for p in text.split("\n") if p.strip()]
+        h = "".join(f"<p class='txt-para'>{esc(p)}</p>" for p in paras)
+        return f"<div class='txt-reader'>{h}</div>"
+
+    pages = extract_pdf_by_page(fp)
+    if not pages:
+        return "<div class='txt-empty'>未能提取文本</div>"
+    h = ""
+    for page_num, text in pages:
+        paras = [p.strip() for p in text.split("\n") if p.strip()]
+        body = "".join(f"<p class='txt-para'>{esc(p)}</p>" for p in paras)
+        h += f"""<div class="txt-page">
+  <div class="txt-page-hdr">Page {page_num}</div>
+  {body}
+</div>"""
+    return f"<div class='txt-reader'>{h}</div>"
+
+
+def render_note_cards(notes):
+    """渲染阅读笔记卡片"""
+    if not notes:
+        return "<div class='nc-empty'>暂无笔记</div>"
+    h = ""
+    for n in reversed(notes):
+        h += f"""<div class="nt">
+  <div class="nt-top">
+    <span class="nt-badge">📝 笔记</span>
+    <span class="nt-page">p.{n['page']}</span>
+    <span class="nt-ts">{esc(n['ts'])}</span>
+  </div>
+  <div class="nt-body">{esc(n['content'])}</div>
+</div>"""
+    return f"<div class='nt-wrap'>{h}</div>"
+
+
+def render_notes_for_organize(notes):
+    """Tab 2 左栏：笔记概览"""
+    if not notes:
+        return "<div class='nc-empty'>暂无笔记。请先在「阅读」页记录。</div>"
+    h = f"<div class='org-summary'>共 {len(notes)} 条笔记</div>"
+    for n in notes:
+        preview = esc(n["content"][:60]) + ("..." if len(n["content"]) > 60 else "")
+        h += f"""<div class="org-item">
+  <span class="org-icon">📝</span>
+  <span class="org-preview">{preview}</span>
+  <span class="nt-page">p.{n['page']}</span>
+</div>"""
+    return f"<div class='org-wrap'>{h}</div>"
+
+
+def render_cards(data, ids=None, lib=None):
+    """Scrivener-style atom cards"""
+    if not data or "atoms" not in data:
+        return "<div class='nc-empty'>无数据</div>"
+    dom = esc(data.get("domain", "?"))
+    c = data.get("confidence", 0)
+    cs = f"{c * 100:.0f}%" if isinstance(c, (int, float)) else str(c)
+    h = f"<div class='nc-meta'>{dom} · confidence {cs}</div>"
+    for a in data["atoms"]:
+        aid = a.get("id", "???")
+        src_pid = a.get("source_pid", "")
+        src_name = ""
+        if lib and src_pid and src_pid in lib:
+            src_name = lib[src_pid]["name"][:20]
+        h += _render_single_card(a, aid, dom, src_name)
+    return f"<div class='nc-wrap'>{h}</div>"
+
+
+def render_all_cards(atoms, lib):
+    """Tab 3 左栏：所有原子卡片"""
+    h = ""
+    for a in atoms:
+        aid = a.get("id", "???")
+        dom = esc(a.get("domain", "?"))
+        src_pid = a.get("source_pid", "")
+        src_name = ""
+        if lib and src_pid and src_pid in lib:
+            src_name = lib[src_pid]["name"][:20]
+        h += _render_single_card(a, aid, dom, src_name)
+    return f"<div class='nc-wrap'>{h}</div>"
+
+
+def _render_single_card(a, aid, dom, src_name):
+    return f"""<div class="nc">
+  <div class="nc-top">
+    <span class="nc-tag">{dom}</span>
+    <span class="nc-code">{esc(aid)}</span>
+  </div>
+  <div class="nc-axiom">{esc(a.get('axiom',''))}</div>
+  <div class="nc-detail">
+    <span class="nc-lbl">Method</span> {esc(a.get('methodology',''))}
+  </div>
+  <div class="nc-detail nc-bnd">
+    <span class="nc-lbl">Boundary</span> {esc(a.get('boundary',''))}
+  </div>
+  <div class="nc-foot">
+    <span class="nc-src">{esc(src_name)}</span>
+  </div>
+</div>"""
+
+
+def render_stats(s):
+    items = [
+        ("📄", "Docs", s["docs"]),
+        ("⚛️", "Atoms", s["atoms"]),
+        ("✏️", "Notes", s["notes"]),
+    ]
+    h = ""
+    for icon, label, val in items:
+        h += f"<div class='si'><span class='si-i'>{icon}</span><span class='si-l'>{label}</span><span class='si-v'>{val}</span></div>"
+    return f"<div class='stats-row'>{h}</div>"
+
+
+# ══════════════════════════════════════════════════════════════
+# CSS
 # ══════════════════════════════════════════════════════════════
 CSS = """
-/* ═══ 全局基础 ═══ */
-.gradio-container {
-    background-color: #05070a !important;
-    color: #c8d6e5 !important;
-    font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace !important;
-    max-width: 100% !important;
+/* ── Global ── */
+.gradio-container{
+  background:#fafaf8!important;color:#2d3748!important;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif!important;
+  max-width:100%!important;
 }
-.dark .gradio-container { background-color: #05070a !important; }
+.dark .gradio-container{background:#fafaf8!important;color:#2d3748!important;}
 
-/* ═══ 标题栏 ═══ */
-.hud-title {
-    text-align: center;
-    padding: 18px 0 10px 0;
-    font-size: 1.6em;
-    font-weight: 700;
-    letter-spacing: 6px;
-    color: #00d4ff;
-    text-shadow: 0 0 15px rgba(0,212,255,0.6), 0 0 40px rgba(0,212,255,0.2);
-    border-bottom: 1px solid rgba(0,212,255,0.15);
-    margin-bottom: 8px;
-    position: relative;
-}
-.hud-title::after {
-    content: '';
-    position: absolute;
-    bottom: -1px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 120px;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, #00d4ff, transparent);
-}
-.hud-subtitle {
-    text-align: center;
-    font-size: 0.75em;
-    color: #3a6073;
-    letter-spacing: 4px;
-    margin-bottom: 12px;
-}
+/* ── Header ── */
+.lab-hdr{text-align:center;padding:10px 0 6px;}
+.lab-title{font-size:1.2em;font-weight:700;color:#2d3748;letter-spacing:2px;}
+.lab-title span{color:#5b8def;}
+.lab-sub{font-size:.72em;color:#a0aec0;letter-spacing:1px;margin-top:2px;}
 
-/* ═══ 面板通用 ═══ */
-.panel-group {
-    background: rgba(0, 212, 255, 0.02) !important;
-    border: 1px solid rgba(0, 212, 255, 0.12) !important;
-    border-radius: 6px !important;
-    padding: 12px !important;
-    margin-bottom: 8px;
-}
-.panel-header {
-    color: #00d4ff;
-    font-size: 0.85em;
-    font-weight: 600;
-    letter-spacing: 2px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid rgba(0,212,255,0.1);
-    margin-bottom: 10px;
-    text-transform: uppercase;
-}
+/* ── Tip bar ── */
+.tip{font-size:.82em;color:#718096;padding:8px 14px;background:#f7fafc;
+  border-radius:6px;margin-bottom:10px;text-align:center;border:1px solid #e2e8f0;}
 
-/* ═══ Gradio 组件覆盖 ═══ */
-.gr-group {
-    background: rgba(0, 212, 255, 0.02) !important;
-    border: 1px solid rgba(0, 212, 255, 0.1) !important;
-    border-radius: 6px !important;
-}
-.gr-box, .gr-input, .gr-text-input, textarea, input[type="text"] {
-    background: rgba(0, 15, 25, 0.8) !important;
-    border: 1px solid rgba(0, 212, 255, 0.2) !important;
-    color: #c8d6e5 !important;
-    border-radius: 4px !important;
-    font-family: 'JetBrains Mono', 'Consolas', monospace !important;
-}
-textarea:focus, input[type="text"]:focus {
-    border-color: #00d4ff !important;
-    box-shadow: 0 0 8px rgba(0,212,255,0.15) !important;
-}
-label, .gr-checkbox-label, .label-wrap span {
-    color: #6b8a9e !important;
-    font-family: 'JetBrains Mono', 'Consolas', monospace !important;
-}
-.gr-button {
-    font-family: 'JetBrains Mono', 'Consolas', monospace !important;
-    letter-spacing: 1px;
-}
-.gr-button.primary, button.primary {
-    background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,212,255,0.05)) !important;
-    border: 1px solid #00d4ff !important;
-    color: #00d4ff !important;
-}
-.gr-button.primary:hover, button.primary:hover {
-    background: linear-gradient(135deg, rgba(0,212,255,0.25), rgba(0,212,255,0.10)) !important;
-    box-shadow: 0 0 15px rgba(0,212,255,0.2) !important;
-}
-.gr-button.stop, button.stop {
-    background: linear-gradient(135deg, rgba(255,60,60,0.12), rgba(255,60,60,0.04)) !important;
-    border: 1px solid rgba(255,80,80,0.5) !important;
-    color: #ff6b6b !important;
-}
-.gr-button.stop:hover, button.stop:hover {
-    box-shadow: 0 0 15px rgba(255,80,80,0.2) !important;
-}
+/* ── Tab labels ── */
+button[role="tab"]{color:#2d3748!important;font-weight:600!important;font-size:.95em!important;}
+button[role="tab"][aria-selected="true"]{color:#5b8def!important;border-color:#5b8def!important;}
 
-/* Markdown */
-.prose h3, .markdown h3, .gr-markdown h3 {
-    color: #00d4ff !important;
-    font-family: 'JetBrains Mono', 'Consolas', monospace !important;
-    font-size: 0.95em !important;
-    letter-spacing: 1px;
-}
-.prose, .markdown, .gr-markdown {
-    color: #8899a6 !important;
-}
-.prose hr, .markdown hr { border-color: rgba(0,212,255,0.1) !important; }
+/* ── Gradio Overrides ── */
+.gr-group{background:#fff!important;border:1px solid #e2e8f0!important;border-radius:8px!important;box-shadow:0 1px 3px rgba(0,0,0,.04)!important;}
+textarea,input[type="text"]{background:#fff!important;border:1px solid #e2e8f0!important;
+  color:#2d3748!important;border-radius:6px!important;font-family:inherit!important;}
+textarea:focus,input:focus{border-color:#5b8def!important;box-shadow:0 0 0 3px rgba(91,141,239,.12)!important;}
+label,.label-wrap span{color:#718096!important;font-weight:500!important;}
+button.primary{background:#5b8def!important;border:none!important;color:#fff!important;border-radius:6px!important;font-weight:600!important;}
+button.primary:hover{background:#4a7ae0!important;box-shadow:0 2px 8px rgba(91,141,239,.25)!important;}
+button.stop{background:#fff!important;border:1px solid #e2e8f0!important;color:#718096!important;border-radius:6px!important;}
+button.stop:hover{background:#f7fafc!important;border-color:#cbd5e0!important;}
+.prose h3,.markdown h3{color:#2d3748!important;font-size:.9em!important;font-weight:600!important;}
+.prose,.markdown{color:#4a5568!important;}
 
-/* Plot 容器透明 */
-.plotly .main-svg { background: transparent !important; }
-.js-plotly-plot .plotly .main-svg { background: transparent !important; }
+/* ── PDF Text Reader ── */
+.txt-reader{max-height:750px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;
+  border-radius:8px;padding:16px 20px;}
+.txt-empty{color:#a0aec0;font-size:.84em;padding:20px;text-align:center;}
+.txt-page{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #edf2f7;}
+.txt-page:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
+.txt-page-hdr{font-size:.75em;font-weight:700;color:#5b8def;text-transform:uppercase;
+  letter-spacing:1px;margin-bottom:8px;padding:4px 8px;background:#eef3ff;
+  border-radius:4px;display:inline-block;}
+.txt-para{font-size:.9em;color:#2d3748;line-height:1.75;margin:0 0 6px;
+  font-family:Georgia,'Noto Serif SC','Times New Roman',serif;}
 
-/* Label 组件 */
-.gr-label, .label-wrap {
-    background: transparent !important;
-}
+/* ── Note Cards (Tab 1) ── */
+.nt-wrap{display:flex;flex-direction:column;gap:8px;max-height:520px;overflow-y:auto;}
+.nt{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;
+  transition:box-shadow .2s;}
+.nt:hover{box-shadow:0 2px 8px rgba(0,0,0,.06);}
+.nt-top{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:.8em;}
+.nt-badge{font-weight:600;color:#5b8def;background:#eef3ff;padding:2px 8px;border-radius:4px;font-size:.85em;}
+.nt-page{color:#a0aec0;font-size:.85em;}
+.nt-ts{color:#cbd5e0;font-size:.8em;margin-left:auto;}
+.nt-body{font-size:.88em;color:#4a5568;line-height:1.5;}
 
-/* File upload */
-.file-upload, .upload-container {
-    border: 1px dashed rgba(0,212,255,0.25) !important;
-    background: rgba(0,15,25,0.4) !important;
-}
+/* ── Organize summary (Tab 2) ── */
+.org-wrap{display:flex;flex-direction:column;gap:4px;}
+.org-summary{font-size:.82em;color:#718096;font-weight:600;padding-bottom:6px;border-bottom:1px solid #e2e8f0;margin-bottom:4px;}
+.org-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:.84em;
+  background:#fff;border:1px solid #f0f0f0;transition:background .15s;}
+.org-item:hover{background:#f7fafc;}
+.org-icon{font-size:1em;flex-shrink:0;}
+.org-preview{color:#4a5568;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-/* ═══ 原子卡片 ═══ */
-.atom-container {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-.atom-meta {
-    color: #3a6073;
-    font-size: 0.75em;
-    letter-spacing: 2px;
-    padding: 4px 0;
-    border-bottom: 1px solid rgba(0,212,255,0.08);
-    margin-bottom: 4px;
-}
-.atom-card {
-    border-left: 4px solid #00d4ff;
-    background: linear-gradient(135deg, rgba(0,212,255,0.04), rgba(0,20,40,0.6));
-    padding: 14px 16px;
-    margin: 6px 0;
-    border-radius: 0 6px 6px 0;
-    position: relative;
-    overflow: hidden;
-    font-size: 0.88em;
-    transition: border-color 0.3s;
-}
-.atom-card:hover {
-    border-left-color: #00ffcc;
-    background: linear-gradient(135deg, rgba(0,212,255,0.07), rgba(0,20,40,0.7));
-}
-.atom-card-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-}
-.atom-id {
-    color: #00d4ff;
-    font-weight: 700;
-    font-size: 0.9em;
-    letter-spacing: 1px;
-}
-.atom-status-dot {
-    width: 6px; height: 6px;
-    background: #00ff88;
-    border-radius: 50%;
-    box-shadow: 0 0 6px #00ff88;
-    animation: pulse-dot 2s infinite;
-}
-@keyframes pulse-dot {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-}
-.atom-status-text {
-    color: #00ff88;
-    font-size: 0.7em;
-    letter-spacing: 2px;
-}
-.atom-field {
-    padding: 4px 0;
-    line-height: 1.5;
-}
-.field-label {
-    color: #00d4ff;
-    font-size: 0.78em;
-    font-weight: 600;
-    letter-spacing: 1px;
-    margin-right: 6px;
-}
-.field-value {
-    color: #c8d6e5;
-    font-size: 0.85em;
-}
-.atom-scanline {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background: linear-gradient(
-        180deg,
-        transparent 0%,
-        rgba(0,212,255,0.03) 50%,
-        transparent 100%
-    );
-    background-size: 100% 8px;
-    pointer-events: none;
-    animation: scanline-move 4s linear infinite;
-}
-@keyframes scanline-move {
-    0% { background-position: 0 0; }
-    100% { background-position: 0 100px; }
-}
-.atom-footer {
-    color: #3a6073;
-    font-size: 0.72em;
-    letter-spacing: 1px;
-    padding-top: 8px;
-    border-top: 1px solid rgba(0,212,255,0.08);
-}
-.atom-error {
-    border-left-color: #ff6b6b !important;
-    color: #ff6b6b;
-}
+/* ── Atom Cards (Scrivener index cards) ── */
+.nc-wrap{display:flex;flex-direction:column;gap:10px;}
+.nc-meta{font-size:.78em;color:#a0aec0;padding-bottom:4px;}
+.nc-empty{color:#a0aec0;font-size:.84em;padding:16px;text-align:center;}
+.nc{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;
+  box-shadow:0 1px 4px rgba(0,0,0,.05);transition:box-shadow .2s,transform .15s;}
+.nc:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);transform:translateY(-1px);}
+.nc-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.nc-tag{font-size:.7em;font-weight:600;color:#5b8def;background:#eef3ff;padding:2px 8px;border-radius:4px;letter-spacing:.5px;}
+.nc-code{font-size:.72em;color:#a0aec0;font-family:'SF Mono',Menlo,monospace;}
+.nc-axiom{font-size:.95em;font-weight:600;color:#1a202c;line-height:1.45;margin-bottom:6px;}
+.nc-detail{font-size:.82em;color:#718096;line-height:1.4;margin-bottom:2px;}
+.nc-lbl{font-size:.75em;font-weight:600;color:#a0aec0;text-transform:uppercase;letter-spacing:.5px;margin-right:4px;}
+.nc-bnd{font-style:italic;color:#a0aec0;}
+.nc-foot{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid #f0f0f0;}
+.nc-src{font-size:.75em;color:#a0aec0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-/* ═══ 统计面板 ═══ */
-.stats-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.stat-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    background: rgba(0,212,255,0.03);
-    border: 1px solid rgba(0,212,255,0.08);
-    border-radius: 4px;
-}
-.stat-label {
-    color: #3a6073;
-    font-size: 0.72em;
-    letter-spacing: 2px;
-}
-.stat-value {
-    color: #00d4ff;
-    font-size: 1.1em;
-    font-weight: 700;
-    text-shadow: 0 0 8px rgba(0,212,255,0.3);
-}
+/* ── Stats ── */
+.stats-row{display:flex;flex-wrap:wrap;gap:6px;}
+.si{display:flex;align-items:center;gap:5px;background:#fff;border:1px solid #e2e8f0;
+  border-radius:6px;padding:5px 10px;font-size:.82em;flex:1;min-width:70px;}
+.si-i{font-size:1em;}
+.si-l{color:#a0aec0;font-size:.78em;flex:1;}
+.si-v{font-weight:700;color:#2d3748;}
 
-/* ═══ 番茄钟 ═══ */
-.timer-container {
-    text-align: center;
-    padding: 10px;
-}
-.timer-display {
-    font-size: 2.4em;
-    font-weight: 700;
-    color: #00d4ff;
-    text-shadow: 0 0 20px rgba(0,212,255,0.4);
-    letter-spacing: 4px;
-    margin: 10px 0;
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
-}
-.timer-ring {
-    width: 80px; height: 80px;
-    border: 3px solid rgba(0,212,255,0.15);
-    border-top: 3px solid #00d4ff;
-    border-radius: 50%;
-    margin: 0 auto 8px auto;
-    animation: spin-ring 3s linear infinite;
-}
-.timer-ring.paused { animation-play-state: paused; border-top-color: #3a6073; }
-@keyframes spin-ring {
-    100% { transform: rotate(360deg); }
-}
-.timer-controls {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    margin-top: 8px;
-}
-.timer-btn {
-    background: rgba(0,212,255,0.08);
-    border: 1px solid rgba(0,212,255,0.25);
-    color: #00d4ff;
-    padding: 5px 14px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75em;
-    letter-spacing: 1px;
-    transition: all 0.2s;
-}
-.timer-btn:hover {
-    background: rgba(0,212,255,0.15);
-    box-shadow: 0 0 10px rgba(0,212,255,0.15);
-}
+/* ── Agent Status ── */
+.agent-st{font-size:.82em;color:#718096;font-family:'SF Mono',Menlo,monospace;}
 
-/* ═══ 航行日志 ═══ */
-.nav-log {
-    font-size: 0.78em;
-    color: #5a8a6e;
-    padding: 6px 10px;
-    background: rgba(0,255,136,0.03);
-    border-left: 2px solid rgba(0,255,136,0.2);
-    border-radius: 0 4px 4px 0;
-    margin-top: 6px;
-    min-height: 24px;
-}
-
-/* ═══ 装饰性 HUD 边框 ═══ */
-.hud-border-top {
-    height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(0,212,255,0.3), transparent);
-    margin: 4px 0 12px 0;
-}
-.hud-corner {
-    position: relative;
-}
-.hud-corner::before {
-    content: '//';
-    position: absolute;
-    top: -2px; left: 4px;
-    color: rgba(0,212,255,0.2);
-    font-size: 0.7em;
-}
-
-/* ═══ 滚动条 ═══ */
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: #05070a; }
-::-webkit-scrollbar-thumb { background: rgba(0,212,255,0.2); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(0,212,255,0.4); }
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#cbd5e0;border-radius:4px;}
+::-webkit-scrollbar-thumb:hover{background:#a0aec0;}
 """
 
 
 # ══════════════════════════════════════════════════════════════
-# POMODORO TIMER (纯前端 JS 实现)
+# HEADER
 # ══════════════════════════════════════════════════════════════
-TIMER_HTML = """
-<div class="timer-container" id="pomodoro-widget">
-    <div class="timer-ring" id="timer-ring"></div>
-    <div class="timer-display" id="timer-display">25:00</div>
-    <div class="timer-controls">
-        <button class="timer-btn" onclick="startPomodoro()">START</button>
-        <button class="timer-btn" onclick="pausePomodoro()">PAUSE</button>
-        <button class="timer-btn" onclick="resetPomodoro()">RESET</button>
-    </div>
-</div>
-<script>
-(function() {
-    let remaining = 25 * 60;
-    let interval = null;
-    let running = false;
-
-    function updateDisplay() {
-        const m = String(Math.floor(remaining / 60)).padStart(2, '0');
-        const s = String(remaining % 60).padStart(2, '0');
-        const el = document.getElementById('timer-display');
-        if (el) el.textContent = m + ':' + s;
-    }
-
-    window.startPomodoro = function() {
-        if (running) return;
-        running = true;
-        const ring = document.getElementById('timer-ring');
-        if (ring) ring.classList.remove('paused');
-        interval = setInterval(function() {
-            if (remaining > 0) {
-                remaining--;
-                updateDisplay();
-            } else {
-                clearInterval(interval);
-                running = false;
-                const el = document.getElementById('timer-display');
-                if (el) {
-                    el.textContent = 'DONE';
-                    el.style.color = '#00ff88';
-                }
-            }
-        }, 1000);
-    };
-
-    window.pausePomodoro = function() {
-        clearInterval(interval);
-        running = false;
-        const ring = document.getElementById('timer-ring');
-        if (ring) ring.classList.add('paused');
-    };
-
-    window.resetPomodoro = function() {
-        clearInterval(interval);
-        running = false;
-        remaining = 25 * 60;
-        updateDisplay();
-        const ring = document.getElementById('timer-ring');
-        if (ring) ring.classList.add('paused');
-        const el = document.getElementById('timer-display');
-        if (el) el.style.color = '#00d4ff';
-    };
-
-    updateDisplay();
-    const ring = document.getElementById('timer-ring');
-    if (ring) ring.classList.add('paused');
-})();
-</script>
-"""
+HEADER_HTML = (
+    "<div class='lab-hdr'>"
+    "<div class='lab-title'><span>Atomic</span> Lab</div>"
+    "<div class='lab-sub'>Read &middot; Organize &middot; Write</div>"
+    "</div>"
+)
 
 
 # ══════════════════════════════════════════════════════════════
-# DECORATIVE HUD ELEMENTS
+# GRADIO UI
 # ══════════════════════════════════════════════════════════════
-HEADER_HTML = """
-<div class="hud-title">ATOMIC LAB</div>
-<div class="hud-subtitle">IMMERSIVE RESEARCH COCKPIT &nbsp; v1.0</div>
-<div class="hud-border-top"></div>
-"""
+with gr.Blocks(title="Atomic Lab v2.0") as demo:
+    # ── States ──
+    lib_st = gr.State({})
+    stats_st = gr.State({"docs": 0, "atoms": 0, "notes": 0})
+    notes_st = gr.State([])
 
-
-# ══════════════════════════════════════════════════════════════
-# GRADIO UI 构建
-# ══════════════════════════════════════════════════════════════
-with gr.Blocks(title="Atomic Lab | 科研驾驶舱") as demo:
-
-    # ── 标题 ──
     gr.HTML(HEADER_HTML)
 
-    with gr.Row():
-
-        # ════════ 左栏：Mission Log ════════
-        with gr.Column(scale=1, min_width=260):
-            gr.HTML("<div class='panel-header'>// MISSION LOG</div>")
-
-            with gr.Group():
-                gr.Markdown("### TASK QUEUE")
-                todo_input = gr.Textbox(
-                    placeholder="输入新任务后按回车...",
-                    label="",
-                    show_label=False,
-                    lines=1,
-                )
-                task_list = gr.CheckboxGroup(
-                    choices=["分析文献原文", "提取知识原子", "更新知识图谱"],
-                    label="当前轨道任务",
-                    value=[],
-                )
-
-            gr.HTML("<div class='hud-border-top'></div>")
-
-            with gr.Group():
-                gr.Markdown("### FOCUS ENGINE")
-                gr.HTML(TIMER_HTML)
-
-            gr.HTML("<div class='hud-border-top'></div>")
-
-            with gr.Group():
-                gr.Markdown("### NAV LOG")
-                nav_log = gr.HTML("<div class='nav-log'>系统待命中，等待指令...</div>")
-
-        # ════════ 中栏：Main Console ════════
-        with gr.Column(scale=2, min_width=450):
-            gr.HTML(
-                "<div class='panel-header'>// MAIN CONSOLE &mdash; ATOMIC CRUSHER</div>"
-            )
-
-            with gr.Group():
-                gr.Markdown("### DATA INPUT")
-                with gr.Row():
-                    file_input = gr.File(
-                        label="载入文献 (PDF / TXT)",
-                        file_types=[".pdf", ".txt", ".md"],
+    with gr.Tabs():
+        # ════════════════════════════════════════════════
+        # TAB 1: READ
+        # ════════════════════════════════════════════════
+        with gr.Tab("📖 阅读"):
+            gr.HTML("<div class='tip'>上传 PDF，阅读提取文本并记录笔记</div>")
+            with gr.Row():
+                # ── LEFT: Upload + Text Reader ──
+                with gr.Column(scale=6, min_width=400):
+                    with gr.Group():
+                        upload_f = gr.File(
+                            label="上传文献 (PDF / TXT / MD)",
+                            file_types=[".pdf", ".txt", ".md"],
+                            file_count="multiple",
+                        )
+                        pdf_selector = gr.Dropdown(
+                            choices=[], label="选择文献", allow_custom_value=False
+                        )
+                    gr.Markdown("### 文献文本")
+                    pdf_text_html = gr.HTML(
+                        "<div class='txt-empty'>选择文献后，文本将在此显示</div>"
                     )
-                text_input = gr.TextArea(
-                    label="或直接输入学术文本",
-                    placeholder="粘贴论文摘要、段落或实验数据...",
-                    lines=7,
-                )
-                crush_btn = gr.Button(
-                    ">>> EXECUTE ATOMIC CRUSH <<<",
-                    variant="stop",
-                    size="lg",
-                )
 
-            gr.HTML("<div class='hud-border-top'></div>")
+                # ── RIGHT: Notes ──
+                with gr.Column(scale=3, min_width=240):
+                    with gr.Group():
+                        note_page = gr.Number(
+                            value=1, label="页码", precision=0, minimum=1
+                        )
+                        note_content = gr.TextArea(
+                            label="笔记",
+                            placeholder="记录你的思考、摘抄关键段落...",
+                            lines=4,
+                        )
+                        save_note_btn = gr.Button("保存笔记", variant="primary")
+                    gr.Markdown("### 阅读笔记")
+                    notes_html = gr.HTML(render_note_cards([]))
 
-            with gr.Group():
-                gr.Markdown("### TELEMETRY RADAR")
-                radar_plot = gr.Plot(
-                    value=create_radar(),
-                    label="",
-                    show_label=False,
-                )
+        # ════════════════════════════════════════════════
+        # TAB 2: ORGANIZE
+        # ════════════════════════════════════════════════
+        with gr.Tab("🧬 整理"):
+            gr.HTML("<div class='tip'>基于阅读笔记，一键解构为原子知识</div>")
+            with gr.Row():
+                # ── LEFT: Notes + Generate ──
+                with gr.Column(scale=5, min_width=360):
+                    notes_overview = gr.HTML(render_notes_for_organize([]))
+                    with gr.Group():
+                        extra_notes_in = gr.TextArea(
+                            label="补充笔记（可选）",
+                            placeholder="额外输入补充内容...",
+                            lines=2,
+                        )
+                        gen_btn = gr.Button("智能解构", variant="primary")
 
-        # ════════ 右栏：Atomic Storage ════════
-        with gr.Column(scale=1, min_width=300):
-            gr.HTML("<div class='panel-header'>// ATOMIC STORAGE</div>")
+                # ── RIGHT: Atom Cards + Stats ──
+                with gr.Column(scale=5, min_width=360):
+                    gr.Markdown("### 原子卡片")
+                    atom_cards_out = gr.HTML(
+                        "<div class='nc-empty'>点击「智能解构」将笔记转化为原子知识</div>"
+                    )
+                    stats_html = gr.HTML(
+                        render_stats({"docs": 0, "atoms": 0, "notes": 0})
+                    )
+                    agent_status = gr.HTML("<span class='agent-st'>等待操作...</span>")
 
-            with gr.Group():
-                gr.Markdown("### PARTICLE STREAM")
-                atomic_cards = gr.HTML("<div class='atom-card'>等待粒子注入...</div>")
+        # ════════════════════════════════════════════════
+        # TAB 3: WRITE
+        # ════════════════════════════════════════════════
+        with gr.Tab("✍️ 写作"):
+            gr.HTML("<div class='tip'>参考左侧原子卡片，在右侧自由写作</div>")
+            with gr.Row():
+                # ── LEFT: Reference Cards ──
+                with gr.Column(scale=3, min_width=280):
+                    gr.Markdown("### 参考卡片")
+                    ref_cards_html = gr.HTML(
+                        "<div class='nc-empty'>解构笔记后，原子卡片将在此显示</div>"
+                    )
 
-            gr.HTML("<div class='hud-border-top'></div>")
-
-            with gr.Group():
-                gr.Markdown("### FLIGHT STATS")
-                stats_display = gr.HTML(format_stats_html())
+                # ── RIGHT: Text Editor ──
+                with gr.Column(scale=6, min_width=400):
+                    gr.Markdown("### 写作区")
+                    draft_text = gr.TextArea(
+                        label="",
+                        show_label=False,
+                        placeholder="在此自由写作，可参考左侧原子卡片...\n\n支持 Markdown 格式",
+                        lines=20,
+                    )
+                    draft_file = gr.File(label="下载草稿", interactive=False)
+                    download_btn = gr.Button("生成 Markdown 文件", variant="primary")
 
     # ══════════════════════════════════════════════════════════
-    # EVENT BINDINGS
+    # EVENTS
     # ══════════════════════════════════════════════════════════
 
-    # 原子粉碎
-    crush_btn.click(
-        fn=crush_handler,
-        inputs=[file_input, text_input],
-        outputs=[atomic_cards, radar_plot, stats_display, nav_log],
+    # Tab 1: Upload
+    upload_f.change(
+        fn=handle_upload,
+        inputs=[upload_f, lib_st, stats_st],
+        outputs=[lib_st, stats_st, pdf_selector, stats_html, pdf_text_html],
     )
 
-    # 添加任务（通过 State 管理 choices 列表）
-    task_choices_state = gr.State(["分析文献原文", "提取知识原子", "更新知识图谱"])
+    # Tab 1: Select PDF → text display
+    pdf_selector.change(
+        fn=handle_select_pdf,
+        inputs=[pdf_selector, lib_st],
+        outputs=[pdf_text_html],
+    )
 
-    def add_task(new_task, current_choices):
-        if not new_task or not new_task.strip():
-            return "", current_choices, gr.update()
-        task_text = new_task.strip()
-        updated_choices = list(current_choices)
-        if task_text not in updated_choices:
-            updated_choices.append(task_text)
-        return "", updated_choices, gr.update(choices=updated_choices)
+    # Tab 1: Save note
+    save_note_btn.click(
+        fn=handle_save_note,
+        inputs=[note_page, note_content, notes_st, pdf_selector],
+        outputs=[notes_st, notes_html],
+    )
 
-    todo_input.submit(
-        fn=add_task,
-        inputs=[todo_input, task_choices_state],
-        outputs=[todo_input, task_choices_state, task_list],
+    # Tab 2: Generate
+    def _refresh_and_generate(extra, notes, pid, lib, stats):
+        cards_html, lib, stats, sh, ast, ref = handle_generate(
+            extra, notes, pid, lib, stats
+        )
+        notes_ov = render_notes_for_organize(notes)
+        return cards_html, lib, stats, sh, ast, notes_ov, ref
+
+    gen_btn.click(
+        fn=_refresh_and_generate,
+        inputs=[extra_notes_in, notes_st, pdf_selector, lib_st, stats_st],
+        outputs=[
+            atom_cards_out,
+            lib_st,
+            stats_st,
+            stats_html,
+            agent_status,
+            notes_overview,
+            ref_cards_html,
+        ],
+    )
+
+    # Tab 3: Download
+    download_btn.click(
+        fn=handle_download,
+        inputs=[draft_text],
+        outputs=[draft_file],
     )
 
 
@@ -904,8 +694,4 @@ with gr.Blocks(title="Atomic Lab | 科研驾驶舱") as demo:
 # LAUNCH
 # ══════════════════════════════════════════════════════════════
 if __name__ == "__main__":
-    demo.launch(
-        server_name="127.0.0.1",
-        server_port=7860,
-        css=CSS,
-    )
+    demo.launch(server_name="0.0.0.0", server_port=7860, css=CSS)
