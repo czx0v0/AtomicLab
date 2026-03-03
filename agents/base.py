@@ -9,7 +9,16 @@ from typing import Literal, Any
 from datetime import datetime
 from openai import OpenAI
 
-from core.config import API_BASE, MS_KEY, MODEL_NAME, FALLBACK_MODELS
+from core.config import API_BASE, MS_KEY, MODEL_NAME, FALLBACK_MODELS, THINKING_MODELS
+from core.model_state import cooldown_manager
+
+
+class AllModelsExhaustedError(Exception):
+    """Raised when all models are on cooldown."""
+
+    def __init__(self, exhausted_models: list[str]):
+        self.exhausted_models = exhausted_models
+        super().__init__(f"所有模型均已达到使用限额: {exhausted_models}")
 
 
 @dataclass
@@ -98,8 +107,8 @@ def call_llm(
 ) -> str:
     """Call the LLM API with automatic fallback on rate limit (429).
 
-    Tries MODEL_NAME first, then each FALLBACK_MODELS in order.
-    Disables built-in retries since quota errors won't resolve with retries.
+    Uses cooldown_manager to track model availability and select models.
+    Models that hit rate limits are put on cooldown automatically.
 
     Args:
         system_prompt: System message
@@ -111,14 +120,23 @@ def call_llm(
         Generated text response
 
     Raises:
-        Exception: If all models fail
+        AllModelsExhaustedError: If all models are on cooldown
+        Exception: If all available models fail with non-rate-limit errors
     """
     client = OpenAI(base_url=API_BASE, api_key=MS_KEY, max_retries=0)
-    models = [MODEL_NAME] + list(FALLBACK_MODELS)
+    models = cooldown_manager.get_model_order()
+
+    if not models:
+        raise AllModelsExhaustedError(cooldown_manager.get_all_models())
+
     last_error = None
+    tried_models = []
 
     for model in models:
+        tried_models.append(model)
         try:
+            # Qwen3 models require thinking mode disabled for non-streaming
+            extra = {"enable_thinking": False} if model in THINKING_MODELS else {}
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -127,15 +145,19 @@ def call_llm(
                 ],
                 temperature=temperature,
                 max_tokens=max_tokens,
+                extra_body=extra if extra else None,
             )
             return response.choices[0].message.content
         except Exception as e:
             last_error = e
             if _is_rate_limit_error(e):
-                print(f"[call_llm] {model} rate-limited, trying next...")
+                print(f"[call_llm] {model} rate-limited, entering cooldown...")
+                cooldown_manager.set_cooldown(model)
                 continue
             # Other errors: raise immediately
             raise
 
     # All models exhausted
+    if _is_rate_limit_error(last_error):
+        raise AllModelsExhaustedError(tried_models)
     raise last_error

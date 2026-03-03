@@ -7,7 +7,7 @@ Tab 1: Upload PDFs, read extracted text, record notes.
        Translate inline. Copy to clipboard.
        Dual-mode: text extraction + original PDF rendering.
        Clickable file list instead of dropdown.
-       
+
 v2.0 更新:
 - 批注功能重写，支持 TreeNode(type="annotation")
 - 支持 priority (1-5) 和颜色映射
@@ -32,10 +32,10 @@ from ui.renderers import (
 
 # 颜色到优先级映射
 COLOR_PRIORITY_MAP = {
-    "red": 5,     # 核心观点
+    "red": 5,  # 核心观点
     "orange": 4,  # 重要内容
     "yellow": 3,  # 值得注意
-    "green": 2,   # 参考信息
+    "green": 2,  # 参考信息
     "purple": 1,  # 一般记录
     "blue": 1,
 }
@@ -86,6 +86,7 @@ def _render_pdf_embed(pid: str, lib: dict) -> str:
         )
 
     import base64
+
     try:
         with open(fp, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("ascii")
@@ -112,7 +113,10 @@ def _render_pdf_embed(pid: str, lib: dict) -> str:
 
 
 def handle_upload(files, lib, stats, tree):
-    """Handle file upload — also auto-creates knowledge tree nodes."""
+    """Handle file upload — also auto-creates knowledge tree nodes.
+
+    Returns tuple including gr.update(value=None) for upload_f to clear it after processing.
+    """
     if not files:
         return (
             lib,
@@ -123,6 +127,7 @@ def handle_upload(files, lib, stats, tree):
             1,
             _render_file_list(lib),
             tree,
+            gr.update(),  # Don't clear upload_f if no files
         )
 
     for f in files:
@@ -153,24 +158,38 @@ def handle_upload(files, lib, stats, tree):
             tree.create_document_node(fn, pid, domain_node.id)
         stats["nodes"] = len(tree.nodes)
 
-    choices = [(v["name"], k) for k, v in lib.items()]
-    last_pid = choices[-1][1] if choices else None
+    last_pid = list(lib.keys())[-1] if lib else None
 
     return (
         lib,
         stats,
-        gr.update(choices=choices, value=last_pid),
+        gr.update(value=last_pid or ""),
         render_stats(stats),
         render_pdf_text(last_pid, lib, 1),
         1,
         _render_file_list(lib, last_pid),
         tree,
+        gr.update(value=None),  # Clear upload_f after processing
     )
 
 
-def handle_select_pdf(pid, lib):
-    """Handle PDF selection — reset to page 1."""
-    return 1, render_pdf_text(pid, lib, 1), _render_file_list(lib, pid)
+def handle_select_pdf(pid, lib, notes):
+    """Handle PDF selection — reset to page 1 and filter notes.
+
+    Args:
+        pid: Document ID
+        lib: Document library
+        notes: All notes list
+
+    Returns:
+        (page, pdf_html, file_list_html, notes_html)
+    """
+    return (
+        1,
+        render_pdf_text(pid, lib, 1),
+        _render_file_list(lib, pid),
+        render_note_cards(notes, filter_pid=pid),
+    )
 
 
 def handle_page_prev(page_st, pid, lib):
@@ -203,49 +222,81 @@ def handle_mode_switch(mode, pid, lib, page_st):
 def handle_highlight_action(payload_str, notes, pid, tree, lib):
     """
     Handle highlight / translate-note action from popup.
-    
+
     v2.0 更新:
     - 创建 annotation TreeNode 存储批注
     - 支持 priority 和 color 映射
     - 批注作为文档的子节点
     - **高亮笔记存储到 lib[pid]["notes"] 以支持持久化显示**
-    
+
+    v3.0 更新:
+    - **立即创建 KnowledgeNode 到 tree**，实现笔记实时可见
+    - 不依赖 AI 处理即可在知识树/图谱中显示
+
     Args:
         payload_str: JSON 格式的操作数据
         notes: 现有笔记列表
         pid: 当前文献 ID
         tree: 知识树实例
         lib: 文献库
-        
+
     Returns:
-        (notes, notes_html, tree, pdf_text_html)
+        (notes, notes_html, tree, pdf_text_html, lib)
     """
     if not payload_str or not payload_str.strip():
-        return notes, render_note_cards(notes), tree, gr.update()
+        return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
 
     try:
         data = json.loads(payload_str)
     except (json.JSONDecodeError, TypeError):
-        return notes, render_note_cards(notes), tree, gr.update()
+        return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
 
     action = data.get("action", "")
     text = data.get("text", "")
     page = data.get("page", "1")
-    color = data.get("color", "yellow")
+    color = data.get("color", "yellow")  # 默认黄色
 
     if action == "highlight" and text:
-        nid = next_note_id()
+        text_content = text.strip()
         annotation_text = data.get("annotation", "")
         
-        # 根据颜色确定优先级
-        priority = COLOR_PRIORITY_MAP.get(color, 3)
+        # 检查是否已存在相同内容的笔记（防重复）
+        existing_note = None
+        for n in notes:
+            if n.get("content", "").strip() == text_content and n.get("source_pid") == pid:
+                existing_note = n
+                break
         
-        # 创建笔记记录
+        if existing_note:
+            # 更新已有笔记的批注（如果有新批注）
+            if annotation_text:
+                existing_note["annotation"] = annotation_text
+                # 同步到 tree
+                if tree:
+                    tree_node = tree.find_note_by_original_id(existing_note.get("id", ""))
+                    if tree_node:
+                        tree_node.metadata["annotation"] = annotation_text
+                # 同步到 lib
+                if pid and pid in lib:
+                    for ln in lib[pid].get("notes", []):
+                        if ln.get("id") == existing_note.get("id"):
+                            ln["annotation"] = annotation_text
+                            break
+            current_page = int(page) if str(page).isdigit() else 1
+            pdf_html = render_pdf_text(pid, lib, current_page)
+            return notes, render_note_cards(notes, filter_pid=pid), tree, pdf_html, lib
+        
+        # 创建新笔记
+        nid = next_note_id()
+        priority = COLOR_PRIORITY_MAP.get(color, 3)
+
         note = {
             "id": nid,
             "type": "高亮",
-            "content": text.strip(),
+            "content": text_content,
             "annotation": annotation_text.strip() if annotation_text else "",
+            "translation": "",
+            "tags": [],
             "page": int(page) if str(page).isdigit() else 1,
             "color": color,
             "priority": priority,
@@ -253,72 +304,292 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
             "source_pid": pid or "",
         }
         notes.append(note)
-        
+
         # 同时保存到 lib 以支持持久化高亮显示
         if pid and pid in lib:
             if "notes" not in lib[pid]:
                 lib[pid]["notes"] = []
             lib[pid]["notes"].append(note)
-        
-        # v2.0: 创建 annotation 节点
-        if tree and pid:
-            # 找到文档节点作为父节点
+
+        # v3.0: 立即创建 KnowledgeNode 到 tree（不依赖AI）
+        if tree and pid and pid in lib:
+            # 确保文档节点存在
             doc_node = tree.find_document_node(pid)
-            parent_id = doc_node.id if doc_node else None
-            
-            # 创建批注节点
-            try:
-                from models.tree_node import TreeNode
-                annotation_node = TreeNode.create_annotation(
-                    doc_id=pid,
-                    parent_id=parent_id,
-                    selected_text=text.strip(),
-                    note=annotation_text.strip() if annotation_text else "",
-                    priority=priority,
-                    color=color,
-                    page=int(page) if str(page).isdigit() else 1,
-                )
-                # 存储到 lib
-                if pid in lib:
-                    if "annotations" not in lib[pid]:
-                        lib[pid]["annotations"] = []
-                    lib[pid]["annotations"].append(annotation_node.to_dict())
-            except ImportError:
-                # 如果新模型不可用，仅使用旧版笔记
-                pass
-        
+            if not doc_node:
+                # 创建默认 domain 和 document 节点
+                domain_node = tree.find_domain_node("未分类")
+                if not domain_node:
+                    domain_node = tree.create_domain_node("未分类", pid)
+                doc_name = lib[pid].get("name", "未知文献")
+                doc_node = tree.create_document_node(doc_name, pid, domain_node.id)
+
+            # 创建 note 节点（category 暂时为空，等AI分类后更新）
+            tree.create_note_node(
+                note=note,
+                category="",  # 初始无分类
+                doc_node_id=doc_node.id,
+            )
+
         # 重新渲染 PDF 文本以显示持久化高亮
         current_page = int(page) if str(page).isdigit() else 1
         pdf_html = render_pdf_text(pid, lib, current_page)
-        return notes, render_note_cards(notes), tree, pdf_html
-        
+        return notes, render_note_cards(notes, filter_pid=pid), tree, pdf_html, lib
+
     elif action == "translate_note" and text:
         from urllib.parse import unquote
 
         orig = unquote(text)
         translation = unquote(data.get("translation", ""))
+        color = data.get("color", "yellow")  # 默认黄色
+        
         # Find existing highlight note for this text and attach translation
         attached = False
         for existing_note in notes:
-            if existing_note.get("content", "").strip() == orig.strip() and existing_note.get("type") == "高亮":
+            if (
+                existing_note.get("content", "").strip() == orig.strip()
+                and existing_note.get("type") == "高亮"
+            ):
                 existing_note["translation"] = translation
                 attached = True
+                # Also update tree node if exists
+                if tree:
+                    tree_node = tree.find_note_by_original_id(existing_note.get("id", ""))
+                    if tree_node:
+                        tree_node.metadata["translation"] = translation
+                # Also update lib
+                if pid and pid in lib:
+                    for ln in lib[pid].get("notes", []):
+                        if ln.get("id") == existing_note.get("id"):
+                            ln["translation"] = translation
+                            break
                 break
+        
         if not attached:
-            # Create standalone translation note
+            # Create new highlight note WITH translation (not standalone translation)
             nid = next_note_id()
+            priority = COLOR_PRIORITY_MAP.get(color, 3)
             note = {
                 "id": nid,
-                "type": "翻译",
+                "type": "高亮",
                 "content": orig,
                 "translation": translation,
+                "annotation": "",
                 "page": int(page) if str(page).isdigit() else 1,
+                "color": color,
+                "priority": priority,
                 "ts": time.strftime("%H:%M"),
                 "source_pid": pid or "",
             }
             notes.append(note)
+            
+            # Save to lib
+            if pid and pid in lib:
+                if "notes" not in lib[pid]:
+                    lib[pid]["notes"] = []
+                lib[pid]["notes"].append(note)
+            
+            # Create tree node
+            if tree and pid and pid in lib:
+                doc_node = tree.find_document_node(pid)
+                if not doc_node:
+                    domain_node = tree.find_domain_node("未分类")
+                    if not domain_node:
+                        domain_node = tree.create_domain_node("未分类", pid)
+                    doc_name = lib[pid].get("name", "未知文献")
+                    doc_node = tree.create_document_node(doc_name, pid, domain_node.id)
+                tree.create_note_node(note=note, category="", doc_node_id=doc_node.id)
+        
+        current_page = int(page) if str(page).isdigit() else 1
+        pdf_html = render_pdf_text(pid, lib, current_page)
+        return notes, render_note_cards(notes, filter_pid=pid), tree, pdf_html, lib
 
-    return notes, render_note_cards(notes), tree, gr.update()
+    return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
+
+
+def handle_read_note_action(action_data, notes, pid, tree, lib):
+    """Handle action button click on note card in read tab.
+    
+    action_data format: "action:note_id" or "annotate:note_id:annotation_text"
+    Actions: translate, tag, annotate, ask
+    
+    Returns: (status_message, notes, notes_html, tree)
+    """
+    if not action_data or ":" not in action_data:
+        return "<span class='agent-st'>等待操作...</span>", notes, gr.update(), tree
+    
+    parts = action_data.split(":", 2)
+    action = parts[0]
+    note_id = parts[1] if len(parts) > 1 else ""
+    
+    # Find the note
+    note = None
+    for n in notes:
+        if n.get("id") == note_id:
+            note = n
+            break
+    
+    if not note:
+        return f"<span class='agent-st'>笔记未找到: {note_id[:20]}</span>", notes, gr.update(), tree
+    
+    content = note.get("content", "")
+    
+    if action == "translate":
+        from agents.translator import TranslatorAgent
+        
+        translator = TranslatorAgent()
+        result = translator.execute(
+            payload={"text": content}, context={"target_lang": "zh"}
+        )
+        if result.status == "success":
+            translated = result.data.get("translation", "")
+            # Update note
+            note["translation"] = translated
+            # Sync to tree
+            if tree:
+                tree_node = tree.find_note_by_original_id(note_id)
+                if tree_node:
+                    tree_node.metadata["translation"] = translated
+            # Sync to lib
+            if pid and pid in lib:
+                for ln in lib[pid].get("notes", []):
+                    if ln.get("id") == note_id:
+                        ln["translation"] = translated
+                        break
+            return (
+                "<span class='agent-st'>翻译完成</span>",
+                notes,
+                render_note_cards(notes, filter_pid=pid),
+                tree,
+            )
+        return (
+            f"<span class='agent-st'>翻译失败: {esc(str(result.error)[:40])}</span>",
+            notes,
+            gr.update(),
+            tree,
+        )
+    
+    elif action == "tag":
+        from agents.crusher import CrusherAgent
+        
+        crusher = CrusherAgent()
+        result = crusher.execute(
+            payload={"notes": [{"content": content, "page": 0}]},
+            context={"doc_context": ""},
+        )
+        if result.status == "success":
+            data = result.data
+            new_tags = data.get("notes", [{}])[0].get("tags", [])
+            # Update note (use ai_tags field)
+            if "ai_tags" not in note:
+                note["ai_tags"] = []
+            note["ai_tags"].extend([t for t in new_tags if t not in note["ai_tags"]])
+            # Sync to tree
+            if tree:
+                tree_node = tree.find_note_by_original_id(note_id)
+                if tree_node:
+                    for tag_text in new_tags:
+                        if not any(c.label == tag_text for c in tree.get_children(tree_node.id) if c.type == "tag"):
+                            tree.create_tag_node(tag_text, tree_node.id)
+            # Sync to lib
+            if pid and pid in lib:
+                for ln in lib[pid].get("notes", []):
+                    if ln.get("id") == note_id:
+                        if "ai_tags" not in ln:
+                            ln["ai_tags"] = []
+                        ln["ai_tags"].extend([t for t in new_tags if t not in ln["ai_tags"]])
+                        break
+            return (
+                f"<span class='agent-st'>已添加标签: {', '.join(new_tags[:3])}</span>",
+                notes,
+                render_note_cards(notes, filter_pid=pid),
+                tree,
+            )
+        return (
+            "<span class='agent-st'>标签生成失败</span>",
+            notes,
+            gr.update(),
+            tree,
+        )
+    
+    elif action == "annotate":
+        annotation_text = parts[2].strip() if len(parts) > 2 else ""
+        if not annotation_text:
+            return (
+                "<span class='agent-st'>请输入批注内容</span>",
+                notes,
+                gr.update(),
+                tree,
+            )
+        # Update note
+        note["annotation"] = annotation_text
+        # Sync to tree
+        if tree:
+            tree_node = tree.find_note_by_original_id(note_id)
+            if tree_node:
+                tree_node.metadata["annotation"] = annotation_text
+        # Sync to lib
+        if pid and pid in lib:
+            for ln in lib[pid].get("notes", []):
+                if ln.get("id") == note_id:
+                    ln["annotation"] = annotation_text
+                    break
+        return (
+            "<span class='agent-st'>已添加批注</span>",
+            notes,
+            render_note_cards(notes, filter_pid=pid),
+            tree,
+        )
+    
+    elif action == "manual_tag":
+        tag_text = parts[2].strip() if len(parts) > 2 else ""
+        if not tag_text:
+            return (
+                "<span class='agent-st'>请输入标签文本</span>",
+                notes,
+                gr.update(),
+                tree,
+            )
+        # Update note (use manual_tags field)
+        if "manual_tags" not in note:
+            note["manual_tags"] = []
+        if tag_text not in note["manual_tags"]:
+            note["manual_tags"].append(tag_text)
+        # Sync to tree
+        if tree:
+            tree_node = tree.find_note_by_original_id(note_id)
+            if tree_node:
+                if not any(c.label == tag_text for c in tree.get_children(tree_node.id) if c.type == "tag"):
+                    tree.create_tag_node(tag_text, tree_node.id)
+        # Sync to lib
+        if pid and pid in lib:
+            for ln in lib[pid].get("notes", []):
+                if ln.get("id") == note_id:
+                    if "manual_tags" not in ln:
+                        ln["manual_tags"] = []
+                    if tag_text not in ln["manual_tags"]:
+                        ln["manual_tags"].append(tag_text)
+                    break
+        return (
+            f"<span class='agent-st'>已添加标签: {tag_text}</span>",
+            notes,
+            render_note_cards(notes, filter_pid=pid),
+            tree,
+        )
+    
+    elif action == "ask":
+        return (
+            "<span class='agent-st'>已发送到AI助手</span>",
+            notes,
+            gr.update(),
+            tree,
+        )
+    
+    return (
+        f"<span class='agent-st'>未知操作: {action}</span>",
+        notes,
+        gr.update(),
+        tree,
+    )
 
 
 def handle_save_annotation(
@@ -332,7 +603,7 @@ def handle_save_annotation(
 ):
     """
     保存批注到章节 (API 接口)
-    
+
     Args:
         doc_id: 文献 ID
         section_id: 章节节点 ID（可选，为空则挂到文档下）
@@ -341,25 +612,25 @@ def handle_save_annotation(
         priority: 重要性 (1-5)
         tree: 知识树实例
         lib: 文献库
-        
+
     Returns:
         创建的 annotation TreeNode 或 None
     """
     if not selected_text or not doc_id:
         return None
-    
+
     try:
         from models.tree_node import TreeNode, PRIORITY_COLORS
-        
+
         # 确定父节点
         parent_id = section_id
         if not parent_id and tree:
             doc_node = tree.find_document_node(doc_id)
             parent_id = doc_node.id if doc_node else None
-        
+
         # 获取颜色
         color = PRIORITY_COLORS.get(priority, "#FFE66D")
-        
+
         # 创建批注节点
         annotation_node = TreeNode.create_annotation(
             doc_id=doc_id,
@@ -369,15 +640,15 @@ def handle_save_annotation(
             priority=priority,
             color=color,
         )
-        
+
         # 存储到 lib
         if doc_id in lib:
             if "annotations" not in lib[doc_id]:
                 lib[doc_id]["annotations"] = []
             lib[doc_id]["annotations"].append(annotation_node.to_dict())
-        
+
         return annotation_node
-        
+
     except ImportError:
         return None
 
@@ -427,13 +698,13 @@ def build_read_tab():
             )
             gr.Markdown("### 文献列表")
             file_list_html = gr.HTML("<div class='nc-empty'>上传文献后显示</div>")
-            # Hidden selector for programmatic value setting (CSS-hidden, not visible=False)
-            pdf_selector = gr.Dropdown(
-                choices=[],
-                label="",
-                visible=True,
-                allow_custom_value=True,
+            # Hidden textbox for programmatic value setting
+            # visible=True but CSS-hidden to ensure DOM is rendered
+            pdf_selector = gr.Textbox(
+                value="",
+                label="选择文献",
                 elem_id="pdf-selector-hidden",
+                show_label=False,
             )
             view_mode = gr.Radio(
                 choices=["文本模式", "PDF模式"],
@@ -476,6 +747,13 @@ def build_read_tab():
         show_label=False,
         container=False,
     )
+    # Hidden textbox for note card action buttons (translate, tag, annotate)
+    note_action_tb = gr.Textbox(
+        elem_id="note-action-input",
+        visible=True,
+        show_label=False,
+        container=False,
+    )
 
     return {
         "upload_f": upload_f,
@@ -490,4 +768,5 @@ def build_read_tab():
         "highlight_action_tb": highlight_action_tb,
         "translate_action_tb": translate_action_tb,
         "translate_result_tb": translate_result_tb,
+        "note_action_tb": note_action_tb,
     }

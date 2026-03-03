@@ -8,11 +8,18 @@ v2.0 更新:
 - 支持混合搜索 (HybridSearchService)
 - 搜索结果渲染增强
 
+v2.1 更新:
+- 添加知识树/知识图谱Tab切换
+- 添加文献选择器，支持全局和单文献视图
+- 复用整理页面的图谱组件
+
 Exports:
     build_write_tab()      -> dict of Gradio components
     handle_download()      -> Markdown file export handler
     handle_write_search()  -> knowledge tree search handler
     handle_ai_suggest()    -> AI continuation suggestion
+    handle_write_doc_select() -> document selector handler
+    handle_write_graph_node_select() -> graph node click handler
 """
 
 import os
@@ -22,11 +29,17 @@ import gradio as gr
 from core.utils import esc
 from agents.base import call_llm
 from knowledge.search import search_nodes
-from ui.echarts_graph import generate_tree_echarts_html, generate_empty_graph_html
+from ui.echarts_graph import (
+    generate_tree_echarts_html,
+    generate_empty_graph_html,
+    generate_echarts_html,
+)
+from ui.renderers import render_doc_note_tree
 
 # 尝试导入新版搜索服务
 try:
     from services.search import KeywordSearchService, HybridSearchService, SearchResult
+
     NEW_SEARCH_AVAILABLE = True
 except ImportError:
     NEW_SEARCH_AVAILABLE = False
@@ -37,14 +50,19 @@ except ImportError:
 # ══════════════════════════════════════════════════════════════
 
 
-def _render_tree_sidebar(tree):
-    """Render knowledge tree as ECharts tree graph for sidebar."""
-    if not tree.nodes:
-        return generate_empty_graph_html("解构笔记后，知识树将在此显示", height=500)
-    option = tree.to_echarts_tree_option()
-    if not option:
-        return generate_empty_graph_html("解构笔记后，知识树将在此显示", height=500)
-    return generate_tree_echarts_html(option, height=500)
+def _render_tree_sidebar(tree, pid=None):
+    """Render knowledge tree as card list for easier browsing."""
+    return render_doc_note_tree(tree, pid)
+
+
+def _render_write_graph(tree, pid=None, highlight_ids=None):
+    """Render knowledge graph for write tab."""
+    if not tree or not hasattr(tree, "nodes") or not tree.nodes:
+        return generate_empty_graph_html("解构笔记后，知识图谱将在此显示")
+
+    # If pid specified, filter to show only that document's nodes
+    option = tree.to_echarts_option(highlight_ids)
+    return generate_echarts_html(option, container_id="write-graph", height=450)
 
 
 def _render_search_results(results, tree):
@@ -67,7 +85,7 @@ def _render_search_results(results, tree):
             score = getattr(node, "weight", 0.5)
             match_type = "keyword"
             highlight = None
-        
+
         # 获取节点属性
         if hasattr(node, "type"):
             ntype = node.type
@@ -75,7 +93,7 @@ def _render_search_results(results, tree):
             ntype = node.get("type", "note")
         else:
             ntype = "note"
-        
+
         if hasattr(node, "label"):
             label = esc(node.label)
         elif hasattr(node, "get_display_label"):
@@ -84,34 +102,44 @@ def _render_search_results(results, tree):
             label = esc(node.get("label", node.get("heading", ""))[:40])
         else:
             label = "..."
-        
+
         if hasattr(node, "content"):
             content = node.content
         elif isinstance(node, dict):
             content = node.get("content", "")
         else:
             content = ""
-        
-        content_preview = highlight or (esc(content[:80]) + ("..." if len(content) > 80 else ""))
-        
+
+        content_preview = highlight or (
+            esc(content[:80]) + ("..." if len(content) > 80 else "")
+        )
+
         if hasattr(node, "metadata"):
             cat = node.metadata.get("category", "")
         elif isinstance(node, dict):
             cat = node.get("metadata", {}).get("category", "")
         else:
             cat = ""
-        
+
         cat_badge = f" <span class='cn-tag'>{esc(cat)}</span>" if cat else ""
-        
+
         # 匹配类型标记
         type_badge = ""
         if match_type == "semantic":
             type_badge = " <span class='cn-tag' style='background:#e6f0ff'>语义</span>"
         elif match_type == "hybrid":
             type_badge = " <span class='cn-tag' style='background:#f0ffe6'>混合</span>"
-        
-        icon = '📄' if ntype == 'document' else '📝' if ntype == 'note' else '🏷' if ntype == 'tag' else '📑' if ntype == 'annotation' else '🌐'
-        
+
+        icon = (
+            "📄"
+            if ntype == "document"
+            else (
+                "📝"
+                if ntype == "note"
+                else "🏷" if ntype == "tag" else "📑" if ntype == "annotation" else "🌐"
+            )
+        )
+
         h += (
             f"<div class='org-item'>"
             f"<span class='org-icon'>{icon}</span>"
@@ -138,46 +166,99 @@ def handle_download(text):
 
 def handle_write_search(query, tree, lib=None, search_type="keyword"):
     """
-    Search knowledge tree for write tab.
-    
+    Search knowledge tree AND document full text for write tab.
+
     v2.0 支持三种搜索模式:
     - keyword: 关键词搜索（默认）
     - semantic: 语义搜索
     - hybrid: 混合搜索
-    
+
+    v2.1: Extended to search full text of documents in library.
+
     Args:
         query: 搜索词
         tree: KnowledgeTree 实例
-        lib: 文献库字典（可选，用于增强搜索）
+        lib: 文献库字典（用于全文搜索）
         search_type: 搜索类型
-        
+
     Returns:
         HTML 搜索结果
     """
     if not query or not query.strip():
         return _render_tree_sidebar(tree)
 
-    # 尝试使用新版搜索服务
+    all_results = []
+    q_lower = query.lower().strip()
+
+    # 1. Search knowledge tree nodes
     if NEW_SEARCH_AVAILABLE and lib is not None:
         try:
             if search_type == "hybrid":
                 service = HybridSearchService(tree=tree, lib=lib)
-                results = service.search(query, top_k=15)
+                node_results = service.search(query, top_k=10)
             else:
                 service = KeywordSearchService(tree=tree, lib=lib)
-                results = service.search(query, top_k=15)
-            
-            if results:
-                return _render_search_results(results, tree)
+                node_results = service.search(query, top_k=10)
+            all_results.extend(node_results)
         except Exception:
-            pass  # 回退到旧版搜索
-    
-    # 旧版搜索
-    results = search_nodes(tree, query)
-    if not results:
+            node_results = search_nodes(tree, query)
+            all_results.extend(node_results)
+    else:
+        node_results = search_nodes(tree, query)
+        all_results.extend(node_results)
+
+    # 2. Search document full text (extended in v2.1)
+    doc_matches = []
+    if lib:
+        for pid, info in lib.items():
+            doc_text = info.get("text", "")
+            doc_name = info.get("name", "Unknown")
+            if not doc_text:
+                continue
+            # Find all occurrences
+            text_lower = doc_text.lower()
+            pos = text_lower.find(q_lower)
+            if pos >= 0:
+                # Get context around match
+                start = max(0, pos - 80)
+                end = min(len(doc_text), pos + len(q_lower) + 80)
+                snippet = doc_text[start:end]
+                doc_matches.append(
+                    {
+                        "type": "fulltext",
+                        "doc_name": doc_name,
+                        "pid": pid,
+                        "snippet": snippet,
+                        "pos": pos,
+                    }
+                )
+
+    if not all_results and not doc_matches:
         return f"<div class='nc-empty'>未找到与「{esc(query)}」相关的结果</div>"
 
-    return _render_search_results(results, tree)
+    # Render combined results
+    h = f"<div class='search-result'><span class='search-result-count'>找到 {len(all_results) + len(doc_matches)} 个结果</span></div>"
+
+    # Document full-text matches first
+    if doc_matches:
+        h += "<div class='search-section'><b>📄 原文匹配</b></div>"
+        for dm in doc_matches[:8]:
+            snippet = esc(dm["snippet"])
+            # Highlight match
+            snippet = snippet.replace(q_lower, f"<mark>{q_lower}</mark>")
+            h += (
+                f"<div class='org-item'>"
+                f"<span class='org-icon'>📄</span>"
+                f"<span class='org-preview'><b>{esc(dm['doc_name'][:30])}</b> — ...{snippet}...</span>"
+                f"</div>"
+            )
+
+    # Knowledge node matches
+    if all_results:
+        h += "<div class='search-section'><b>🔗 知识节点</b></div>"
+        h += _render_search_results(all_results[:10], tree)
+
+    return f"<div class='org-wrap'>{h}</div>"
 
 
 def handle_search(
@@ -189,29 +270,30 @@ def handle_search(
 ):
     """
     搜索文献内容（v2.0 新增 API）
-    
+
     Args:
         query: 搜索词
         search_type: "keyword" | "semantic" | "hybrid"
         graph: KnowledgeGraph 或 KnowledgeTree 实例
         lib: 文献库字典
         top_k: 结果数量
-        
+
     Returns:
         SearchResult 列表
     """
     if not query or not query.strip():
         return []
-    
+
     if not NEW_SEARCH_AVAILABLE:
         # 回退到旧版搜索
         if hasattr(graph, "nodes"):
             return search_nodes(graph, query)[:top_k]
         return []
-    
+
     try:
         if search_type == "semantic":
             from services.search import SemanticSearchService
+
             service = SemanticSearchService(graph=graph, tree=graph, lib=lib)
             return service.search(query, top_k=top_k)
         elif search_type == "hybrid":
@@ -230,10 +312,10 @@ def handle_search(
 def render_search_results(results) -> str:
     """
     渲染搜索结果（v2.0 API）
-    
+
     Args:
         results: SearchResult 列表或 KnowledgeNode 列表
-        
+
     Returns:
         HTML 字符串
     """
@@ -289,6 +371,81 @@ def handle_ai_suggest(draft_text, tree):
         return f"[AI 建议失败] {e}"
 
 
+def handle_write_doc_select(selected_pid, tree, lib):
+    """Handle document selection change in write tab.
+
+    Args:
+        selected_pid: Selected document ID ("" or "__all__" for global view)
+        tree: KnowledgeTree instance
+        lib: Document library
+
+    Returns:
+        (tree_html, graph_html)
+    """
+    pid = None if selected_pid in ("", "__all__") else selected_pid
+    tree_html = _render_tree_sidebar(tree, pid)
+    graph_html = _render_write_graph(tree, pid)
+    return tree_html, graph_html
+
+
+def handle_write_graph_node_click(node_id, tree, lib):
+    """Handle graph node click - if document node, switch to that document.
+
+    Args:
+        node_id: Clicked node ID
+        tree: KnowledgeTree instance
+        lib: Document library
+
+    Returns:
+        (new_selected_pid, tree_html, graph_html, node_detail_html)
+    """
+    if not node_id or not tree:
+        return gr.update(), gr.update(), gr.update(), ""
+
+    node = tree.get_node(node_id)
+    if not node:
+        return gr.update(), gr.update(), gr.update(), ""
+
+    # If it's a document node, switch to that document
+    new_pid = None
+    if node.type == "document" and node.source_pid:
+        new_pid = node.source_pid
+    elif node.source_pid:
+        # For note nodes, also switch to their parent document
+        new_pid = node.source_pid
+
+    # Render node detail
+    from tabs.organize import handle_node_select
+
+    node_detail = handle_node_select(node_id, tree)
+
+    if new_pid:
+        tree_html = _render_tree_sidebar(tree, new_pid)
+        graph_html = _render_write_graph(tree, new_pid, highlight_ids=[node_id])
+        return new_pid, tree_html, graph_html, node_detail
+
+    # Just highlight the node without switching
+    graph_html = _render_write_graph(tree, None, highlight_ids=[node_id])
+    return gr.update(), gr.update(), graph_html, node_detail
+
+
+def get_doc_choices(lib):
+    """Generate document choices for dropdown.
+
+    Args:
+        lib: Document library
+
+    Returns:
+        List of (display_name, value) tuples
+    """
+    choices = [("全部文献 (全局视图)", "__all__")]
+    if lib:
+        for pid, info in lib.items():
+            name = info.get("name", "未知文献")[:40]
+            choices.append((name, pid))
+    return choices
+
+
 # ══════════════════════════════════════════════════════════════
 # UI BUILDER
 # ══════════════════════════════════════════════════════════════
@@ -315,22 +472,49 @@ _TOOLBAR_HTML = """<div class="write-toolbar">
 
 
 def build_write_tab():
-    """Build the Write tab UI with formatting toolbar."""
+    """Build the Write tab UI with formatting toolbar and knowledge panel."""
     gr.HTML(
-        "<div class='tip'>左侧浏览知识树（文献-笔记-标签），右侧自由写作，AI 辅助续写</div>"
+        "<div class='tip'>左侧浏览知识树/图谱，支持切换文献视图；右侧自由写作，AI 辅助续写</div>"
     )
     with gr.Row():
-        with gr.Column(scale=3, min_width=280):
+        # ── Left: Knowledge Panel with Tabs ──
+        with gr.Column(scale=3, min_width=300):
+            # Document selector
+            write_doc_selector = gr.Dropdown(
+                choices=[("全部文献 (全局视图)", "__all__")],
+                value="__all__",
+                label="选择文献",
+                interactive=True,
+            )
+
+            # Search bar
             with gr.Group():
                 write_search = gr.Textbox(
                     label="搜索知识库", placeholder="输入关键词..."
                 )
                 write_search_btn = gr.Button("搜索", size="sm")
-            gr.Markdown("### 知识树")
-            ref_tree_html = gr.HTML(
-                "<div class='nc-empty'>解构笔记后，知识树将在此显示</div>"
+
+            # Knowledge Tree / Graph Tabs
+            with gr.Tabs():
+                with gr.Tab("知识树"):
+                    ref_tree_html = gr.HTML(
+                        "<div class='nc-empty'>解构笔记后，知识树将在此显示</div>"
+                    )
+                with gr.Tab("知识图谱"):
+                    write_graph_html = gr.HTML(
+                        generate_empty_graph_html("解构笔记后，知识图谱将在此显示")
+                    )
+                    # Node detail area
+                    write_node_detail = gr.HTML("<div class='node-detail-wrap'></div>")
+
+            # Hidden textbox for graph node click
+            write_graph_node_id = gr.Textbox(
+                elem_id="write-graph-node-input",
+                visible=False,
+                show_label=False,
             )
 
+        # ── Right: Writing Area ──
         with gr.Column(scale=6, min_width=400):
             gr.Markdown("### 写作区")
             gr.HTML(_TOOLBAR_HTML)
@@ -353,9 +537,13 @@ def build_write_tab():
             draft_file = gr.File(label="下载草稿", interactive=False)
 
     return {
+        "write_doc_selector": write_doc_selector,
         "write_search": write_search,
         "write_search_btn": write_search_btn,
         "ref_tree_html": ref_tree_html,
+        "write_graph_html": write_graph_html,
+        "write_node_detail": write_node_detail,
+        "write_graph_node_id": write_graph_node_id,
         "draft_text": draft_text,
         "draft_file": draft_file,
         "download_btn": download_btn,

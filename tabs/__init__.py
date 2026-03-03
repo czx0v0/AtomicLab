@@ -16,9 +16,11 @@ from .read import (
 )
 from .organize import (
     build_organize_tab,
-    handle_generate,
+    handle_refresh_tree,
+    handle_generate_summary,
     handle_synthesize,
     handle_search,
+    handle_note_action,
     handle_node_select,
 )
 from .write import (
@@ -39,9 +41,11 @@ __all__ = [
     "handle_highlight_action",
     "handle_popup_translate",
     "build_organize_tab",
-    "handle_generate",
+    "handle_refresh_tree",
+    "handle_generate_summary",
     "handle_synthesize",
     "handle_search",
+    "handle_note_action",
     "handle_node_select",
     "build_write_tab",
     "handle_download",

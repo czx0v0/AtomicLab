@@ -15,6 +15,7 @@ import gradio as gr
 
 from agents.router import RouterAgent
 from core.utils import esc
+from ui.renderers import render_cited_notes
 
 _router = RouterAgent()
 
@@ -51,12 +52,34 @@ def _format_bot_message(output) -> str:
 
     # conversation / organize / synthesize
     answer = data.get("answer", "无回复")
-    sources = data.get("sources_count", 0)
+    notes_count = data.get("notes_count", 0)
+    docs_count = data.get("docs_count", 0)
+    cited_notes = data.get("cited_notes", [])
+    cited_docs = data.get("cited_docs", [])
     note = data.get("note", "")
 
     result = answer
-    if sources:
-        result += f"\n\n---\n*检索到 {sources} 条相关知识*"
+
+    # Render cited notes as cards if available
+    if cited_notes:
+        cited_html = render_cited_notes(cited_notes)
+        if cited_html:
+            result += f"\n\n{cited_html}"
+
+    # Show reference summary (only if we have actual references)
+    ref_parts = []
+    if notes_count > 0:
+        ref_parts.append(f"{notes_count} 条笔记")
+    if docs_count > 0:
+        doc_names = ", ".join(cited_docs[:2])
+        if len(cited_docs) > 2:
+            doc_names += f" 等{docs_count}篇"
+        ref_parts.append(f"文献: {doc_names}")
+
+    if ref_parts and not cited_notes:
+        # Only show text summary if no card display
+        result += f"\n\n---\n*参考来源: {' · '.join(ref_parts)}*"
+
     if note:
         result += f"\n\n> {esc(note)}"
     return result

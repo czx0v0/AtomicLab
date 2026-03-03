@@ -45,16 +45,31 @@ class ConversationAgent(BaseAgent):
 
         # ── RAG Retrieval Pipeline ──
         context_parts = []
+        cited_notes = []  # Track cited notes for display
+        cited_docs = []  # Track cited documents for display
 
         # 1) Search knowledge tree nodes
         if tree and hasattr(tree, "nodes") and tree.nodes:
             matches = search_nodes(tree, question)
             for node in matches[:8]:
                 source_label = ""
+                source_name = ""
                 if node.parent_id and tree.get_node(node.parent_id):
                     parent = tree.get_node(node.parent_id)
                     source_label = f" (来自: {parent.label})"
+                    source_name = parent.label
                 context_parts.append(f"[{node.type}]{source_label} {node.content}")
+
+                # Collect note info for cited display
+                if node.type == "note":
+                    cited_notes.append(
+                        {
+                            "content": node.content,
+                            "page": node.metadata.get("page", ""),
+                            "category": node.metadata.get("category", ""),
+                            "source_name": source_name,
+                        }
+                    )
 
         # 2) Search raw notes (including annotations)
         q_lower = question.lower()
@@ -67,6 +82,18 @@ class ConversationAgent(BaseAgent):
                 if annotation:
                     note_str += f" (批注: {annotation})"
                 context_parts.append(note_str)
+
+                # Also collect for cited display (avoid duplicates)
+                if not any(c.get("content") == content for c in cited_notes):
+                    cited_notes.append(
+                        {
+                            "content": content,
+                            "page": n.get("page", ""),
+                            "category": n.get("category", ""),
+                            "source_name": n.get("source_name", ""),
+                        }
+                    )
+
                 if len(context_parts) > 12:
                     break
 
@@ -87,9 +114,12 @@ class ConversationAgent(BaseAgent):
                         break
             # Fallback: add abstract if no keyword match
             if snippets_added == 0 and doc_text:
-                context_parts.append(
-                    f"[文献摘要: {doc_name}] {doc_text[:800]}"
-                )
+                context_parts.append(f"[文献摘要: {doc_name}] {doc_text[:800]}")
+                snippets_added = 1
+
+            # Track cited documents
+            if snippets_added > 0 and doc_name not in cited_docs:
+                cited_docs.append(doc_name)
 
         # Build prompt
         if context_parts:
@@ -123,12 +153,16 @@ class ConversationAgent(BaseAgent):
                 temperature=0.3,
                 max_tokens=1200,
             )
+
             return AgentOutput(
                 agent_id=self.agent_id,
                 status="success",
                 data={
                     "answer": result.strip(),
-                    "sources_count": len(context_parts),
+                    "notes_count": len(cited_notes),
+                    "docs_count": len(cited_docs),
+                    "cited_notes": cited_notes[:6],  # Limit to 6 for display
+                    "cited_docs": cited_docs[:3],  # Limit to 3 for display
                 },
                 confidence=0.8 if context_parts else 0.3,
             )

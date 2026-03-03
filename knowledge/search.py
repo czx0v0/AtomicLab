@@ -15,6 +15,8 @@ def search_nodes(
 ) -> list[KnowledgeNode]:
     """Search for nodes matching query.
 
+    Searches in: label, content, tags, annotation, translation
+
     Args:
         tree: Knowledge tree to search
         query: Search query string
@@ -45,6 +47,16 @@ def search_nodes(
             if query in tag.lower():
                 results.append(node)
                 break
+        else:
+            # Search in metadata (annotation, translation)
+            annotation = node.metadata.get("annotation", "")
+            translation = node.metadata.get("translation", "")
+            if annotation and query in annotation.lower():
+                results.append(node)
+                continue
+            if translation and query in translation.lower():
+                results.append(node)
+                continue
 
     # Sort by relevance (weight)
     results.sort(key=lambda n: n.weight, reverse=True)

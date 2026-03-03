@@ -275,6 +275,20 @@ class KnowledgeTree:
                 return n
         return None
 
+    def find_note_by_original_id(self, original_id: str) -> "KnowledgeNode":
+        """Find a note node by its original note ID (from notes_st).
+
+        Args:
+            original_id: The original note ID (e.g., NT-XXXX)
+
+        Returns:
+            KnowledgeNode if found, None otherwise
+        """
+        for n in self.nodes.values():
+            if n.type == "note" and n.metadata.get("original_id") == original_id:
+                return n
+        return None
+
     # ── note ───────────────────────────────────────────────────
 
     def create_note_node(
@@ -286,7 +300,7 @@ class KnowledgeTree:
         """Create a note node under a document.
 
         Args:
-            note: Original note dict {id, content, page, ...}
+            note: Original note dict {id, content, page, annotation, translation, ...}
             category: AI classification (方法/公式/图像/定义/观点/数据/其他)
             doc_node_id: Parent document node ID
         """
@@ -303,6 +317,9 @@ class KnowledgeTree:
                 "page": note.get("page", 1),
                 "category": category,
                 "original_id": note.get("id", ""),
+                "annotation": note.get("annotation", ""),
+                "translation": note.get("translation", ""),
+                "color": note.get("color", ""),
             },
         )
         self.add_node(node)
@@ -398,6 +415,8 @@ class KnowledgeTree:
                 "type": node.type,
                 "label": node.label,
                 "content": node.content,
+                "source_pid": node.source_pid,
+                "ts": node.ts,
                 "metadata": node.metadata,
                 "tags": node.tags,
                 "children": [_build(c) for c in children],

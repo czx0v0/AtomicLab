@@ -109,6 +109,205 @@ GLOBAL_JS = r"""
   });
 
   // ═══════════════════════════════════════════════════════════════
+  // Organize Tab: Tree Expand/Collapse
+  // ═══════════════════════════════════════════════════════════════
+  window.toggleOrgTree = function(rowEl, targetId) {
+    var content = document.getElementById(targetId);
+    if (!content) return;
+    
+    var toggle = rowEl.querySelector('.org-toggle');
+    var isCollapsed = content.style.display === 'none';
+    
+    if (isCollapsed) {
+      content.style.display = 'block';
+      if (toggle) toggle.textContent = '▼';
+    } else {
+      content.style.display = 'none';
+      if (toggle) toggle.textContent = '▶';
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // Organize Tab: Note Card Action Buttons
+  // ═══════════════════════════════════════════════════════════════
+  window.noteAction = function(action, nodeId) {
+    console.log('[Atomic] noteAction:', action, nodeId);
+    
+    // Find and add loading state to clicked button
+    var clickedBtn = event && event.target;
+    if (clickedBtn && clickedBtn.classList.contains('nt-action-btn')) {
+      clickedBtn.classList.add('loading');
+      // Remove loading state after timeout (fallback)
+      setTimeout(function() { clickedBtn.classList.remove('loading'); }, 8000);
+    }
+    
+    // Special handling for "ask" - switch to AI tab and send question
+    if (action === 'ask') {
+      // Get the note content
+      var noteCard = document.querySelector('.nt[data-note-id="' + nodeId + '"]');
+      var content = '';
+      if (noteCard) {
+        var body = noteCard.querySelector('.nt-body');
+        if (body) content = body.textContent.trim();
+      }
+      // Also try getting from detail card
+      if (!content) {
+        var detailCard = document.querySelector('.node-detail-card .nt-body');
+        if (detailCard) content = detailCard.textContent.trim();
+      }
+      
+      // Switch to AI assistant tab
+      var tabs = document.querySelectorAll('button[role="tab"]');
+      for (var i = 0; i < tabs.length; i++) {
+        if (tabs[i].textContent.trim().indexOf('AI') >= 0) {
+          tabs[i].click();
+          break;
+        }
+      }
+      
+      // Send to AI after tab switch
+      setTimeout(function() {
+        var askText = content ? '请解释这段内容：' + content.substring(0, 200) : '请解释这条笔记';
+        setGradioValue('#ai-ask-input', Date.now() + '|' + askText);
+        if (clickedBtn) clickedBtn.classList.remove('loading');
+      }, 400);
+      
+      showToast('正在发送到AI助手...');
+      return;
+    }
+    
+    // For other actions, send to Python handler via hidden textbox
+    var payload = action + ':' + nodeId;
+    setGradioValue('#note-action-input', payload);
+    
+    // Show immediate feedback
+    var messages = {
+      'translate': '正在翻译...',
+      'tag': '正在生成标签...',
+      'search': '正在搜索相似笔记...',
+      'annotate': '请在阅读页面添加标注',
+      'manual_tag': '正在添加标签...'
+    };
+    showToast(messages[action] || '处理中...');
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // Manual Tag Input Handler (supports passing input element directly)
+  // ═══════════════════════════════════════════════════════════════
+  window.manualTag = function(nodeId, inputEl) {
+    var input = inputEl || document.getElementById('manual-tag-input');
+    if (!input) return;
+    
+    var tagText = input.value.trim();
+    if (!tagText) {
+      showToast('请输入标签文本');
+      return;
+    }
+    
+    // Send manual_tag:node_id:tag_text
+    var payload = 'manual_tag:' + nodeId + ':' + tagText;
+    setGradioValue('#note-action-input', payload);
+    input.value = '';
+    showToast('正在添加标签: ' + tagText);
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // Show Annotate Popup for adding annotation to a note
+  // ═══════════════════════════════════════════════════════════════
+  
+  // Create annotate modal (once)
+  var annotateModal = document.createElement('div');
+  annotateModal.className = 'annotate-modal';
+  annotateModal.id = 'annotate-modal';
+  annotateModal.innerHTML = [
+    '<div class="annotate-modal-content">',
+    '  <div class="annotate-modal-title">添加批注</div>',
+    '  <textarea class="annotate-modal-input" id="annotate-input" placeholder="请输入批注内容..."></textarea>',
+    '  <div class="annotate-modal-btns">',
+    '    <button class="annotate-modal-btn" onclick="closeAnnotateModal()">取消</button>',
+    '    <button class="annotate-modal-btn primary" onclick="submitAnnotate()">确定</button>',
+    '  </div>',
+    '</div>',
+  ].join('');
+  document.body.appendChild(annotateModal);
+  
+  var currentAnnotateNodeId = '';
+  
+  window.showAnnotatePopup = function(nodeId) {
+    currentAnnotateNodeId = nodeId;
+    var modal = document.getElementById('annotate-modal');
+    var input = document.getElementById('annotate-input');
+    if (modal && input) {
+      input.value = '';
+      modal.classList.add('show');
+      setTimeout(function() { input.focus(); }, 100);
+    }
+  };
+  
+  window.closeAnnotateModal = function() {
+    var modal = document.getElementById('annotate-modal');
+    if (modal) modal.classList.remove('show');
+    currentAnnotateNodeId = '';
+  };
+  
+  window.submitAnnotate = function() {
+    var input = document.getElementById('annotate-input');
+    var annotation = input ? input.value.trim() : '';
+    if (!annotation) {
+      showToast('请输入批注内容', 1500);
+      return;
+    }
+    if (!currentAnnotateNodeId) {
+      showToast('批注目标丢失', 1500);
+      return;
+    }
+    var payload = 'annotate:' + currentAnnotateNodeId + ':' + annotation;
+    setGradioValue('#note-action-input', payload);
+    closeAnnotateModal();
+    showToast('正在添加批注...', 2000);
+  };
+  
+  // Close modal on backdrop click
+  annotateModal.addEventListener('click', function(e) {
+    if (e.target === annotateModal) closeAnnotateModal();
+  });
+  
+  // Close modal on Escape key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && annotateModal.classList.contains('show')) {
+      closeAnnotateModal();
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Jump to Source Document (from similar search results)
+  // ═══════════════════════════════════════════════════════════════
+  window.jumpToSource = function(sourcePid, page) {
+    if (!sourcePid) {
+      showToast('无法定位：缺少文档信息');
+      return;
+    }
+    
+    // Switch to 阅读 tab
+    var tabs = document.querySelectorAll('button[role="tab"]');
+    for (var i = 0; i < tabs.length; i++) {
+      if (tabs[i].textContent.trim() === '阅读') {
+        tabs[i].click();
+        break;
+      }
+    }
+    
+    // Set the document selector to switch to the document
+    setTimeout(function() {
+      setGradioValue('#pdf-selector-hidden', sourcePid);
+      showToast('正在跳转到文档 (第' + page + '页)');
+      
+      // TODO: After document loads, navigate to specific page
+      // This would require storing page number and triggering page navigation
+    }, 300);
+  };
+
+  // ═══════════════════════════════════════════════════════════════
   // ECharts Auto-Initialization (MutationObserver pattern)
   // ═══════════════════════════════════════════════════════════════
   function initEChartsContainer(el) {
@@ -133,7 +332,17 @@ GLOBAL_JS = r"""
       if (clickType === 'node-select') {
         chart.on('click', function(params) {
           var nodeId = (params.data && params.data.id) ? params.data.id : '';
-          if (nodeId) setGradioValue('#selected-node-input', nodeId);
+          if (nodeId) {
+            // Check which graph this is by container ID
+            var containerId = el.id || '';
+            if (containerId.indexOf('write-graph') >= 0) {
+              // Write tab graph - use write-specific input
+              setGradioValue('#write-graph-node-input', nodeId);
+            } else {
+              // Organize tab graph - use default input
+              setGradioValue('#selected-node-input', nodeId);
+            }
+          }
         });
       }
 
@@ -204,13 +413,72 @@ GLOBAL_JS = r"""
   var selectedText = '';
   var selectedPage = '1';
 
-  function showToast(msg, dur) {
+  function showToast(msg, dur, type) {
     toast.textContent = msg;
+    toast.className = 'popup-toast';  // Reset classes
+    if (type) toast.classList.add(type);  // 'success' or 'error'
     toast.classList.add('show');
-    setTimeout(function() { toast.classList.remove('show'); }, dur || 1500);
+    setTimeout(function() { 
+      toast.classList.remove('show'); 
+      toast.className = 'popup-toast';
+    }, dur || 1500);
   }
   // Export showToast globally for other functions
   window.showToast = showToast;
+  
+  // Track last clicked action button for feedback
+  var lastActionBtn = null;
+  var lastActionType = '';
+  
+  // Override noteAction to track button
+  var originalNoteAction = window.noteAction;
+  window.noteAction = function(action, nodeId) {
+    var clickedBtn = event && event.target;
+    if (clickedBtn && clickedBtn.classList.contains('nt-action-btn')) {
+      lastActionBtn = clickedBtn;
+      lastActionType = action;
+    }
+    originalNoteAction(action, nodeId);
+  };
+  
+  // Listen for agent status changes to provide feedback
+  var agentStatusObserver = new MutationObserver(function(mutations) {
+    mutations.forEach(function(m) {
+      if (m.type === 'childList' || m.type === 'characterData') {
+        var target = m.target.closest ? m.target.closest('.agent-st') : null;
+        if (!target) target = document.querySelector('.agent-st');
+        if (target) {
+          var text = target.textContent || '';
+          if (lastActionBtn) {
+            lastActionBtn.classList.remove('loading');
+            if (text.indexOf('完成') >= 0 || text.indexOf('已添加') >= 0) {
+              lastActionBtn.classList.add('success');
+              showToast(text, 2000, 'success');
+              setTimeout(function() { 
+                if (lastActionBtn) lastActionBtn.classList.remove('success'); 
+              }, 2000);
+            } else if (text.indexOf('失败') >= 0 || text.indexOf('错误') >= 0) {
+              lastActionBtn.classList.add('error');
+              showToast(text, 2500, 'error');
+              setTimeout(function() { 
+                if (lastActionBtn) lastActionBtn.classList.remove('error'); 
+              }, 2500);
+            }
+            lastActionBtn = null;
+          }
+        }
+      }
+    });
+  });
+  // Start observing agent status element when available
+  setTimeout(function() {
+    var agentSt = document.querySelector('.agent-st');
+    if (agentSt) {
+      agentStatusObserver.observe(agentSt.parentElement || agentSt, { 
+        childList: true, subtree: true, characterData: true 
+      });
+    }
+  }, 1000);
 
   function hidePopup() {
     popup.classList.remove('show');
@@ -270,14 +538,29 @@ GLOBAL_JS = r"""
         var sel = window.getSelection();
         if (sel.rangeCount > 0 && sel.toString().trim()) {
           var range = sel.getRangeAt(0);
-          var mark = document.createElement('mark');
-          mark.className = 'hl-' + color;
-          range.surroundContents(mark);
+          // Check if selection spans multiple elements
+          if (range.startContainer === range.endContainer || 
+              range.startContainer.parentNode === range.endContainer.parentNode) {
+            // Simple case: single element selection
+            var mark = document.createElement('mark');
+            mark.className = 'hl-' + color;
+            range.surroundContents(mark);
+          } else {
+            // Multi-element selection: highlight using CSS class on common ancestor
+            var ancestor = range.commonAncestorContainer;
+            if (ancestor.nodeType === 3) ancestor = ancestor.parentNode;
+            ancestor.classList.add('hl-temp-' + color);
+            // Remove temp class after page refresh will render persistent highlight
+            setTimeout(function() { ancestor.classList.remove('hl-temp-' + color); }, 3000);
+          }
           sel.removeAllRanges();
         }
-      } catch(err) { /* cross-element selection */ }
+      } catch(err) { 
+        // Cross-element selection failed, but data will still be saved
+        console.log('[Atomic] Temp highlight skipped (cross-element)');
+      }
 
-      // Auto-save as note via hidden textbox
+      // Auto-save as note via hidden textbox (this always works regardless of visual highlight)
       var annotation = document.getElementById('popup-annotation') ? document.getElementById('popup-annotation').value.trim() : '';
       var payload = JSON.stringify({
         action: 'highlight', text: selectedText,
@@ -377,14 +660,51 @@ GLOBAL_JS = r"""
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // File List: click to select file (sets hidden dropdown value)
+  // File List: click to select file (sets hidden textbox value)
   // ═══════════════════════════════════════════════════════════════
   window.setFileSelection = function(pid) {
-    // Set the hidden dropdown value to trigger Gradio event
-    setGradioValue('#pdf-selector-hidden', pid);
-    // Also update visual active state
-    document.querySelectorAll('.file-item').forEach(function(el) {
-      el.classList.remove('active');
+    console.log('[Atomic] setFileSelection called with pid:', pid);
+    
+    // Find the hidden selector element
+    // With container=False, the elem_id may be directly on the input/textarea
+    var el = document.querySelector('#pdf-selector-hidden');
+    if (!el) {
+      console.warn('[Atomic] #pdf-selector-hidden not found');
+      return;
+    }
+    
+    // Check if el is already an input/textarea or a container
+    var input;
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      input = el;
+    } else {
+      // It's a container, find the input inside
+      input = el.querySelector('textarea') || el.querySelector('input');
+    }
+    
+    if (!input) {
+      console.warn('[Atomic] No input element found in #pdf-selector-hidden');
+      return;
+    }
+    
+    console.log('[Atomic] Found input element:', input.tagName, 'current value:', input.value);
+    
+    // Set value using native setter to trigger Gradio's event system
+    var proto = input.tagName === 'TEXTAREA'
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype;
+    var setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+    setter.call(input, pid);
+    
+    // Dispatch events to trigger Gradio change handler
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+    
+    console.log('[Atomic] Value set to:', input.value);
+    
+    // Update visual active state
+    document.querySelectorAll('.file-item').forEach(function(item) {
+      item.classList.remove('active');
     });
     var clicked = event && event.currentTarget;
     if (clicked) clicked.classList.add('active');
