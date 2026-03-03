@@ -113,11 +113,11 @@ with gr.Blocks(title=APP_TITLE) as demo:
         inputs=[read["view_mode"], read["pdf_selector"], lib_st, page_st],
         outputs=[read["pdf_text_html"], read["pdf_embed_html"]],
     )
-    # Popup: highlight action → auto-save note
+    # Popup: highlight action → auto-save note (v2.0: also creates annotation node + refresh PDF view)
     read["highlight_action_tb"].change(
         fn=handle_highlight_action,
-        inputs=[read["highlight_action_tb"], notes_st, read["pdf_selector"]],
-        outputs=[notes_st, read["notes_html"]],
+        inputs=[read["highlight_action_tb"], notes_st, read["pdf_selector"], tree_st, lib_st],
+        outputs=[notes_st, read["notes_html"], tree_st, read["pdf_text_html"]],
     )
     # Popup: translate action → return result to hidden textbox
     read["translate_action_tb"].change(
@@ -178,12 +178,12 @@ with gr.Blocks(title=APP_TITLE) as demo:
     )
     wrt["write_search_btn"].click(
         fn=handle_write_search,
-        inputs=[wrt["write_search"], tree_st],
+        inputs=[wrt["write_search"], tree_st, lib_st],
         outputs=[wrt["ref_tree_html"]],
     )
     wrt["write_search"].submit(
         fn=handle_write_search,
-        inputs=[wrt["write_search"], tree_st],
+        inputs=[wrt["write_search"], tree_st, lib_st],
         outputs=[wrt["ref_tree_html"]],
     )
     wrt["ai_suggest_btn"].click(

@@ -40,6 +40,75 @@ GLOBAL_JS = r"""
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // Note Card Expand/Collapse
+  // ═══════════════════════════════════════════════════════════════
+  window.toggleNoteExpand = function(btn) {
+    var card = btn.closest('.nt');
+    if (!card) return;
+    
+    var isCollapsed = card.classList.contains('nt-collapsed');
+    if (isCollapsed) {
+      card.classList.remove('nt-collapsed');
+      card.classList.add('nt-expanded');
+      btn.textContent = '收起 ▲';
+    } else {
+      card.classList.remove('nt-expanded');
+      card.classList.add('nt-collapsed');
+      btn.textContent = '展开 ▼';
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // Scroll to Highlight in Reader
+  // ═══════════════════════════════════════════════════════════════
+  window.scrollToHighlight = function(noteId) {
+    // Find the mark element with this note ID
+    var mark = document.querySelector('mark[data-note-id="' + noteId + '"]');
+    if (mark) {
+      // Scroll the reader container to show the mark
+      var reader = mark.closest('.txt-reader');
+      if (reader) {
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Add pulse animation
+        mark.classList.add('highlight-focus');
+        setTimeout(function() {
+          mark.classList.remove('highlight-focus');
+        }, 2500);
+      }
+    } else {
+      // Mark not on current page - show toast
+      showToast('该高亮在其他页面，请翻页查看');
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // Click highlight mark to show note card
+  // ═══════════════════════════════════════════════════════════════
+  document.addEventListener('click', function(e) {
+    var mark = e.target.closest('mark[data-note-id]');
+    if (mark) {
+      var noteId = mark.getAttribute('data-note-id');
+      if (noteId) {
+        // Find and highlight the corresponding note card
+        var noteCard = document.querySelector('.nt[data-note-id="' + noteId + '"]');
+        if (noteCard) {
+          noteCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          noteCard.style.boxShadow = '0 0 0 3px var(--accent-blue)';
+          setTimeout(function() {
+            noteCard.style.boxShadow = '';
+          }, 2000);
+          
+          // Expand if collapsed
+          if (noteCard.classList.contains('nt-collapsed')) {
+            var btn = noteCard.querySelector('.nt-expand-btn');
+            if (btn) toggleNoteExpand(btn);
+          }
+        }
+      }
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
   // ECharts Auto-Initialization (MutationObserver pattern)
   // ═══════════════════════════════════════════════════════════════
   function initEChartsContainer(el) {
@@ -140,6 +209,8 @@ GLOBAL_JS = r"""
     toast.classList.add('show');
     setTimeout(function() { toast.classList.remove('show'); }, dur || 1500);
   }
+  // Export showToast globally for other functions
+  window.showToast = showToast;
 
   function hidePopup() {
     popup.classList.remove('show');
@@ -150,6 +221,8 @@ GLOBAL_JS = r"""
   // ── Show popup on text selection in .txt-reader ──
   document.addEventListener('mouseup', function(e) {
     if (popup.contains(e.target)) return;
+    // Don't show popup when clicking on existing marks
+    if (e.target.closest('mark[data-note-id]')) return;
 
     var reader = e.target.closest('.txt-reader');
     if (!reader) { hidePopup(); return; }
@@ -192,7 +265,7 @@ GLOBAL_JS = r"""
       e.stopPropagation();
       var color = this.dataset.color;
 
-      // Visual highlight
+      // Visual highlight (temporary, will be replaced by server-rendered persistent highlight)
       try {
         var sel = window.getSelection();
         if (sel.rangeCount > 0 && sel.toString().trim()) {

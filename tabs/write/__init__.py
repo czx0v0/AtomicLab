@@ -3,6 +3,11 @@ Write Tab — UI builder and handlers
 ====================================
 Tab 3: Knowledge tree sidebar + free-form writing area + AI suggest.
 
+v2.0 更新:
+- 集成 KeywordSearchService 和 SemanticSearchService
+- 支持混合搜索 (HybridSearchService)
+- 搜索结果渲染增强
+
 Exports:
     build_write_tab()      -> dict of Gradio components
     handle_download()      -> Markdown file export handler
@@ -18,6 +23,13 @@ from core.utils import esc
 from agents.base import call_llm
 from knowledge.search import search_nodes
 from ui.echarts_graph import generate_tree_echarts_html, generate_empty_graph_html
+
+# 尝试导入新版搜索服务
+try:
+    from services.search import KeywordSearchService, HybridSearchService, SearchResult
+    NEW_SEARCH_AVAILABLE = True
+except ImportError:
+    NEW_SEARCH_AVAILABLE = False
 
 
 # ══════════════════════════════════════════════════════════════
@@ -41,18 +53,69 @@ def _render_search_results(results, tree):
         return "<div class='nc-empty'>未找到相关结果</div>"
 
     h = f"<div class='search-result'><span class='search-result-count'>找到 {len(results)} 个结果</span></div>"
-    for node in results[:15]:
-        ntype = node.type
-        label = esc(node.label)
-        content_preview = esc(node.content[:80]) + (
-            "..." if len(node.content) > 80 else ""
-        )
-        cat = node.metadata.get("category", "")
+    for item in results[:15]:
+        # 支持新版 SearchResult 和旧版 KnowledgeNode
+        if hasattr(item, "node"):
+            # 新版 SearchResult
+            node = item.node
+            score = item.score
+            match_type = item.match_type
+            highlight = item.highlight
+        else:
+            # 旧版 KnowledgeNode
+            node = item
+            score = getattr(node, "weight", 0.5)
+            match_type = "keyword"
+            highlight = None
+        
+        # 获取节点属性
+        if hasattr(node, "type"):
+            ntype = node.type
+        elif isinstance(node, dict):
+            ntype = node.get("type", "note")
+        else:
+            ntype = "note"
+        
+        if hasattr(node, "label"):
+            label = esc(node.label)
+        elif hasattr(node, "get_display_label"):
+            label = esc(node.get_display_label())
+        elif isinstance(node, dict):
+            label = esc(node.get("label", node.get("heading", ""))[:40])
+        else:
+            label = "..."
+        
+        if hasattr(node, "content"):
+            content = node.content
+        elif isinstance(node, dict):
+            content = node.get("content", "")
+        else:
+            content = ""
+        
+        content_preview = highlight or (esc(content[:80]) + ("..." if len(content) > 80 else ""))
+        
+        if hasattr(node, "metadata"):
+            cat = node.metadata.get("category", "")
+        elif isinstance(node, dict):
+            cat = node.get("metadata", {}).get("category", "")
+        else:
+            cat = ""
+        
         cat_badge = f" <span class='cn-tag'>{esc(cat)}</span>" if cat else ""
+        
+        # 匹配类型标记
+        type_badge = ""
+        if match_type == "semantic":
+            type_badge = " <span class='cn-tag' style='background:#e6f0ff'>语义</span>"
+        elif match_type == "hybrid":
+            type_badge = " <span class='cn-tag' style='background:#f0ffe6'>混合</span>"
+        
+        icon = '📄' if ntype == 'document' else '📝' if ntype == 'note' else '🏷' if ntype == 'tag' else '📑' if ntype == 'annotation' else '🌐'
+        
         h += (
             f"<div class='org-item'>"
-            f"<span class='org-icon'>{'📄' if ntype == 'document' else '📝' if ntype == 'note' else '🏷' if ntype == 'tag' else '🌐'}</span>"
-            f"<span class='org-preview'><b>{label}</b>{cat_badge} — {content_preview}</span>"
+            f"<span class='org-icon'>{icon}</span>"
+            f"<span class='org-preview'><b>{label}</b>{cat_badge}{type_badge} — {content_preview}</span>"
             f"</div>"
         )
     return f"<div class='org-wrap'>{h}</div>"
@@ -73,16 +136,108 @@ def handle_download(text):
     return path
 
 
-def handle_write_search(query, tree):
-    """Search knowledge tree for write tab — show actual results."""
+def handle_write_search(query, tree, lib=None, search_type="keyword"):
+    """
+    Search knowledge tree for write tab.
+    
+    v2.0 支持三种搜索模式:
+    - keyword: 关键词搜索（默认）
+    - semantic: 语义搜索
+    - hybrid: 混合搜索
+    
+    Args:
+        query: 搜索词
+        tree: KnowledgeTree 实例
+        lib: 文献库字典（可选，用于增强搜索）
+        search_type: 搜索类型
+        
+    Returns:
+        HTML 搜索结果
+    """
     if not query or not query.strip():
         return _render_tree_sidebar(tree)
 
+    # 尝试使用新版搜索服务
+    if NEW_SEARCH_AVAILABLE and lib is not None:
+        try:
+            if search_type == "hybrid":
+                service = HybridSearchService(tree=tree, lib=lib)
+                results = service.search(query, top_k=15)
+            else:
+                service = KeywordSearchService(tree=tree, lib=lib)
+                results = service.search(query, top_k=15)
+            
+            if results:
+                return _render_search_results(results, tree)
+        except Exception:
+            pass  # 回退到旧版搜索
+    
+    # 旧版搜索
     results = search_nodes(tree, query)
     if not results:
         return f"<div class='nc-empty'>未找到与「{esc(query)}」相关的结果</div>"
 
     return _render_search_results(results, tree)
+
+
+def handle_search(
+    query: str,
+    search_type: str,
+    graph,
+    lib: dict = None,
+    top_k: int = 10,
+):
+    """
+    搜索文献内容（v2.0 新增 API）
+    
+    Args:
+        query: 搜索词
+        search_type: "keyword" | "semantic" | "hybrid"
+        graph: KnowledgeGraph 或 KnowledgeTree 实例
+        lib: 文献库字典
+        top_k: 结果数量
+        
+    Returns:
+        SearchResult 列表
+    """
+    if not query or not query.strip():
+        return []
+    
+    if not NEW_SEARCH_AVAILABLE:
+        # 回退到旧版搜索
+        if hasattr(graph, "nodes"):
+            return search_nodes(graph, query)[:top_k]
+        return []
+    
+    try:
+        if search_type == "semantic":
+            from services.search import SemanticSearchService
+            service = SemanticSearchService(graph=graph, tree=graph, lib=lib)
+            return service.search(query, top_k=top_k)
+        elif search_type == "hybrid":
+            service = HybridSearchService(graph=graph, tree=graph, lib=lib)
+            return service.search(query, top_k=top_k)
+        else:
+            service = KeywordSearchService(graph=graph, tree=graph, lib=lib)
+            return service.search(query, top_k=top_k)
+    except Exception:
+        # 回退到旧版搜索
+        if hasattr(graph, "nodes"):
+            return search_nodes(graph, query)[:top_k]
+        return []
+
+
+def render_search_results(results) -> str:
+    """
+    渲染搜索结果（v2.0 API）
+    
+    Args:
+        results: SearchResult 列表或 KnowledgeNode 列表
+        
+    Returns:
+        HTML 字符串
+    """
+    return _render_search_results(results, None)
 
 
 def handle_ai_suggest(draft_text, tree):

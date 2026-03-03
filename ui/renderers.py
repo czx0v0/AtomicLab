@@ -7,10 +7,31 @@ Supports the new Crusher output format:
   - Per-note classification (方法/公式/图像/定义/观点/数据/其他)
   - AI tags + one-line comment
   - Overall summary
+  
+v2.0 更新:
+  - 支持 annotation 节点渲染
+  - 支持 priority/color 显示
 """
 
 from core.utils import esc, extract_pdf_by_page
 from core.config import CATEGORY_COLORS
+
+# 优先级颜色映射
+PRIORITY_COLORS = {
+    5: "#FF6B6B",  # 红色 - 核心观点
+    4: "#FFA500",  # 橙色 - 重要内容
+    3: "#FFE66D",  # 黄色 - 值得注意
+    2: "#4ECDC4",  # 绿色 - 参考信息
+    1: "#45B7D1",  # 蓝色 - 一般记录
+}
+
+PRIORITY_LABELS = {
+    5: "核心观点",
+    4: "重要内容",
+    3: "值得注意",
+    2: "参考信息",
+    1: "一般记录",
+}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -29,6 +50,43 @@ def get_total_pages(pid: str, lib: dict) -> int:
     return max(len(pages), 1)
 
 
+def _apply_highlights_to_text(text: str, highlights: list, page: int) -> str:
+    """Apply stored highlights to text content.
+    
+    Args:
+        text: Original text
+        highlights: List of highlight dicts with 'content', 'page', 'color'
+        page: Current page number
+        
+    Returns:
+        Text with <mark> tags applied for matching highlights
+    """
+    if not highlights:
+        return esc(text)
+    
+    # Filter highlights for current page
+    page_highlights = [h for h in highlights if h.get("page") == page]
+    if not page_highlights:
+        return esc(text)
+    
+    result = text
+    # Sort by content length descending to handle overlapping matches
+    page_highlights.sort(key=lambda h: len(h.get("content", "")), reverse=True)
+    
+    for hl in page_highlights:
+        content = hl.get("content", "")
+        color = hl.get("color", "yellow")
+        if content and content in result:
+            # Replace first occurrence only to avoid duplicates
+            mark_html = f'<mark class="hl-{color}" data-note-id="{hl.get("id", "")}">{esc(content)}</mark>'
+            result = result.replace(content, f"__HL_MARK_{hl.get('id', '')}__", 1)
+            result = result.replace(f"__HL_MARK_{hl.get('id', '')}__", mark_html)
+    
+    # Escape any remaining unprocessed text parts
+    # Since we already escaped in mark_html, we need to be careful
+    return result
+
+
 def render_pdf_text(pid: str, lib: dict, current_page: int = 1) -> str:
     """Render single page of PDF text with floating popup menu.
 
@@ -36,9 +94,14 @@ def render_pdf_text(pid: str, lib: dict, current_page: int = 1) -> str:
     - Renders only one page at a time
     - Shows page indicator
     - Embeds popup JS for highlight/translate/copy
+    - **v2.0: Persists highlights from stored notes**
     """
     if not pid or pid not in lib:
         return "<div class='txt-empty'>选择文献后，文本将在此显示</div>"
+
+    # Get stored notes for this document to apply highlights
+    doc_notes = lib[pid].get("notes", [])
+    highlight_notes = [n for n in doc_notes if n.get("type") == "高亮"]
 
     fp = lib[pid].get("filepath", "")
     if not fp or not fp.lower().endswith(".pdf"):
@@ -48,7 +111,9 @@ def render_pdf_text(pid: str, lib: dict, current_page: int = 1) -> str:
         paras = [p.strip() for p in text.split("\n") if p.strip()]
         h = ""
         for i, p in enumerate(paras):
-            h += f"<p class='txt-para' data-para-id='{i}' data-page='1'>{esc(p)}</p>"
+            # Apply stored highlights to this paragraph
+            para_html = _apply_highlights_to_paragraph(p, highlight_notes, 1)
+            h += f"<p class='txt-para' data-para-id='{i}' data-page='1'>{para_html}</p>"
         indicator = "<div class='page-nav'><span class='page-indicator'>第 1 页 / 共 1 页</span></div>"
         return f"{indicator}<div class='txt-reader' data-current-page='1' data-total-pages='1'>{h}</div>"
 
@@ -63,10 +128,62 @@ def render_pdf_text(pid: str, lib: dict, current_page: int = 1) -> str:
     paras = [p.strip() for p in text.split("\n") if p.strip()]
     h = ""
     for i, p in enumerate(paras):
-        h += f"<p class='txt-para' data-para-id='{i}' data-page='{page_num}'>{esc(p)}</p>"
+        # Apply stored highlights to this paragraph
+        para_html = _apply_highlights_to_paragraph(p, highlight_notes, page_num)
+        h += f"<p class='txt-para' data-para-id='{i}' data-page='{page_num}'>{para_html}</p>"
 
     indicator = f"<div class='page-nav'><span class='page-indicator'>第 {current_page} 页 / 共 {total} 页</span></div>"
     return f"{indicator}<div class='txt-reader' data-current-page='{current_page}' data-total-pages='{total}'>{h}</div>"
+
+
+def _apply_highlights_to_paragraph(para_text: str, notes: list, page: int) -> str:
+    """Apply stored highlights to a paragraph.
+    
+    Args:
+        para_text: Paragraph text
+        notes: List of note dicts
+        page: Current page number
+        
+    Returns:
+        HTML string with highlights applied
+    """
+    # Filter notes for current page
+    page_notes = [n for n in notes if n.get("page") == page and n.get("content")]
+    
+    if not page_notes:
+        return esc(para_text)
+    
+    # Sort by content length descending for better matching
+    page_notes.sort(key=lambda n: len(n.get("content", "")), reverse=True)
+    
+    result = para_text
+    applied_marks = []
+    
+    for note in page_notes:
+        content = note.get("content", "").strip()
+        color = note.get("color", "yellow")
+        note_id = note.get("id", "")
+        
+        if content and content in result:
+            # Use placeholder to avoid re-matching
+            placeholder = f"__HLMARK_{len(applied_marks)}__"
+            result = result.replace(content, placeholder, 1)
+            applied_marks.append({
+                "placeholder": placeholder,
+                "content": content,
+                "color": color,
+                "note_id": note_id,
+            })
+    
+    # Escape the remaining text
+    result = esc(result)
+    
+    # Replace placeholders with actual mark tags
+    for mark in applied_marks:
+        mark_html = f'<mark class="hl-{mark["color"]}" data-note-id="{mark["note_id"]}">{esc(mark["content"])}</mark>'
+        result = result.replace(esc(mark["placeholder"]), mark_html)
+    
+    return result
 
 
 # ══════════════════════════════════════════════════════════════
@@ -74,38 +191,102 @@ def render_pdf_text(pid: str, lib: dict, current_page: int = 1) -> str:
 # ══════════════════════════════════════════════════════════════
 
 
-def render_note_cards(notes: list) -> str:
-    """Render note cards for Tab 1 (supports highlight color badges)."""
+def render_note_cards(notes: list, collapsible: bool = True) -> str:
+    """Render note cards for Tab 1 (supports highlight color badges, priority, and expand/collapse).
+    
+    Args:
+        notes: List of note dicts
+        collapsible: Whether to enable expand/collapse functionality
+        
+    Returns:
+        HTML string for note cards
+    """
     if not notes:
         return "<div class='nc-empty'>暂无笔记</div>"
 
     h = ""
-    for n in reversed(notes):
+    for idx, n in enumerate(reversed(notes)):
         ntype = n.get("type", "笔记")
         color = n.get("color", "")
         annotation = n.get("annotation", "")
         translation = n.get("translation", "")
+        priority = n.get("priority", 3)
+        note_id = n.get("id", f"note-{idx}")
+        content = n.get("content", "")
+        
         badge_cls = f"nt-badge hl-{color}" if color else "nt-badge"
         badge_text = esc(ntype)
+        
+        # Priority indicator
+        priority_label = PRIORITY_LABELS.get(priority, "")
+        priority_html = ""
+        if priority and priority_label:
+            priority_color = PRIORITY_COLORS.get(priority, "#FFE66D")
+            priority_html = f" <span style='font-size:.7em;color:{priority_color};'>●{priority_label}</span>"
+        
         # Color bar indicator
         color_bar = ""
         if color:
-            color_map = {"red": "#fc8181", "yellow": "#fbd38d", "green": "#9ae6b4", "purple": "#d6bcfa"}
+            color_map = {"red": "#fc8181", "yellow": "#fbd38d", "green": "#9ae6b4", "purple": "#d6bcfa", "orange": "#FFA500", "blue": "#45B7D1"}
             bar_color = color_map.get(color, "#e2e8f0")
             color_bar = f" style='border-left:3px solid {bar_color}'"
+        
         annotation_html = ""
         if annotation:
             annotation_html = f"\n  <div class=\"nt-annotation\">批注: {esc(annotation)}</div>"
         translation_html = ""
         if translation:
             translation_html = f"\n  <div class=\"nt-annotation\" style=\"border-left-color:var(--accent-green);\">译: {esc(translation)}</div>"
-        h += f"""<div class="nt"{color_bar}>
+        
+        # Expand/collapse for long content
+        is_long = len(content) > 100
+        collapsed_class = "nt-collapsed" if is_long and collapsible else ""
+        expand_btn = ""
+        if is_long and collapsible:
+            expand_btn = f'<span class="nt-expand-btn" onclick="toggleNoteExpand(this)" data-note-id="{note_id}">展开 ▼</span>'
+        
+        h += f"""<div class="nt {collapsed_class}" data-note-id="{note_id}"{color_bar}>
   <div class="nt-top">
-    <span class="{badge_cls}">{badge_text}</span>
-    <span class="nt-page">p.{n['page']}</span>
-    <span class="nt-ts">{esc(n['ts'])}</span>
+    <span class="{badge_cls}">{badge_text}</span>{priority_html}
+    <span class="nt-page" onclick="scrollToHighlight('{note_id}')" style="cursor:pointer" title="点击定位">p.{n.get('page', '?')}</span>
+    <span class="nt-ts">{esc(n.get('ts', ''))}</span>
+    {expand_btn}
   </div>
-  <div class="nt-body">{esc(n['content'])}</div>{annotation_html}{translation_html}
+  <div class="nt-body">{esc(content)}</div>{annotation_html}{translation_html}
+</div>"""
+    return f"<div class='nt-wrap'>{h}</div>"
+
+
+def render_annotation_cards(annotations: list) -> str:
+    """
+    渲染批注卡片（v2.0 新增）
+    
+    Args:
+        annotations: 批注节点列表（TreeNode 格式的 dict）
+        
+    Returns:
+        HTML 字符串
+    """
+    if not annotations:
+        return "<div class='nc-empty'>暂无批注</div>"
+
+    h = ""
+    for ann in reversed(annotations):
+        priority = ann.get("priority", 3)
+        color = ann.get("color") or PRIORITY_COLORS.get(priority, "#FFE66D")
+        selected_text = ann.get("selected_text", "")
+        note = ann.get("note", "")
+        page = ann.get("page_start") or ann.get("metadata", {}).get("page", "")
+        
+        priority_label = PRIORITY_LABELS.get(priority, "一般")
+        
+        h += f"""<div class="nt" style="border-left:4px solid {color}">
+  <div class="nt-top">
+    <span class="nt-badge" style="background:{color}20;color:{color}">●{esc(priority_label)}</span>
+    {f"<span class='nt-page'>p.{page}</span>" if page else ""}
+  </div>
+  <div class="nt-body">{esc(selected_text)}</div>
+  {f'<div class="nt-annotation">{esc(note)}</div>' if note else ''}
 </div>"""
     return f"<div class='nt-wrap'>{h}</div>"
 
