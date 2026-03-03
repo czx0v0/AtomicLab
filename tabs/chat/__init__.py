@@ -153,7 +153,6 @@ def build_chat_tab():
         label="AI 助手",
         height=480,
         elem_id="chat-copilot",
-        type="messages",  # 使用新版消息格式
     )
     with gr.Row():
         msg_input = gr.Textbox(
