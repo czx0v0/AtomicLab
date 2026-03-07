@@ -8,29 +8,14 @@ Features:
 - 文本层选择（支持高亮）
 - 坐标映射（PDF位置 ↔ Chunk ID）
 - 高亮数据持久化
-
-Architecture:
-    PDF.js Canvas    ←──保真渲染──←  原始PDF文件
-         ↓
-    Text Layer       ←──文本选择──←  用户交互
-         ↓
-    Highlight Layer  ←──高亮叠加──←  后端存储的高亮数据
-         ↓
-    Coordinate Map   ←──位置映射──←  Docling解析的chunks
-
-与Docling的集成：
-- Docling负责高级解析和RAG分块
-- 解析结果包含每个chunk的页面位置(bounding box)
-- 用户选择文本时，通过坐标映射找到对应的chunk
-- 高亮数据存储时，记录chunk_id和页面坐标
 """
 
 import os
 import json
 import base64
-from typing import List, Dict, Optional, Tuple, Any
-from dataclasses import dataclass, field
-from pathlib import Path
+from typing import List, Dict, Optional, Any
+from dataclasses import dataclass
+import html
 
 
 @dataclass
@@ -52,16 +37,6 @@ class PDFCoordinate:
             "height": self.height,
         }
 
-    @classmethod
-    def from_dict(cls, data: dict) -> "PDFCoordinate":
-        return cls(
-            page=data.get("page", 1),
-            x=data.get("x", 0),
-            y=data.get("y", 0),
-            width=data.get("width", 0),
-            height=data.get("height", 0),
-        )
-
 
 @dataclass
 class HighlightData:
@@ -70,9 +45,9 @@ class HighlightData:
     highlight_id: str
     doc_id: str
     chunk_id: str
-    content: str  # 高亮的文本内容
-    color: str = "yellow"  # yellow, green, blue, pink
-    annotation: str = ""  # 用户批注
+    content: str
+    color: str = "yellow"
+    annotation: str = ""
     coordinate: PDFCoordinate = None
     created_at: str = ""
 
@@ -89,38 +64,11 @@ class HighlightData:
         }
 
 
-@dataclass
-class ChunkCoordinateMap:
-    """Chunk到PDF坐标的映射"""
-
-    chunk_id: str
-    doc_id: str
-    page: int
-    bbox: Tuple[float, float, float, float]  # (x, y, width, height)
-    text_start: int = 0  # 在页面文本中的起始位置
-    text_end: int = 0  # 在页面文本中的结束位置
-
-    def contains_point(self, x: float, y: float) -> bool:
-        """检查点是否在chunk区域内"""
-        bx, by, bw, bh = self.bbox
-        return bx <= x <= bx + bw and by <= y <= by + bh
-
-
 class PDFJSViewer:
-    """
-    PDF.js查看器
+    """PDF.js查看器 - 使用iframe嵌入完整HTML"""
 
-    生成包含PDF.js的HTML，支持：
-    1. 保真渲染PDF
-    2. 文本层选择
-    3. 高亮叠加
-    4. 与后端交互（高亮数据持久化）
-    """
-
-    # PDF.js CDN版本
     PDFJS_VERSION = "3.11.174"
 
-    # 高亮颜色映射
     HIGHLIGHT_COLORS = {
         "yellow": "rgba(255, 235, 59, 0.4)",
         "green": "rgba(76, 175, 80, 0.4)",
@@ -129,59 +77,6 @@ class PDFJSViewer:
         "orange": "rgba(255, 152, 0, 0.4)",
     }
 
-    def __init__(self):
-        self.chunk_maps: Dict[str, List[ChunkCoordinateMap]] = {}
-
-    def register_chunk_maps(self, doc_id: str, chunks: List[Any]):
-        """
-        注册chunk坐标映射
-
-        Args:
-            doc_id: 文档ID
-            chunks: TextChunk列表（来自Docling解析）
-        """
-        maps = []
-        for chunk in chunks:
-            if hasattr(chunk, "page_number") and chunk.page_number:
-                # 从chunk的bbox信息创建映射
-                bbox = getattr(chunk, "bbox", (0, 0, 100, 20))
-                if hasattr(chunk, "metadata") and chunk.metadata:
-                    bbox = getattr(chunk.metadata, "bbox", bbox)
-
-                maps.append(
-                    ChunkCoordinateMap(
-                        chunk_id=chunk.chunk_id,
-                        doc_id=doc_id,
-                        page=chunk.page_number,
-                        bbox=bbox if isinstance(bbox, tuple) else (0, 0, 100, 20),
-                    )
-                )
-
-        self.chunk_maps[doc_id] = maps
-
-    def find_chunk_by_coordinate(
-        self, doc_id: str, page: int, x: float, y: float
-    ) -> Optional[str]:
-        """
-        根据PDF坐标找到对应的chunk_id
-
-        Args:
-            doc_id: 文档ID
-            page: 页码
-            x, y: PDF坐标
-
-        Returns:
-            chunk_id 或 None
-        """
-        if doc_id not in self.chunk_maps:
-            return None
-
-        for cmap in self.chunk_maps[doc_id]:
-            if cmap.page == page and cmap.contains_point(x, y):
-                return cmap.chunk_id
-
-        return None
-
     def render_viewer(
         self,
         pdf_path: str,
@@ -189,18 +84,7 @@ class PDFJSViewer:
         highlights: List[HighlightData] = None,
         doc_name: str = "",
     ) -> str:
-        """
-        生成PDF.js查看器HTML
-
-        Args:
-            pdf_path: PDF文件路径
-            doc_id: 文档ID
-            highlights: 已有高亮数据
-            doc_name: 文档名称
-
-        Returns:
-            HTML字符串
-        """
+        """生成PDF.js查看器HTML"""
         # 读取PDF为base64
         try:
             with open(pdf_path, "rb") as f:
@@ -208,23 +92,17 @@ class PDFJSViewer:
         except Exception as e:
             return f"<div class='txt-empty'>PDF读取失败: {str(e)[:50]}</div>"
 
-        # 检查文件大小
         file_size_mb = len(pdf_base64) * 3 / 4 / (1024 * 1024)
         if file_size_mb > 30:
             return f"<div class='txt-empty'>PDF过大 ({file_size_mb:.1f}MB)，建议使用文本模式</div>"
 
-        # 序列化高亮数据
         highlights_json = json.dumps([h.to_dict() for h in (highlights or [])])
 
-        return self._generate_html(
-            pdf_base64=pdf_base64,
-            doc_id=doc_id,
-            doc_name=doc_name or os.path.basename(pdf_path),
-            file_size_mb=file_size_mb,
-            highlights_json=highlights_json,
+        return self._generate_iframe_html(
+            pdf_base64, doc_id, doc_name, file_size_mb, highlights_json
         )
 
-    def _generate_html(
+    def _generate_iframe_html(
         self,
         pdf_base64: str,
         doc_id: str,
@@ -232,101 +110,88 @@ class PDFJSViewer:
         file_size_mb: float,
         highlights_json: str,
     ) -> str:
-        """生成完整的HTML"""
+        """生成包含iframe的HTML，iframe内嵌完整PDF.js viewer"""
+
+        # 生成内部HTML文档
+        inner_html = self._generate_inner_html(
+            pdf_base64, doc_id, doc_name, file_size_mb, highlights_json
+        )
+
+        # 转义HTML用于srcdoc属性
+        escaped_html = html.escape(inner_html, quote=True)
+
+        return f"""<div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+    <div style="background: #f7fafc; padding: 8px 12px; border-bottom: 1px solid #e2e8f0;">
+        <span style="font-weight: 500; color: #2d3748;">{html.escape(doc_name)}</span>
+        <span style="color: #718096; font-size: 12px;"> ({file_size_mb:.1f} MB)</span>
+    </div>
+    <iframe 
+        srcdoc="{escaped_html}"
+        style="width: 100%; height: 750px; border: none;"
+        allow="fullscreen"
+    ></iframe>
+</div>"""
+
+    def _generate_inner_html(
+        self,
+        pdf_base64: str,
+        doc_id: str,
+        doc_name: str,
+        file_size_mb: float,
+        highlights_json: str,
+    ) -> str:
+        """生成PDF.js viewer的完整HTML文档"""
 
         return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>{doc_name}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/{self.PDFJS_VERSION}/pdf.min.js"></script>
     <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        .pdf-container {{
-            width: 100%;
-            background: #525659;
-            padding: 20px;
-            min-height: 600px;
-            max-height: 800px;
-            overflow-y: auto;
-            border-radius: 8px;
-        }}
-        
-        .pdf-header {{
-            background: #f7fafc;
-            padding: 12px 16px;
-            border-radius: 8px 8px 0 0;
-            border-bottom: 1px solid #e2e8f0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-        
-        .pdf-title {{
-            font-size: 14px;
-            color: #2d3748;
-            font-weight: 500;
-        }}
-        
-        .pdf-info {{
-            font-size: 12px;
-            color: #718096;
-        }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ background: #525659; font-family: system-ui, sans-serif; }}
         
         .toolbar {{
+            background: #edf2f7;
+            padding: 8px 12px;
+            border-bottom: 1px solid #e2e8f0;
             display: flex;
             gap: 8px;
             align-items: center;
-            padding: 8px 12px;
-            background: #edf2f7;
-            border-bottom: 1px solid #e2e8f0;
+            flex-wrap: wrap;
         }}
         
-        .toolbar-btn {{
+        .btn {{
             padding: 6px 12px;
             border: 1px solid #cbd5e0;
             border-radius: 4px;
             background: white;
             cursor: pointer;
             font-size: 12px;
-            transition: all 0.2s;
         }}
+        .btn:hover {{ background: #e2e8f0; }}
+        .btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
         
-        .toolbar-btn:hover {{
-            background: #e2e8f0;
-        }}
+        .page-info {{ font-size: 13px; color: #4a5568; min-width: 80px; text-align: center; }}
         
-        .toolbar-btn.active {{
-            background: #3182ce;
-            color: white;
-            border-color: #3182ce;
-        }}
-        
-        .color-picker {{
-            display: flex;
-            gap: 4px;
-            margin-left: 12px;
-        }}
-        
+        .color-picker {{ display: flex; gap: 4px; margin-left: 8px; }}
         .color-btn {{
-            width: 24px;
-            height: 24px;
+            width: 20px; height: 20px;
             border-radius: 4px;
             border: 2px solid transparent;
             cursor: pointer;
         }}
+        .color-btn.selected {{ border-color: #2d3748; }}
         
-        .color-btn.selected {{
-            border-color: #2d3748;
+        .container {{
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            min-height: calc(100vh - 50px);
         }}
         
-        .page-container {{
-            margin: 20px auto;
+        .page-wrapper {{
             background: white;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             position: relative;
@@ -334,374 +199,232 @@ class PDFJSViewer:
         
         .text-layer {{
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: 0; left: 0; right: 0; bottom: 0;
             overflow: hidden;
             opacity: 0.2;
             line-height: 1.0;
         }}
-        
-        .text-layer > span {{
+        .text-layer span {{
             color: transparent;
             position: absolute;
             white-space: pre;
             pointer-events: all;
         }}
-        
-        .text-layer ::selection {{
-            background: rgba(0, 0, 255, 0.3);
-        }}
+        .text-layer ::selection {{ background: rgba(0, 0, 255, 0.3); }}
         
         .highlight-layer {{
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: 0; left: 0; right: 0; bottom: 0;
             pointer-events: none;
         }}
-        
         .highlight {{
             position: absolute;
             pointer-events: auto;
             cursor: pointer;
-            transition: opacity 0.2s;
         }}
-        
-        .highlight:hover {{
-            opacity: 0.8;
-        }}
-        
         .highlight.yellow {{ background: {self.HIGHLIGHT_COLORS['yellow']}; }}
         .highlight.green {{ background: {self.HIGHLIGHT_COLORS['green']}; }}
         .highlight.blue {{ background: {self.HIGHLIGHT_COLORS['blue']}; }}
         .highlight.pink {{ background: {self.HIGHLIGHT_COLORS['pink']}; }}
-        .highlight.orange {{ background: {self.HIGHLIGHT_COLORS['orange']}; }}
         
-        .loading {{
-            text-align: center;
-            padding: 40px;
-            color: #a0aec0;
-        }}
-        
-        .page-nav {{
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 12px;
-            padding: 12px;
-            background: #edf2f7;
-            border-top: 1px solid #e2e8f0;
-        }}
-        
-        .page-num {{
-            font-size: 13px;
-            color: #4a5568;
-        }}
+        .loading {{ text-align: center; padding: 40px; color: #a0aec0; }}
+        .error {{ color: #e53e3e; }}
     </style>
 </head>
 <body>
-    <div class="pdf-header">
-        <div>
-            <span class="pdf-title">{doc_name}</span>
-            <span class="pdf-info"> ({file_size_mb:.1f} MB)</span>
-        </div>
-        <span class="pdf-info">💡 选择文本后点击高亮按钮添加笔记</span>
-    </div>
-    
     <div class="toolbar">
-        <button class="toolbar-btn" id="prevPage">◀ 上一页</button>
-        <button class="toolbar-btn" id="nextPage">下一页 ▶</button>
-        <span class="page-num" id="pageInfo">第 1 / ? 页</span>
+        <button class="btn" id="prevBtn" disabled>◀ 上一页</button>
+        <span class="page-info" id="pageInfo">1 / ?</span>
+        <button class="btn" id="nextBtn" disabled>下一页 ▶</button>
         
         <div style="flex: 1;"></div>
         
-        <span style="font-size: 12px; color: #4a5568;">高亮颜色:</span>
+        <span style="font-size: 12px; color: #4a5568;">颜色:</span>
         <div class="color-picker">
-            <div class="color-btn selected" data-color="yellow" style="background: {self.HIGHLIGHT_COLORS['yellow']};"></div>
-            <div class="color-btn" data-color="green" style="background: {self.HIGHLIGHT_COLORS['green']};"></div>
-            <div class="color-btn" data-color="blue" style="background: {self.HIGHLIGHT_COLORS['blue']};"></div>
-            <div class="color-btn" data-color="pink" style="background: {self.HIGHLIGHT_COLORS['pink']};"></div>
+            <div class="color-btn selected" data-color="yellow" style="background:{self.HIGHLIGHT_COLORS['yellow']}"></div>
+            <div class="color-btn" data-color="green" style="background:{self.HIGHLIGHT_COLORS['green']}"></div>
+            <div class="color-btn" data-color="blue" style="background:{self.HIGHLIGHT_COLORS['blue']}"></div>
+            <div class="color-btn" data-color="pink" style="background:{self.HIGHLIGHT_COLORS['pink']}"></div>
         </div>
         
-        <button class="toolbar-btn" id="addHighlight">✏️ 添加高亮</button>
-        <button class="toolbar-btn" id="addAnnotation">📝 添加批注</button>
+        <button class="btn" id="highlightBtn">✏️ 添加高亮</button>
     </div>
     
-    <div class="pdf-container" id="pdfContainer">
+    <div class="container" id="container">
         <div class="loading">正在加载PDF...</div>
     </div>
-    
+
     <script>
-        // 配置PDF.js worker
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/{self.PDFJS_VERSION}/pdf.worker.min.js';
         
-        // 全局状态
         const state = {{
             docId: '{doc_id}',
-            pdfDoc: null,
-            currentPage: 1,
-            totalPages: 0,
+            pdf: null,
+            page: 1,
+            total: 0,
             scale: 1.5,
-            currentColor: 'yellow',
+            color: 'yellow',
             highlights: {highlights_json},
             selectedText: '',
-            selectedRects: [],
+            selectedRects: []
         }};
         
-        // 加载PDF
-        async function loadPDF() {{
-            const container = document.getElementById('pdfContainer');
-            container.innerHTML = '<div class="loading">正在加载PDF...</div>';
-            
+        const container = document.getElementById('container');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const pageInfo = document.getElementById('pageInfo');
+        
+        async function init() {{
             try {{
                 const pdfData = atob('{pdf_base64}');
-                state.pdfDoc = await pdfjsLib.getDocument({{ data: pdfData }}).promise;
-                state.totalPages = state.pdfDoc.numPages;
-                
-                updatePageInfo();
-                await renderPage(state.currentPage);
-            }} catch (error) {{
-                container.innerHTML = '<div class="loading" style="color: #e53e3e;">PDF加载失败: ' + error.message + '</div>';
+                state.pdf = await pdfjsLib.getDocument({{ data: pdfData }}).promise;
+                state.total = state.pdf.numPages;
+                updateUI();
+                await renderPage(state.page);
+            }} catch (e) {{
+                container.innerHTML = '<div class="loading error">加载失败: ' + e.message + '</div>';
             }}
         }}
         
-        // 渲染单页
-        async function renderPage(pageNum) {{
-            const container = document.getElementById('pdfContainer');
-            container.innerHTML = '';
+        async function renderPage(num) {{
+            container.innerHTML = '<div class="loading">正在渲染...</div>';
             
-            const page = await state.pdfDoc.getPage(pageNum);
+            const page = await state.pdf.getPage(num);
             const viewport = page.getViewport({{ scale: state.scale }});
             
-            // 创建页面容器
-            const pageContainer = document.createElement('div');
-            pageContainer.className = 'page-container';
-            pageContainer.style.width = viewport.width + 'px';
-            pageContainer.style.height = viewport.height + 'px';
-            pageContainer.id = 'page-' + pageNum;
-            
-            // Canvas层 - 渲染PDF
+            // Canvas
             const canvas = document.createElement('canvas');
             canvas.width = viewport.width;
             canvas.height = viewport.height;
             const ctx = canvas.getContext('2d');
-            
             await page.render({{ canvasContext: ctx, viewport: viewport }}).promise;
-            pageContainer.appendChild(canvas);
             
-            // 文本层 - 支持选择
+            // Wrapper
+            const wrapper = document.createElement('div');
+            wrapper.className = 'page-wrapper';
+            wrapper.style.width = viewport.width + 'px';
+            wrapper.style.height = viewport.height + 'px';
+            wrapper.appendChild(canvas);
+            
+            // Text layer
             const textLayer = document.createElement('div');
             textLayer.className = 'text-layer';
-            pageContainer.appendChild(textLayer);
+            wrapper.appendChild(textLayer);
             
-            // 高亮层
-            const highlightLayer = document.createElement('div');
-            highlightLayer.className = 'highlight-layer';
-            highlightLayer.id = 'highlight-layer-' + pageNum;
-            pageContainer.appendChild(highlightLayer);
+            // Highlight layer
+            const hlLayer = document.createElement('div');
+            hlLayer.className = 'highlight-layer';
+            hlLayer.id = 'hl-' + num;
+            wrapper.appendChild(hlLayer);
             
-            container.appendChild(pageContainer);
-            
-            // 渲染文本层
-            const textContent = await page.getTextContent();
-            await renderTextLayer(textLayer, viewport, textContent);
-            
-            // 渲染已有高亮
-            renderHighlights(pageNum, viewport);
-            
-            // 监听文本选择
-            textLayer.addEventListener('mouseup', handleTextSelect);
-        }}
-        
-        // 渲染文本层
-        async function renderTextLayer(container, viewport, textContent) {{
             container.innerHTML = '';
+            container.appendChild(wrapper);
             
+            // Render text
+            const textContent = await page.getTextContent();
             textContent.items.forEach(item => {{
                 const span = document.createElement('span');
                 span.textContent = item.str;
-                
                 const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
-                const fontSize = Math.sqrt(tx[0] * tx[0] + tx[1] * tx[1]);
-                
-                span.style.left = tx[4] + 'px';
-                span.style.top = (tx[5] - fontSize) + 'px';
-                span.style.fontSize = fontSize + 'px';
-                span.style.fontFamily = item.fontName || 'sans-serif';
-                
-                container.appendChild(span);
+                const fs = Math.sqrt(tx[0]*tx[0] + tx[1]*tx[1]);
+                span.style.cssText = `left:${{tx[4]}}px;top:${{tx[5]-fs}}px;font-size:${{fs}}px;font-family:${{item.fontName||'sans-serif'}}`;
+                textLayer.appendChild(span);
+            }});
+            
+            // Render highlights
+            renderHighlights(num, viewport);
+            
+            // Text selection
+            textLayer.addEventListener('mouseup', () => {{
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed) {{
+                    state.selectedText = sel.toString();
+                    const range = sel.getRangeAt(0);
+                    const rects = range.getClientRects();
+                    const wrapperRect = wrapper.getBoundingClientRect();
+                    state.selectedRects = [];
+                    for (let i = 0; i < rects.length; i++) {{
+                        state.selectedRects.push({{
+                            x: rects[i].left - wrapperRect.left,
+                            y: rects[i].top - wrapperRect.top,
+                            w: rects[i].width,
+                            h: rects[i].height
+                        }});
+                    }}
+                }}
             }});
         }}
         
-        // 渲染高亮
         function renderHighlights(pageNum, viewport) {{
-            const layer = document.getElementById('highlight-layer-' + pageNum);
+            const layer = document.getElementById('hl-' + pageNum);
             if (!layer) return;
-            
             layer.innerHTML = '';
             
-            state.highlights
-                .filter(h => !h.coordinate || h.coordinate.page === pageNum)
-                .forEach(h => {{
-                    if (!h.coordinate) return;
-                    
-                    const div = document.createElement('div');
-                    div.className = 'highlight ' + h.color;
-                    div.style.left = h.coordinate.x + 'px';
-                    div.style.top = h.coordinate.y + 'px';
-                    div.style.width = h.coordinate.width + 'px';
-                    div.style.height = h.coordinate.height + 'px';
-                    div.dataset.highlightId = h.id;
-                    div.title = h.annotation || h.content;
-                    
-                    div.onclick = () => showHighlightDetail(h);
-                    layer.appendChild(div);
-                }});
+            state.highlights.filter(h => !h.coordinate || h.coordinate.page === pageNum).forEach(h => {{
+                if (!h.coordinate) return;
+                const div = document.createElement('div');
+                div.className = 'highlight ' + h.color;
+                div.style.cssText = `left:${{h.coordinate.x}}px;top:${{h.coordinate.y}}px;width:${{h.coordinate.width}}px;height:${{h.coordinate.height}}px`;
+                div.title = h.annotation || h.content;
+                layer.appendChild(div);
+            }});
         }}
         
-        // 处理文本选择
-        function handleTextSelect(e) {{
-            const selection = window.getSelection();
-            if (!selection || selection.isCollapsed) {{
-                state.selectedText = '';
-                state.selectedRects = [];
-                return;
-            }}
-            
-            state.selectedText = selection.toString();
-            
-            // 获取选择区域的矩形
-            const range = selection.getRangeAt(0);
-            const rects = range.getClientRects();
-            
-            state.selectedRects = [];
-            for (let i = 0; i < rects.length; i++) {{
-                const rect = rects[i];
-                const pageContainer = document.querySelector('.page-container');
-                const pageRect = pageContainer.getBoundingClientRect();
-                
-                state.selectedRects.push({{
-                    x: rect.left - pageRect.left,
-                    y: rect.top - pageRect.top,
-                    width: rect.width,
-                    height: rect.height,
-                }});
-            }}
-        }}
-        
-        // 添加高亮
         function addHighlight() {{
             if (!state.selectedText) {{
                 alert('请先选择要高亮的文本');
                 return;
             }}
             
-            const highlight = {{
+            const hl = {{
                 id: 'HL-' + Date.now(),
                 doc_id: state.docId,
-                chunk_id: '',  // 需要通过坐标映射获取
+                chunk_id: '',
                 content: state.selectedText,
-                color: state.currentColor,
+                color: state.color,
                 annotation: '',
                 coordinate: {{
-                    page: state.currentPage,
+                    page: state.page,
                     x: state.selectedRects[0]?.x || 0,
                     y: state.selectedRects[0]?.y || 0,
-                    width: state.selectedRects[0]?.width || 100,
-                    height: state.selectedRects[0]?.height || 20,
+                    width: state.selectedRects[0]?.w || 100,
+                    height: state.selectedRects[0]?.h || 20
                 }},
-                created_at: new Date().toISOString(),
+                created_at: new Date().toISOString()
             }};
             
-            state.highlights.push(highlight);
+            state.highlights.push(hl);
+            renderHighlights(state.page);
             
-            // 通知Gradio后端
-            if (window.parent && window.parent.Gradio) {{
-                window.parent.Gradio.setHighlight(JSON.stringify(highlight));
+            // 通知父页面
+            if (window.parent) {{
+                window.parent.postMessage({{ type: 'highlight', data: hl }}, '*');
             }}
             
-            // 通过隐藏input传递数据
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.id = 'highlight-data';
-            input.value = JSON.stringify(highlight);
-            document.body.appendChild(input);
-            
-            // 触发事件
-            input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            
-            // 重新渲染高亮
-            renderHighlights(state.currentPage);
-            
-            // 清除选择
             window.getSelection().removeAllRanges();
             state.selectedText = '';
             state.selectedRects = [];
         }}
         
-        // 显示高亮详情
-        function showHighlightDetail(highlight) {{
-            const annotation = prompt('编辑批注:', highlight.annotation || '');
-            if (annotation !== null) {{
-                highlight.annotation = annotation;
-                // 更新后端
-                // TODO: 调用Gradio更新接口
-            }}
+        function updateUI() {{
+            pageInfo.textContent = state.page + ' / ' + state.total;
+            prevBtn.disabled = state.page <= 1;
+            nextBtn.disabled = state.page >= state.total;
         }}
         
-        // 更新页面信息
-        function updatePageInfo() {{
-            document.getElementById('pageInfo').textContent = 
-                `第 ${{state.currentPage}} / ${{state.totalPages}} 页`;
-        }}
+        prevBtn.onclick = () => {{ if (state.page > 1) {{ state.page--; updateUI(); renderPage(state.page); }} }};
+        nextBtn.onclick = () => {{ if (state.page < state.total) {{ state.page++; updateUI(); renderPage(state.page); }} }};
+        document.getElementById('highlightBtn').onclick = addHighlight;
         
-        // 事件绑定
-        document.getElementById('prevPage').onclick = () => {{
-            if (state.currentPage > 1) {{
-                state.currentPage--;
-                updatePageInfo();
-                renderPage(state.currentPage);
-            }}
-        }};
-        
-        document.getElementById('nextPage').onclick = () => {{
-            if (state.currentPage < state.totalPages) {{
-                state.currentPage++;
-                updatePageInfo();
-                renderPage(state.currentPage);
-            }}
-        }};
-        
-        document.getElementById('addHighlight').onclick = addHighlight;
-        
-        document.getElementById('addAnnotation').onclick = () => {{
-            if (!state.selectedText) {{
-                alert('请先选择要批注的文本');
-                return;
-            }}
-            const annotation = prompt('输入批注内容:');
-            if (annotation) {{
-                state.currentColor = 'blue';  // 批注默认蓝色
-                addHighlight();
-                // 设置批注
-                state.highlights[state.highlights.length - 1].annotation = annotation;
-            }}
-        }};
-        
-        // 颜色选择
         document.querySelectorAll('.color-btn').forEach(btn => {{
             btn.onclick = () => {{
                 document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
                 btn.classList.add('selected');
-                state.currentColor = btn.dataset.color;
+                state.color = btn.dataset.color;
             }};
         }});
         
-        // 启动
-        loadPDF();
+        init();
     </script>
 </body>
 </html>"""
