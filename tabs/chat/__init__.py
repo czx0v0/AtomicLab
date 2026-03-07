@@ -37,7 +37,7 @@ def _build_status(status_type: str, message: str, context_count: int = 0) -> str
         "error": "❌",
     }
     icon = status_icons.get(status_type, "⏳")
-    
+
     # 进度条样式
     progress_style = ""
     if status_type == "retrieving":
@@ -48,7 +48,7 @@ def _build_status(status_type: str, message: str, context_count: int = 0) -> str
         progress_style = "background: #38a169;"
     elif status_type == "error":
         progress_style = "background: #e53e3e;"
-    
+
     progress_html = f"""
     <div style="height: 3px; width: 100%; margin-top: 8px; border-radius: 2px; {progress_style}"></div>
     <style>
@@ -58,7 +58,7 @@ def _build_status(status_type: str, message: str, context_count: int = 0) -> str
     }}
     </style>
     """
-    
+
     return f"""
     <div style="padding: 8px 12px; background: #f7fafc; border-radius: 6px; border-left: 3px solid {'#3182ce' if status_type in ['retrieving', 'generating'] else '#38a169' if status_type == 'complete' else '#e53e3e'}; font-size: 13px; color: #4a5568;">
         <span style="font-weight: 500;">{icon} {message}</span>
@@ -186,27 +186,33 @@ def handle_chat_send(message, chat_history, tree, lib, notes):
 
     try:
         output = _router.execute(payload, context)
-        
+
         # 更新状态：已找到结果
         data = output.data or {}
         context_count = data.get("context_count", 0)
         rag_used = data.get("rag_used", False)
-        
+
         if context_count > 0:
             search_type = "RAG语义检索" if rag_used else "传统搜索"
-            chat_history[-1]["content"] = f"✅ 找到 {context_count} 个相关片段，正在生成答案..."
-            yield chat_history, "", _build_status("generating", f"{search_type}: {context_count} 条上下文", context_count)
+            chat_history[-1][
+                "content"
+            ] = f"✅ 找到 {context_count} 个相关片段，正在生成答案..."
+            yield chat_history, "", _build_status(
+                "generating", f"{search_type}: {context_count} 条上下文", context_count
+            )
         else:
             chat_history[-1]["content"] = "⚠️ 未找到相关内容，基于一般知识回答..."
             yield chat_history, "", _build_status("no_results", "知识库无匹配结果")
-        
+
         # 生成最终回答
         bot_reply = _format_bot_message(output)
         chat_history[-1]["content"] = bot_reply
-        
-        status_msg = f"✅ 完成 | {'RAG' if rag_used else '传统'}检索 | {context_count} 条上下文"
+
+        status_msg = (
+            f"✅ 完成 | {'RAG' if rag_used else '传统'}检索 | {context_count} 条上下文"
+        )
         yield chat_history, "", _build_status("complete", status_msg, context_count)
-        
+
     except Exception as e:
         chat_history[-1]["content"] = f"❌ 系统异常：{e}"
         yield chat_history, "", _build_status("error", f"处理失败: {str(e)[:50]}")
@@ -247,13 +253,13 @@ def build_chat_tab():
         "支持翻译、知识问答、跨文献分析。"
         "</div>"
     )
-    
+
     # 状态显示区域
     chat_status = gr.HTML(
         value="",
         elem_id="chat-status",
     )
-    
+
     chatbot = gr.Chatbot(
         label="AI 助手",
         height=480,

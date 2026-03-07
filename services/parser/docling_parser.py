@@ -169,7 +169,7 @@ class DoclingParser:
                 # 确保headers和rows都是字符串类型
                 headers = [str(h) for h in df.columns]
                 rows = [[str(cell) for cell in row] for row in df.values.tolist()]
-                
+
                 tables.append(
                     ParsedTable(
                         table_id=f"{doc_id}_t{i:03d}",

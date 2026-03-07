@@ -133,7 +133,7 @@ def _render_pdf_embed(pid: str, lib: dict) -> str:
 def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str:
     """
     Render PDF with PDF.js - supports highlighting and RAG integration.
-    
+
     v2.3: 统一的保真渲染 + 高亮交互模式
     - PDF.js保真渲染（公式、表格、图片完整显示）
     - 文本层选择和高亮
@@ -142,40 +142,42 @@ def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str
     """
     if not pid or pid not in lib:
         return "<div class='txt-empty'>选择文献后，PDF 将在此显示</div>"
-    
+
     if not PDFJS_VIEWER_AVAILABLE:
         return "<div class='txt-empty'>PDF.js渲染器未安装，请使用文本模式或PDF原版模式</div>"
-    
+
     doc_info = lib[pid]
     fp = doc_info.get("filepath", "")
-    
+
     if not fp or not fp.lower().endswith(".pdf"):
         return "<div class='txt-empty'>非 PDF 文件，请切换到文本模式</div>"
-    
+
     # 检查文件大小
     try:
         file_size_mb = os.path.getsize(fp) / (1024 * 1024)
     except OSError:
         file_size_mb = 0
-    
+
     if file_size_mb > 30:
         return f"<div class='txt-empty'>PDF过大 ({file_size_mb:.1f}MB)，建议使用文本模式</div>"
-    
+
     # 获取已有高亮笔记
     highlights = []
     if notes:
         for note in notes:
             if note.get("source_pid") == pid and note.get("type") == "高亮":
                 coord_data = note.get("coordinate", {})
-                highlights.append(HighlightData(
-                    highlight_id=note.get("id", ""),
-                    doc_id=pid,
-                    chunk_id=note.get("chunk_id", ""),
-                    content=note.get("content", ""),
-                    color=note.get("color", "yellow"),
-                    annotation=note.get("annotation", ""),
-                ))
-    
+                highlights.append(
+                    HighlightData(
+                        highlight_id=note.get("id", ""),
+                        doc_id=pid,
+                        chunk_id=note.get("chunk_id", ""),
+                        content=note.get("content", ""),
+                        color=note.get("color", "yellow"),
+                        annotation=note.get("annotation", ""),
+                    )
+                )
+
     # 使用PDF.js渲染器
     viewer = PDFJSViewer()
     return viewer.render_viewer(
@@ -274,14 +276,21 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
             # 构建ParsedDocument-like结构
             if chunks:
                 # 按chunk_index排序，保持文档顺序
-                sorted_chunks = sorted(chunks, key=lambda c: c.metadata.chunk_index if c.metadata and hasattr(c.metadata, 'chunk_index') else 0)
-                
+                sorted_chunks = sorted(
+                    chunks,
+                    key=lambda c: (
+                        c.metadata.chunk_index
+                        if c.metadata and hasattr(c.metadata, "chunk_index")
+                        else 0
+                    ),
+                )
+
                 # 构建内容，保留段落结构
                 content_parts = []
                 for chunk in sorted_chunks:
                     if chunk.chunk_type in ("paragraph", "semantic", "section", "text"):
                         content_parts.append(chunk.content)
-                
+
                 parsed_data = {
                     "title": doc_info.get("name", "未命名文档"),
                     "content": "\n\n".join(content_parts),
@@ -295,13 +304,23 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
                 # 收集表格 - 从所有chunks中找表格数据
                 for chunk in sorted_chunks:
                     if chunk.chunk_type in ("table_semantic", "table_row"):
-                        if hasattr(chunk, 'table_data') and chunk.table_data:
-                            parsed_data["tables"].append({
-                                'html': chunk.content if chunk.content.startswith('<table') else f'<table><tr><td>{chunk.content}</td></tr></table>',
-                                'caption': f'Table from page {chunk.page_number}' if chunk.page_number else 'Table'
-                            })
-                        elif hasattr(chunk, 'metadata') and chunk.metadata:
-                            table_data = getattr(chunk.metadata, 'table_data', None)
+                        if hasattr(chunk, "table_data") and chunk.table_data:
+                            parsed_data["tables"].append(
+                                {
+                                    "html": (
+                                        chunk.content
+                                        if chunk.content.startswith("<table")
+                                        else f"<table><tr><td>{chunk.content}</td></tr></table>"
+                                    ),
+                                    "caption": (
+                                        f"Table from page {chunk.page_number}"
+                                        if chunk.page_number
+                                        else "Table"
+                                    ),
+                                }
+                            )
+                        elif hasattr(chunk, "metadata") and chunk.metadata:
+                            table_data = getattr(chunk.metadata, "table_data", None)
                             if table_data:
                                 parsed_data["tables"].append(table_data)
 

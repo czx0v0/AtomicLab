@@ -244,7 +244,7 @@ def handle_synthesize(tree, lib):
     # 发送准备状态
     yield (
         f"<div style='padding:20px;text-align:center'><span class='agent-st'>🔄 正在准备 {len(note_nodes)} 条笔记...</span></div>",
-        tree
+        tree,
     )
 
     synth_notes = []
@@ -270,7 +270,7 @@ def handle_synthesize(tree, lib):
     # 发送AI处理状态
     yield (
         f"<div style='padding:20px;text-align:center'><span class='agent-st'>🤖 AI正在跨文献分析 {len(synth_notes)} 条笔记...</span></div>",
-        tree
+        tree,
     )
 
     synth = SynthesizerAgent()

@@ -36,12 +36,13 @@ from pathlib import Path
 @dataclass
 class PDFCoordinate:
     """PDF页面坐标"""
+
     page: int
     x: float
     y: float
     width: float
     height: float
-    
+
     def to_dict(self) -> dict:
         return {
             "page": self.page,
@@ -50,7 +51,7 @@ class PDFCoordinate:
             "width": self.width,
             "height": self.height,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "PDFCoordinate":
         return cls(
@@ -65,6 +66,7 @@ class PDFCoordinate:
 @dataclass
 class HighlightData:
     """高亮数据"""
+
     highlight_id: str
     doc_id: str
     chunk_id: str
@@ -73,7 +75,7 @@ class HighlightData:
     annotation: str = ""  # 用户批注
     coordinate: PDFCoordinate = None
     created_at: str = ""
-    
+
     def to_dict(self) -> dict:
         return {
             "id": self.highlight_id,
@@ -90,13 +92,14 @@ class HighlightData:
 @dataclass
 class ChunkCoordinateMap:
     """Chunk到PDF坐标的映射"""
+
     chunk_id: str
     doc_id: str
     page: int
     bbox: Tuple[float, float, float, float]  # (x, y, width, height)
     text_start: int = 0  # 在页面文本中的起始位置
-    text_end: int = 0    # 在页面文本中的结束位置
-    
+    text_end: int = 0  # 在页面文本中的结束位置
+
     def contains_point(self, x: float, y: float) -> bool:
         """检查点是否在chunk区域内"""
         bx, by, bw, bh = self.bbox
@@ -106,17 +109,17 @@ class ChunkCoordinateMap:
 class PDFJSViewer:
     """
     PDF.js查看器
-    
+
     生成包含PDF.js的HTML，支持：
     1. 保真渲染PDF
     2. 文本层选择
     3. 高亮叠加
     4. 与后端交互（高亮数据持久化）
     """
-    
+
     # PDF.js CDN版本
     PDFJS_VERSION = "3.11.174"
-    
+
     # 高亮颜色映射
     HIGHLIGHT_COLORS = {
         "yellow": "rgba(255, 235, 59, 0.4)",
@@ -125,56 +128,60 @@ class PDFJSViewer:
         "pink": "rgba(233, 30, 99, 0.4)",
         "orange": "rgba(255, 152, 0, 0.4)",
     }
-    
+
     def __init__(self):
         self.chunk_maps: Dict[str, List[ChunkCoordinateMap]] = {}
-    
+
     def register_chunk_maps(self, doc_id: str, chunks: List[Any]):
         """
         注册chunk坐标映射
-        
+
         Args:
             doc_id: 文档ID
             chunks: TextChunk列表（来自Docling解析）
         """
         maps = []
         for chunk in chunks:
-            if hasattr(chunk, 'page_number') and chunk.page_number:
+            if hasattr(chunk, "page_number") and chunk.page_number:
                 # 从chunk的bbox信息创建映射
-                bbox = getattr(chunk, 'bbox', (0, 0, 100, 20))
-                if hasattr(chunk, 'metadata') and chunk.metadata:
-                    bbox = getattr(chunk.metadata, 'bbox', bbox)
-                
-                maps.append(ChunkCoordinateMap(
-                    chunk_id=chunk.chunk_id,
-                    doc_id=doc_id,
-                    page=chunk.page_number,
-                    bbox=bbox if isinstance(bbox, tuple) else (0, 0, 100, 20),
-                ))
-        
+                bbox = getattr(chunk, "bbox", (0, 0, 100, 20))
+                if hasattr(chunk, "metadata") and chunk.metadata:
+                    bbox = getattr(chunk.metadata, "bbox", bbox)
+
+                maps.append(
+                    ChunkCoordinateMap(
+                        chunk_id=chunk.chunk_id,
+                        doc_id=doc_id,
+                        page=chunk.page_number,
+                        bbox=bbox if isinstance(bbox, tuple) else (0, 0, 100, 20),
+                    )
+                )
+
         self.chunk_maps[doc_id] = maps
-    
-    def find_chunk_by_coordinate(self, doc_id: str, page: int, x: float, y: float) -> Optional[str]:
+
+    def find_chunk_by_coordinate(
+        self, doc_id: str, page: int, x: float, y: float
+    ) -> Optional[str]:
         """
         根据PDF坐标找到对应的chunk_id
-        
+
         Args:
             doc_id: 文档ID
             page: 页码
             x, y: PDF坐标
-            
+
         Returns:
             chunk_id 或 None
         """
         if doc_id not in self.chunk_maps:
             return None
-        
+
         for cmap in self.chunk_maps[doc_id]:
             if cmap.page == page and cmap.contains_point(x, y):
                 return cmap.chunk_id
-        
+
         return None
-    
+
     def render_viewer(
         self,
         pdf_path: str,
@@ -184,13 +191,13 @@ class PDFJSViewer:
     ) -> str:
         """
         生成PDF.js查看器HTML
-        
+
         Args:
             pdf_path: PDF文件路径
             doc_id: 文档ID
             highlights: 已有高亮数据
             doc_name: 文档名称
-            
+
         Returns:
             HTML字符串
         """
@@ -200,15 +207,15 @@ class PDFJSViewer:
                 pdf_base64 = base64.b64encode(f.read()).decode("ascii")
         except Exception as e:
             return f"<div class='txt-empty'>PDF读取失败: {str(e)[:50]}</div>"
-        
+
         # 检查文件大小
         file_size_mb = len(pdf_base64) * 3 / 4 / (1024 * 1024)
         if file_size_mb > 30:
             return f"<div class='txt-empty'>PDF过大 ({file_size_mb:.1f}MB)，建议使用文本模式</div>"
-        
+
         # 序列化高亮数据
         highlights_json = json.dumps([h.to_dict() for h in (highlights or [])])
-        
+
         return self._generate_html(
             pdf_base64=pdf_base64,
             doc_id=doc_id,
@@ -216,7 +223,7 @@ class PDFJSViewer:
             file_size_mb=file_size_mb,
             highlights_json=highlights_json,
         )
-    
+
     def _generate_html(
         self,
         pdf_base64: str,
@@ -226,8 +233,8 @@ class PDFJSViewer:
         highlights_json: str,
     ) -> str:
         """生成完整的HTML"""
-        
-        return f'''<!DOCTYPE html>
+
+        return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -697,4 +704,4 @@ class PDFJSViewer:
         loadPDF();
     </script>
 </body>
-</html>'''
+</html>"""
