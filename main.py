@@ -53,6 +53,13 @@ from tabs.write import (
 )
 from tabs.chat import build_chat_tab, handle_chat_send, handle_chat_clear, handle_ai_ask
 
+# RAG服务集成
+from services.rag_service import RAGService
+from core.config import RAG_CONFIG
+
+# 初始化RAG服务
+rag_service = RAGService(RAG_CONFIG)
+
 
 # ══════════════════════════════════════════════════════════════
 # MODEL SELECTOR HELPERS
@@ -143,7 +150,9 @@ with gr.Blocks(title=APP_TITLE) as demo:
 
     # ── Tab 1: Read ──
     read["upload_f"].change(
-        fn=handle_upload,
+        fn=lambda files, lib, stats, tree: handle_upload(
+            files, lib, stats, tree, rag_service
+        ),
         inputs=[read["upload_f"], lib_st, stats_st, tree_st],
         outputs=[
             lib_st,
@@ -313,12 +322,12 @@ with gr.Blocks(title=APP_TITLE) as demo:
         outputs=[read["pdf_selector"]],
     )
     org["search_btn"].click(
-        fn=handle_search,
+        fn=lambda query, tree, lib: handle_search(query, tree, lib, rag_service),
         inputs=[org["search_input"], tree_st, lib_st],
         outputs=[org["search_result_html"], org["global_graph_html"]],
     )
     org["search_input"].submit(
-        fn=handle_search,
+        fn=lambda query, tree, lib: handle_search(query, tree, lib, rag_service),
         inputs=[org["search_input"], tree_st, lib_st],
         outputs=[org["search_result_html"], org["global_graph_html"]],
     )

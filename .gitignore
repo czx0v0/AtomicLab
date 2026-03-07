@@ -10,3 +10,4 @@ data/*
 .gradio
 docs/*
 logs/*
+storage/*

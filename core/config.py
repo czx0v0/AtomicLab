@@ -96,3 +96,50 @@ NODE_SIZES = {
     "note": 25,
     "tag": 15,
 }
+
+# ══════════════════════════════════════════════════════════════
+# RAG Configuration
+# ══════════════════════════════════════════════════════════════
+
+# RAG服务配置
+RAG_CONFIG = {
+    # 模型配置
+    "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
+    "reranker_model": "BAAI/bge-reranker-v2-m3",
+    "device": "cpu",
+    # 分块配置
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    "similarity_threshold": 0.7,
+    # 检索配置
+    "vector_index_type": "HNSW",  # Flat, IVF, HNSW
+    "rrf_k": 60,
+    "semantic_weight": 0.6,
+    "keyword_weight": 0.3,
+    "metadata_weight": 0.1,
+    # 重排序配置
+    "use_reranker": True,
+    "rerank_top_n": 20,
+    # 质量配置
+    "min_parse_confidence": 0.5,
+    "enable_quality_check": True,
+}
+
+# 存储路径配置
+STORAGE_PATHS = {
+    "faiss_index": "storage/faiss/index.faiss",
+    "bm25_index": "storage/bm25/index.pkl",
+    "documents": "storage/documents",
+    "chunks": "storage/chunks",
+}
+
+# Chunk类型配置
+CHUNK_TYPES = [
+    "paragraph",  # 段落分块
+    "semantic",  # 语义分块
+    "section",  # 章节分块
+    "table_semantic",  # 表格语义描述
+    "table_row",  # 表格行
+    "figure",  # 图片描述
+    "formula",  # 公式
+]

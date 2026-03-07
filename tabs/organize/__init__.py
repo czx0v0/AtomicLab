@@ -277,9 +277,26 @@ def handle_org_doc_select(selected_pid, tree, lib):
     return tree_html, graph_html
 
 
-def handle_search(query, tree, lib):
+def handle_search(query, tree, lib, rag_service=None):
+    """搜索处理 - v2.1集成RAG混合检索
+
+    优先使用RAG服务进行语义+关键词混合检索，
+    如RAG不可用则回退到原有搜索方式
+    """
     if not query or not query.strip():
         return "", _render_graph(tree)
+
+    # v2.1: 尝试使用RAG服务进行高级检索
+    rag_results = []
+    if rag_service:
+        try:
+            retrieval_result = rag_service.retrieve(query, top_k=10, use_reranker=True)
+            if retrieval_result and retrieval_result.chunks:
+                rag_results = retrieval_result.chunks
+        except Exception as e:
+            print(f"RAG检索失败，回退到传统搜索: {e}")
+
+    # 传统知识树搜索
     results = search_nodes(tree, query)
     highlight_ids = [n.id for n in results]
 
@@ -298,7 +315,7 @@ def handle_search(query, tree, lib):
             snippet = doc_text[start:end]
             doc_matches.append((doc_name, snippet, pid))
 
-    total = len(results) + len(doc_matches)
+    total = len(results) + len(doc_matches) + len(rag_results)
     if total == 0:
         return (
             "<div class='search-result'><span>未找到结果</span></div>",
@@ -306,12 +323,44 @@ def handle_search(query, tree, lib):
         )
 
     parts = []
+    if rag_results:
+        parts.append(f"RAG语义检索 {len(rag_results)} 条")
     if results:
         parts.append(f"知识节点 {len(results)} 条")
     if doc_matches:
         parts.append(f"原文 {len(doc_matches)} 处")
 
     h = f"<div class='search-result'><span class='search-result-count'>找到 {total} 个结果（{' · '.join(parts)}）</span></div>"
+
+    # v2.1: 优先显示RAG检索结果
+    if rag_results:
+        h += "<div class='search-rag-results'>"
+        h += "<div style='font-size:12px;color:#3182ce;margin-bottom:8px;font-weight:500'>🎯 RAG智能检索结果</div>"
+        for chunk in rag_results[:8]:
+            content = esc(chunk.content[:200]) + (
+                "..." if len(chunk.content) > 200 else ""
+            )
+            doc_title = esc(chunk.metadata.doc_title) if chunk.metadata else "未知文档"
+            page_num = chunk.page_number if chunk.page_number else "?"
+            chunk_type = chunk.chunk_type if chunk.chunk_type else "text"
+
+            # 类型标签样式
+            type_colors = {
+                "table_semantic": "#e53e3e",
+                "table_row": "#dd6b20",
+                "semantic": "#3182ce",
+                "paragraph": "#38a169",
+            }
+            type_color = type_colors.get(chunk_type, "#718096")
+
+            h += f"""<div class="search-rag-card" style="margin-bottom:10px;padding:12px;background:#f7fafc;border-radius:8px;border-left:3px solid {type_color}">
+  <div style="font-size:11px;color:#4a5568;margin-bottom:4px;display:flex;justify-content:space-between">
+    <span><b>{doc_title}</b> (p.{page_num})</span>
+    <span style="color:{type_color};font-size:10px">{chunk_type}</span>
+  </div>
+  <div style="font-size:13px;color:#2d3748;line-height:1.5">{content}</div>
+</div>"""
+        h += "</div>"
 
     # Render knowledge node results as detailed cards
     if results:

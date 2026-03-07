@@ -9,6 +9,18 @@ builds context, and generates grounded answers with citations.
 from agents.base import BaseAgent, AgentOutput, call_llm
 from knowledge.search import search_nodes
 
+# 尝试导入RAG服务
+try:
+    from services.rag_service import RAGService
+    from core.config import RAG_CONFIG
+
+    _rag_service = RAGService(RAG_CONFIG)
+    RAG_AVAILABLE = True
+except Exception as e:
+    print(f"RAG服务初始化失败，将使用传统搜索: {e}")
+    _rag_service = None
+    RAG_AVAILABLE = False
+
 
 RAG_SYSTEM_PROMPT = """你是 Atomic Lab 的 AI 研究助手。基于用户的笔记和文献库回答问题。
 
@@ -47,79 +59,112 @@ class ConversationAgent(BaseAgent):
         context_parts = []
         cited_notes = []  # Track cited notes for display
         cited_docs = []  # Track cited documents for display
+        rag_chunks_used = False
 
-        # 1) Search knowledge tree nodes
-        if tree and hasattr(tree, "nodes") and tree.nodes:
-            matches = search_nodes(tree, question)
-            for node in matches[:8]:
-                source_label = ""
-                source_name = ""
-                if node.parent_id and tree.get_node(node.parent_id):
-                    parent = tree.get_node(node.parent_id)
-                    source_label = f" (来自: {parent.label})"
-                    source_name = parent.label
-                context_parts.append(f"[{node.type}]{source_label} {node.content}")
+        # 0) 优先使用RAG服务进行语义检索（如果可用）
+        if RAG_AVAILABLE and _rag_service and _rag_service.hybrid_searcher:
+            try:
+                retrieval_result = _rag_service.retrieve(
+                    query=question, top_k=10, use_reranker=True
+                )
+                if retrieval_result and retrieval_result.chunks:
+                    print(f"RAG检索: 找到 {len(retrieval_result.chunks)} 个相关chunks")
+                    rag_chunks_used = True
+                    for chunk in retrieval_result.chunks[:8]:
+                        doc_title = (
+                            chunk.metadata.doc_title if chunk.metadata else "未知文献"
+                        )
+                        page_num = chunk.page_number if chunk.page_number else "?"
+                        chunk_type = chunk.chunk_type if chunk.chunk_type else "text"
 
-                # Collect note info for cited display
-                if node.type == "note":
-                    cited_notes.append(
-                        {
-                            "content": node.content,
-                            "page": node.metadata.get("page", ""),
-                            "category": node.metadata.get("category", ""),
-                            "source_name": source_name,
-                        }
-                    )
+                        # 构建上下文
+                        source_label = f"[文献: {doc_title} p.{page_num}]"
+                        context_parts.append(
+                            f"{source_label} ({chunk_type})\n{chunk.content}"
+                        )
 
-        # 2) Search raw notes (including annotations)
-        q_lower = question.lower()
-        for n in notes:
-            content = n.get("content", "")
-            annotation = n.get("annotation", "")
-            search_text = content + " " + annotation
-            if any(kw in search_text.lower() for kw in q_lower.split() if len(kw) > 1):
-                note_str = f"[笔记 p.{n.get('page', '?')}] {content}"
-                if annotation:
-                    note_str += f" (批注: {annotation})"
-                context_parts.append(note_str)
+                        # 收集引用信息
+                        if doc_title not in cited_docs:
+                            cited_docs.append(doc_title)
+            except Exception as e:
+                print(f"RAG检索失败，回退到传统搜索: {e}")
+                rag_chunks_used = False
 
-                # Also collect for cited display (avoid duplicates)
-                if not any(c.get("content") == content for c in cited_notes):
-                    cited_notes.append(
-                        {
-                            "content": content,
-                            "page": n.get("page", ""),
-                            "category": n.get("category", ""),
-                            "source_name": n.get("source_name", ""),
-                        }
-                    )
+        # 1) 如果没有RAG结果，使用传统知识树搜索
+        if not rag_chunks_used:
+            if tree and hasattr(tree, "nodes") and tree.nodes:
+                matches = search_nodes(tree, question)
+                for node in matches[:8]:
+                    source_label = ""
+                    source_name = ""
+                    if node.parent_id and tree.get_node(node.parent_id):
+                        parent = tree.get_node(node.parent_id)
+                        source_label = f" (来自: {parent.label})"
+                        source_name = parent.label
+                    context_parts.append(f"[{node.type}]{source_label} {node.content}")
 
-                if len(context_parts) > 12:
-                    break
+                    # Collect note info for cited display
+                    if node.type == "note":
+                        cited_notes.append(
+                            {
+                                "content": node.content,
+                                "page": node.metadata.get("page", ""),
+                                "category": node.metadata.get("category", ""),
+                                "source_name": source_name,
+                            }
+                        )
 
-        # 3) Always search document text — include more context for better RAG
-        for pid, info in lib.items():
-            doc_text = info.get("text", "")
-            doc_name = info.get("name", "?")
-            if not doc_text:
-                continue
-            # Try multiple keyword snippets for broader coverage
-            snippets_added = 0
-            for kw in [kw for kw in q_lower.split() if len(kw) > 1]:
-                snippet = self._find_relevant_snippet(doc_text, kw, window=800)
-                if snippet:
-                    context_parts.append(f"[文献: {doc_name}] {snippet}")
-                    snippets_added += 1
-                    if snippets_added >= 2:
+            # 2) Search raw notes (including annotations)
+            q_lower = question.lower()
+            for n in notes:
+                content = n.get("content", "")
+                annotation = n.get("annotation", "")
+                search_text = content + " " + annotation
+                if any(
+                    kw in search_text.lower() for kw in q_lower.split() if len(kw) > 1
+                ):
+                    note_str = f"[笔记 p.{n.get('page', '?')}] {content}"
+                    if annotation:
+                        note_str += f" (批注: {annotation})"
+                    context_parts.append(note_str)
+
+                    # Also collect for cited display (avoid duplicates)
+                    if not any(c.get("content") == content for c in cited_notes):
+                        cited_notes.append(
+                            {
+                                "content": content,
+                                "page": n.get("page", ""),
+                                "category": n.get("category", ""),
+                                "source_name": n.get("source_name", ""),
+                            }
+                        )
+
+                    if len(context_parts) > 12:
                         break
-            # Fallback: add abstract if no keyword match
-            if snippets_added == 0 and doc_text:
-                context_parts.append(f"[文献摘要: {doc_name}] {doc_text[:800]}")
-                snippets_added = 1
 
-            # Track cited documents
-            if snippets_added > 0 and doc_name not in cited_docs:
-                cited_docs.append(doc_name)
+            # 3) Always search document text — include more context for better RAG
+            for pid, info in lib.items():
+                doc_text = info.get("text", "")
+                doc_name = info.get("name", "?")
+                if not doc_text:
+                    continue
+                # Try multiple keyword snippets for broader coverage
+                snippets_added = 0
+                for kw in [kw for kw in q_lower.split() if len(kw) > 1]:
+                    snippet = self._find_relevant_snippet(doc_text, kw, window=800)
+                    if snippet:
+                        context_parts.append(f"[文献: {doc_name}] {snippet}")
+                        snippets_added += 1
+                        if snippets_added >= 2:
+                            break
+                # Fallback: add abstract if no keyword match
+                if snippets_added == 0 and doc_text:
+                    context_parts.append(f"[文献摘要: {doc_name}] {doc_text[:800]}")
+                    snippets_added = 1
+
+                # Track cited documents
+                if snippets_added > 0 and doc_name not in cited_docs:
+                    cited_docs.append(doc_name)
 
         # Build prompt
         if context_parts:

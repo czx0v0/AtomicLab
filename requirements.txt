@@ -5,7 +5,21 @@ python-dotenv>=1.0.0
 
 # v2.0 搜索功能依赖
 jieba>=0.42.0
-numpy>=1.24.0
 
-# 语义搜索（可选 - 如需语义搜索功能）
-# sentence-transformers>=2.2.0
+# NumPy版本限制（避免与matplotlib/pandas兼容性问题）
+numpy>=1.24.0,<2.0.0
+
+# v2.1 RAG语义搜索
+sentence-transformers>=2.2.0
+
+# 高级PDF解析
+docling>=2.0.0
+
+# 向量数据库
+faiss-cpu>=1.7.4
+
+# 关键词检索
+rank-bm25>=0.2.2
+
+# 中文分词模型 (可选)
+# spacy>=3.7.0
