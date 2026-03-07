@@ -1,5 +1,70 @@
 # 更新日志
 
+### 2026-03-07 v2.3.0 (docling-pdf-viewer)
+
+#### 🚀 新功能
+
+**1. PDF.js高亮阅读模式**
+
+- 基于PDF.js 3.11的保真PDF渲染（公式、表格、图片完整显示）
+- 文本层选择 → 一键高亮（黄/绿/蓝/粉四色）
+- 高亮数据持久化框架（HighlightData数据模型）
+- iframe + srcdoc架构，解决Gradio HTML组件限制
+
+**2. 坐标映射服务**
+
+- 新增 `services/renderer/coordinate_mapper.py`
+- PDF位置 ↔ RAG Chunk ID双向映射
+- 支持高亮与RAG分块联动
+
+**3. 查询扩展优化**
+
+- 新增 `QUERY_EXPANSIONS` 映射表
+- SQL自动扩展为MySQL/PostgreSQL/SQLite/Database/DBMS/Query
+- AI/Metabolite等术语自动扩展
+
+**4. 实时状态反馈增强**
+
+- Chat/Organize/Write Tab 操作进度实时显示
+- 进度动画和状态HTML组件
+
+#### 🔧 改进
+
+- **AI提示词优化**：强制基于上下文回答，避免"未找到相关内容"
+- **表格解析修复**：列名和单元格值强制转字符串
+- **启动清理**：每次重启自动删除storage文件夹
+
+#### 🐛 Bug修复
+
+| 问题 | 解决方案 |
+|------|----------|
+| PDF高亮显示"正在加载" | 使用iframe srcdoc嵌入完整HTML文档 |
+| ChunkMetadata doc_id参数错误 | doc_id移至TextChunk层级 |
+| Chat输出数量不匹配警告 | 添加chat_status到outputs |
+| SQL查询无结果 | 新增查询扩展功能 |
+| Docling表格解析警告 | str()转换headers和rows |
+
+#### 📦 新增文件
+
+| 文件路径 | 功能描述 |
+|----------|----------|
+| `services/renderer/pdfjs_viewer.py` | PDF.js渲染器服务 |
+| `services/renderer/coordinate_mapper.py` | PDF-Chunk坐标映射 |
+| `services/renderer/__init__.py` | 渲染器模块初始化 |
+
+#### 📊 技术架构对比
+
+| 特性 | MinerU (magic-pdf) | 当前方案 (Docling + PDF.js) |
+|------|-------------------|---------------------------|
+| 定位 | 文档解析工具 | 全流程科研工作站 |
+| 解析精度 | 90+ (VLM) | 82-85 |
+| 扫描PDF | ✅ 自动OCR | ⚠️ 需配置 |
+| 高亮交互 | ❌ 无 | ✅ 完整支持 |
+| RAG集成 | ❌ 无 | ✅ 三路混合检索 |
+| AI对话 | ❌ 无 | ✅ RAG增强问答 |
+
+---
+
 ### 2026-03-07 v2.1.0 (advanced-pdf-parsing)
 
 #### 🚀 新功能
