@@ -132,15 +132,58 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
     # 检查是否有RAG解析结果
     doc_info = lib[pid]
 
+    # 检查处理状态
+    is_indexed = doc_info.get("rag_indexed", False)
+    is_processing = doc_info.get("rag_processing", False)
+    chunk_count = doc_info.get("chunk_count", 0)
+    rag_status = doc_info.get("rag_status", "")
+        
+    # 如果正在处理中
+    if is_processing:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>⏳</div>
+            <h3 style='color: #0369a1;'>Docling解析中...</h3>
+            <p style='color: #4b5563;'>状态: {rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请稍后再试，或切换到"文本模式"查看</p>
+            <div style='margin-top: 20px; padding: 10px; background: white; border-radius: 4px; font-size: 12px; color: #6b7280;'>
+                💡 提示: 解析过程包括PDF提取→语义分块→向量索引，可能需要30-60秒
+            </div>
+        </div>
+        """
+        
+    # 如果有状态但失败了
+    if rag_status and "失败" in rag_status:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #fef2f2; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>❌</div>
+            <h3 style='color: #dc2626;'>Docling解析失败</h3>
+            <p style='color: #4b5563;'>{rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请切换到"文本模式"查看，或重新上传</p>
+        </div>
+        """
+        
+    # 如果正在处理中（有chunk_count但未标记为indexed）
+    if chunk_count > 0 and not is_indexed:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>⏳</div>
+            <h3 style='color: #0369a1;'>Docling索引中...</h3>
+            <p style='color: #4b5563;'>已生成 {chunk_count} 个文本块，正在建立索引</p>
+            <p style='color: #718096; font-size: 14px;'>请稍后再试，或切换到"文本模式"查看</p>
+        </div>
+        """
+
     # 尝试从RAG服务获取解析结果
     try:
-        from services.rag_service import RAGService
+        from services.rag_service import get_rag_service
         from core.config import RAG_CONFIG
 
-        rag_service = RAGService(RAG_CONFIG)
+        # 使用全局RAG服务实例
+        rag_service = get_rag_service(RAG_CONFIG)
 
         # 如果文档已索引，尝试获取chunks
-        if doc_info.get("rag_indexed"):
+        if is_indexed:
             # 获取文档的chunks
             chunks = []
             if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
@@ -148,6 +191,17 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
                 for chunk_id in chunk_ids:
                     if chunk_id in rag_service.chunk_store:
                         chunks.append(rag_service.chunk_store[chunk_id])
+
+            if not chunks:
+                # 已标记为indexed但chunks不在内存中，可能是重启后
+                return f"""
+                <div class='docling-status' style='padding: 40px; text-align: center;'>
+                    <div style='font-size: 48px; margin-bottom: 20px;'>🔄</div>
+                    <h3>索引需要重新加载</h3>
+                    <p>文档已解析（{chunk_count} chunks），但索引不在内存中</p>
+                    <p style='color: #718096; font-size: 14px;'>请重新上传PDF或切换到"文本模式"</p>
+                </div>
+                """
 
             # 构建ParsedDocument-like结构
             if chunks:
@@ -258,25 +312,41 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
 
         # v2.1: RAG高级解析和索引 (异步处理，不阻塞UI)
         if rag_service and fp.lower().endswith(".pdf"):
+            # 先标记为处理中状态
+            lib[pid]["rag_processing"] = True
+            lib[pid]["rag_status"] = "解析中..."
+            
             try:
                 import threading
 
                 def process_with_rag():
                     try:
+                        print(f"[RAG] 开始处理: {fn}")
                         result = rag_service.process_document(fp, pid)
                         if result.success:
                             lib[pid]["rag_indexed"] = True
+                            lib[pid]["rag_processing"] = False
+                            lib[pid]["rag_status"] = "已完成"
                             lib[pid]["chunk_count"] = result.chunk_count
                             lib[pid]["parse_confidence"] = result.confidence
+                            print(f"[RAG] 完成: {fn} ({result.chunk_count} chunks)")
+                        else:
+                            lib[pid]["rag_processing"] = False
+                            lib[pid]["rag_status"] = f"失败: {result.error}"
+                            print(f"[RAG] 失败: {fn} - {result.error}")
                     except Exception as e:
-                        print(f"RAG处理文档失败 {fn}: {e}")
+                        lib[pid]["rag_processing"] = False
+                        lib[pid]["rag_status"] = f"异常: {str(e)[:50]}"
+                        print(f"[RAG] 异常: {fn} - {e}")
 
                 # 在后台线程中处理，避免阻塞UI
                 thread = threading.Thread(target=process_with_rag)
                 thread.daemon = True
                 thread.start()
             except Exception as e:
-                print(f"启动RAG处理失败: {e}")
+                lib[pid]["rag_processing"] = False
+                lib[pid]["rag_status"] = f"启动失败: {str(e)[:50]}"
+                print(f"[RAG] 启动失败: {fn} - {e}")
 
     last_pid = list(lib.keys())[-1] if lib else None
 
