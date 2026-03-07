@@ -72,11 +72,11 @@ class PDFJSViewer:
     PDFJS_VERSION = "3.11.174"
 
     HIGHLIGHT_COLORS = {
-        "yellow": "rgba(255, 235, 59, 0.4)",
-        "green": "rgba(76, 175, 80, 0.4)",
-        "blue": "rgba(33, 150, 243, 0.4)",
-        "pink": "rgba(233, 30, 99, 0.4)",
-        "orange": "rgba(255, 152, 0, 0.4)",
+        "yellow": "rgba(255, 235, 59, 0.25)",
+        "green": "rgba(76, 175, 80, 0.25)",
+        "blue": "rgba(33, 150, 243, 0.25)",
+        "pink": "rgba(233, 30, 99, 0.25)",
+        "orange": "rgba(255, 152, 0, 0.25)",
     }
 
     def render_viewer(
@@ -142,7 +142,7 @@ class PDFJSViewer:
         file_size_mb: float,
         highlights_json: str,
     ) -> str:
-        """生成PDF.js viewer的完整HTML文档 - v2.3双模式交互版"""
+        """生成PDF.js viewer的完整HTML文档 - v2.4版：缩放控制+工具栏固定+视觉反馈"""
 
         return f"""<!DOCTYPE html>
 <html>
@@ -154,8 +154,11 @@ class PDFJSViewer:
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ background: #525659; font-family: system-ui, sans-serif; }}
         
-        /* 顶部工具栏 */
+        /* 顶部工具栏 - 固定定位 */
         .toolbar {{
+            position: sticky;
+            top: 0;
+            z-index: 100;
             background: #edf2f7;
             padding: 8px 12px;
             border-bottom: 1px solid #e2e8f0;
@@ -163,6 +166,7 @@ class PDFJSViewer:
             gap: 8px;
             align-items: center;
             flex-wrap: wrap;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
         .btn {{
             padding: 6px 12px;
@@ -178,6 +182,35 @@ class PDFJSViewer:
         .btn.active {{ background: #3182ce; color: white; border-color: #3182ce; }}
         
         .page-info {{ font-size: 13px; color: #4a5568; min-width: 80px; text-align: center; }}
+        
+        /* 缩放控制 */
+        .zoom-control {{
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: white;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            padding: 2px;
+        }}
+        .zoom-btn {{
+            width: 28px;
+            height: 24px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 14px;
+            color: #4a5568;
+            border-radius: 2px;
+        }}
+        .zoom-btn:hover {{ background: #e2e8f0; }}
+        .zoom-value {{
+            min-width: 50px;
+            text-align: center;
+            font-size: 12px;
+            color: #2d3748;
+            font-weight: 500;
+        }}
         
         /* 模式切换按钮 */
         .mode-toggle {{
@@ -205,7 +238,8 @@ class PDFJSViewer:
             display: flex;
             justify-content: center;
             padding: 20px;
-            min-height: calc(100vh - 50px);
+            padding-top: 10px;
+            min-height: calc(100vh - 60px);
         }}
         .page-wrapper {{
             background: white;
@@ -227,7 +261,12 @@ class PDFJSViewer:
             white-space: pre;
             pointer-events: all;
         }}
-        .text-layer ::selection {{ background: rgba(66, 153, 225, 0.4); }}
+        .text-layer ::selection {{ background: rgba(66, 153, 225, 0.5); }}
+        
+        /* 选中状态视觉反馈 - 保持到用户操作 */
+        .text-layer .keep-selection {{
+            background: rgba(66, 153, 225, 0.3);
+        }}
         
         /* 高亮层 */
         .highlight-layer {{
@@ -241,7 +280,7 @@ class PDFJSViewer:
             cursor: pointer;
             transition: opacity 0.2s;
         }}
-        .highlight:hover {{ opacity: 0.8; }}
+        .highlight:hover {{ opacity: 0.7; }}
         .highlight.yellow {{ background: {self.HIGHLIGHT_COLORS['yellow']}; }}
         .highlight.green {{ background: {self.HIGHLIGHT_COLORS['green']}; }}
         .highlight.blue {{ background: {self.HIGHLIGHT_COLORS['blue']}; }}
@@ -274,10 +313,10 @@ class PDFJSViewer:
             border-radius: 50%;
             border: 2px solid transparent;
             cursor: pointer;
-            transition: transform 0.15s;
+            transition: transform 0.15s, border-color 0.15s;
         }}
         .popup-color-btn:hover {{ transform: scale(1.15); }}
-        .popup-color-btn.selected {{ border-color: #2d3748; }}
+        .popup-color-btn.selected {{ border-color: #2d3748; transform: scale(1.1); }}
         
         .popup-annotation {{
             width: 100%;
@@ -347,6 +386,25 @@ class PDFJSViewer:
             display: none;
         }}
         .translate-result.show {{ display: block; }}
+        
+        /* OCR按钮 */
+        .ocr-section {{
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #e2e8f0;
+            display: none;
+        }}
+        .ocr-section.show {{ display: block; }}
+        .ocr-result {{
+            font-size: 12px;
+            color: #2d3748;
+            background: #f7fafc;
+            padding: 6px;
+            border-radius: 4px;
+            margin-top: 6px;
+            max-height: 80px;
+            overflow-y: auto;
+        }}
     </style>
 </head>
 <body>
@@ -354,6 +412,14 @@ class PDFJSViewer:
         <button class="btn" id="prevBtn" disabled>◀ 上一页</button>
         <span class="page-info" id="pageInfo">1 / ?</span>
         <button class="btn" id="nextBtn" disabled>下一页 ▶</button>
+        
+        <!-- 缩放控制 -->
+        <div class="zoom-control">
+            <button class="zoom-btn" id="zoomOut" title="缩小">−</button>
+            <span class="zoom-value" id="zoomValue">100%</span>
+            <button class="zoom-btn" id="zoomIn" title="放大">+</button>
+            <button class="zoom-btn" id="zoomReset" title="重置">⟲</button>
+        </div>
         
         <div style="flex: 1;"></div>
         
@@ -378,6 +444,10 @@ class PDFJSViewer:
         </div>
         <input type="text" class="popup-annotation" id="popupAnnotation" placeholder="添加批注（可选）..." />
         <div class="translate-result" id="translateResult"></div>
+        <div class="ocr-section" id="ocrSection">
+            <button class="popup-action-btn" id="ocrBtn">🔍 OCR识别文字</button>
+            <div class="ocr-result" id="ocrResult" style="display:none"></div>
+        </div>
         <div class="popup-actions">
             <button class="popup-action-btn" id="popupTranslate">翻译</button>
             <button class="popup-action-btn primary" id="popupSave">保存笔记</button>
@@ -393,12 +463,14 @@ class PDFJSViewer:
             pdf: null,
             page: 1,
             total: 0,
-            scale: 1.5,
+            scale: 1.0,  // 默认100%缩放
+            baseScale: 1.0,  // PDF基础缩放
             color: 'yellow',
             highlights: {highlights_json},
             // 高亮模式状态
             selectedText: '',
             selectedRects: [],
+            selectedRange: null,  // 保存选区用于视觉反馈
             // 截图模式状态
             isScreenshotMode: false,
             screenshotStart: null,
@@ -412,6 +484,10 @@ class PDFJSViewer:
         const popupToolbar = document.getElementById('popupToolbar');
         const highlightModeBtn = document.getElementById('highlightMode');
         const screenshotModeBtn = document.getElementById('screenshotMode');
+        const zoomIn = document.getElementById('zoomIn');
+        const zoomOut = document.getElementById('zoomOut');
+        const zoomReset = document.getElementById('zoomReset');
+        const zoomValue = document.getElementById('zoomValue');
         
         // ═══════════════════════════════════════════════════════════════
         // PDF初始化和渲染
@@ -433,7 +509,7 @@ class PDFJSViewer:
             hidePopup();
             
             const page = await state.pdf.getPage(num);
-            const viewport = page.getViewport({{ scale: state.scale }});
+            const viewport = page.getViewport({{ scale: state.scale * state.baseScale }});
             
             // Canvas渲染
             const canvas = document.createElement('canvas');
@@ -481,6 +557,37 @@ class PDFJSViewer:
             textLayer.addEventListener('mouseup', onTextSelection);
         }}
         
+        // ═══════════════════════════════════════════════════════════════
+        // 缩放控制
+        // ═══════════════════════════════════════════════════════════════
+        function updateZoomDisplay() {{
+            zoomValue.textContent = Math.round(state.scale * 100) + '%';
+        }}
+        
+        zoomIn.onclick = () => {{
+            if (state.scale < 3) {{
+                state.scale = Math.min(3, state.scale + 0.25);
+                updateZoomDisplay();
+                renderPage(state.page);
+            }}
+        }};
+        
+        zoomOut.onclick = () => {{
+            if (state.scale > 0.5) {{
+                state.scale = Math.max(0.5, state.scale - 0.25);
+                updateZoomDisplay();
+                renderPage(state.page);
+            }}
+        }};
+        
+        zoomReset.onclick = () => {{
+            state.scale = 1.0;
+            updateZoomDisplay();
+            renderPage(state.page);
+        }};
+        
+        updateZoomDisplay();
+        
         function renderHighlights(pageNum) {{
             const layer = document.getElementById('hl-' + pageNum);
             if (!layer) return;
@@ -490,10 +597,11 @@ class PDFJSViewer:
                 if (!h.coordinate) return;
                 
                 const rects = h.rects && h.rects.length > 0 ? h.rects : [h.coordinate];
+                const scale = state.scale * state.baseScale;
                 rects.forEach(r => {{
                     const div = document.createElement('div');
                     div.className = 'highlight ' + h.color;
-                    div.style.cssText = `left:${{r.x}}px;top:${{r.y}}px;width:${{r.w || r.width}}px;height:${{r.h || r.height}}px`;
+                    div.style.cssText = `left:${{r.x * scale}}px;top:${{r.y * scale}}px;width:${{(r.w || r.width) * scale}}px;height:${{(r.h || r.height) * scale}}px`;
                     div.title = h.annotation || h.content;
                     layer.appendChild(div);
                 }});
@@ -540,22 +648,28 @@ class PDFJSViewer:
             if (!state.selectedText) return;
             
             const range = sel.getRangeAt(0);
+            state.selectedRange = range;  // 保存选区
+            
             const rects = range.getClientRects();
             const wrapperRect = container.querySelector('.page-wrapper').getBoundingClientRect();
+            const scale = state.scale * state.baseScale;
             
             state.selectedRects = [];
             for (let i = 0; i < rects.length; i++) {{
                 state.selectedRects.push({{
-                    x: rects[i].left - wrapperRect.left,
-                    y: rects[i].top - wrapperRect.top,
-                    w: rects[i].width,
-                    h: rects[i].height
+                    x: (rects[i].left - wrapperRect.left) / scale,
+                    y: (rects[i].top - wrapperRect.top) / scale,
+                    w: rects[i].width / scale,
+                    h: rects[i].height / scale
                 }});
             }}
             
             // 显示浮动工具框
             const lastRect = rects[rects.length - 1];
             showPopup(lastRect.left + lastRect.width / 2, lastRect.top - 10);
+            
+            // 不清除选区，保持视觉反馈
+            e.preventDefault();
         }}
         
         // ═══════════════════════════════════════════════════════════════
@@ -650,10 +764,17 @@ class PDFJSViewer:
             ctx.drawImage(canvas, rect.x - canvasRect.left, rect.y - canvasRect.top, rect.w, rect.h, 0, 0, rect.w, rect.h);
             
             state.screenshotImageData = cropCanvas.toDataURL('image/png');
-            state.selectedRects = [{{ x: rect.x - canvasRect.left, y: rect.y - canvasRect.top, w: rect.w, h: rect.h }}];
+            const scale = state.scale * state.baseScale;
+            state.selectedRects = [{{ 
+                x: (rect.x - canvasRect.left) / scale, 
+                y: (rect.y - canvasRect.top) / scale, 
+                w: rect.w / scale, 
+                h: rect.h / scale 
+            }}];
             
-            // 显示工具框
+            // 显示工具框和OCR区域
             showPopup(rect.x + rect.w / 2, rect.y - 10);
+            document.getElementById('ocrSection').classList.add('show');
             
             state.screenshotStart = null;
         }}
@@ -666,6 +787,8 @@ class PDFJSViewer:
             document.getElementById('popupAnnotation').value = '';
             document.getElementById('translateResult').classList.remove('show');
             document.getElementById('translateResult').textContent = '';
+            document.getElementById('ocrSection').classList.remove('show');
+            document.getElementById('ocrResult').style.display = 'none';
             
             // 定位
             popupToolbar.style.left = Math.max(10, x - 100) + 'px';
@@ -677,18 +800,58 @@ class PDFJSViewer:
             popupToolbar.classList.remove('show');
             state.selectedText = '';
             state.selectedRects = [];
+            state.selectedRange = null;
             state.screenshotImageData = null;
+            document.getElementById('ocrSection').classList.remove('show');
+            // 清除选区
             window.getSelection()?.removeAllRanges();
         }}
         
-        // 颜色选择
+        // 颜色选择 - 保持选区视觉反馈
         popupToolbar.querySelectorAll('.popup-color-btn').forEach(btn => {{
-            btn.onclick = () => {{
+            btn.onclick = (e) => {{
+                e.stopPropagation();
                 popupToolbar.querySelectorAll('.popup-color-btn').forEach(b => b.classList.remove('selected'));
                 btn.classList.add('selected');
                 state.color = btn.dataset.color;
+                // 不清除选区，保持视觉反馈
             }};
-        }});
+        }})
+        
+        // OCR按钮
+        document.getElementById('ocrBtn').onclick = async () => {{
+            if (!state.screenshotImageData) return;
+            
+            const ocrResult = document.getElementById('ocrResult');
+            ocrResult.style.display = 'block';
+            ocrResult.textContent = 'OCR识别中...';
+            
+            // 通知父页面进行OCR
+            if (window.parent) {{
+                window.parent.postMessage({{ 
+                    type: 'ocr', 
+                    data: {{ 
+                        image: state.screenshotImageData,
+                        page: state.page,
+                        doc_id: state.docId
+                    }}
+                }}, '*');
+            }}
+        }};
+        
+        // 监听OCR结果
+        window.addEventListener('message', function(e) {{
+            if (e.data && e.data.type === 'ocr_result') {{
+                const ocrText = e.data.data ? e.data.data.text : '';
+                const ocrResult = document.getElementById('ocrResult');
+                if (ocrText) {{
+                    ocrResult.textContent = ocrText;
+                    state.selectedText = ocrText;  // 更新为OCR识别的文字
+                }} else {{
+                    ocrResult.textContent = 'OCR识别失败';
+                }}
+            }}
+        }});;
         
         // 翻译按钮
         document.getElementById('popupTranslate').onclick = async () => {{
@@ -725,6 +888,8 @@ class PDFJSViewer:
         // 保存按钮
         document.getElementById('popupSave').onclick = () => {{
             const annotation = document.getElementById('popupAnnotation').value.trim();
+            const ocrText = document.getElementById('ocrResult').textContent;
+            const isOCRText = ocrText && ocrText !== 'OCR识别中...' && ocrText !== 'OCR识别失败';
             
             if (state.screenshotImageData) {{
                 // 截图笔记
@@ -734,7 +899,8 @@ class PDFJSViewer:
                     page: state.page,
                     doc_id: state.docId,
                     annotation: annotation,
-                    rects: state.selectedRects
+                    rects: state.selectedRects,
+                    ocr_text: isOCRText ? ocrText : ''  // OCR识别的文字
                 }};
                 if (window.parent) {{
                     window.parent.postMessage({{ type: 'screenshot', data: data }}, '*');

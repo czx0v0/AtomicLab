@@ -86,6 +86,10 @@ rag_service = get_rag_service(RAG_CONFIG)
 # 每次启动清空索引重新加载（避免旧索引损坏问题）
 rag_service.load(clear_existing=True)
 
+# OCR服务集成
+from services.ocr_service import get_ocr_service
+ocr_service = get_ocr_service()
+
 
 # ══════════════════════════════════════════════════════════════
 # MODEL SELECTOR HELPERS
@@ -147,19 +151,6 @@ with gr.Blocks(title=APP_TITLE) as demo:
 
     gr.HTML(HEADER_HTML)
 
-    # ── Model Selector Row ──
-    with gr.Row(elem_classes=["model-row"]):
-        model_dropdown = gr.Dropdown(
-            choices=_get_model_choices(),
-            value=cooldown_manager.get_preferred(),
-            label="首选模型",
-            interactive=True,
-            scale=2,
-            container=False,
-        )
-        model_status_html = gr.HTML(_get_model_status_html())
-        reset_cooldown_btn = gr.Button("重置冷却", size="sm", scale=0)
-
     with gr.Tabs():
         with gr.Tab("阅读"):
             read = build_read_tab()
@@ -196,17 +187,19 @@ with gr.Blocks(title=APP_TITLE) as demo:
         inputs=[tree_st],
         outputs=[org["global_graph_html"]],
     ).then(
-        # Update write tab and organize tab document selectors
+        # Update write tab, organize tab, and chat tab document selectors
         fn=lambda lib, tree: (
             gr.update(choices=get_doc_choices(lib)),
             _render_write_graph(tree, None),
             gr.update(choices=get_doc_choices(lib)),
+            gr.update(choices=get_doc_choices(lib)),  # chat doc selector
         ),
         inputs=[lib_st, tree_st],
         outputs=[
             wrt["write_doc_selector"],
             wrt["write_graph_html"],
             org["org_doc_selector"],
+            chat["doc_selector"],
         ],
     )
     read["pdf_selector"].change(
@@ -452,22 +445,71 @@ with gr.Blocks(title=APP_TITLE) as demo:
         outputs=[chat["chatbot"], chat["msg_input"]],
     )
 
-    # ── Model Selector Events ──
-    model_dropdown.change(
+    # ── Chat Tab Model Selector Events ──
+    # 初始化chat tab的模型选择器
+    chat["model_selector"].change(
         fn=_handle_model_switch,
-        inputs=[model_dropdown],
-        outputs=[model_status_html],
+        inputs=[chat["model_selector"]],
+        outputs=[chat["model_status"]],
     )
-    reset_cooldown_btn.click(
-        fn=_handle_reset_cooldowns,
-        inputs=[],
-        outputs=[model_status_html],
+    # 文献选择器同步
+    chat["doc_selector"].change(
+        fn=lambda pid: (
+            gr.update(value=pid if pid != "__all__" else ""),  # read tab
+            gr.update(value=pid),  # organize tab
+            gr.update(value=pid),  # write tab
+        ),
+        inputs=[chat["doc_selector"]],
+        outputs=[read["pdf_selector"], org["org_doc_selector"], wrt["write_doc_selector"]],
     )
+
+# ══════════════════════════════════════════════════════════════
+# POST-INIT HOOK
+# ══════════════════════════════════════════════════════════════
+
+
+def _init_chat_model_selector():
+    """Initialize chat tab model selector after demo is built."""
+    # 设置模型选择器选项和默认值
+    model_choices = _get_model_choices()
+    preferred = cooldown_manager.get_preferred()
+    status_html = _get_model_status_html()
+    return gr.update(choices=model_choices, value=preferred), status_html
+
+
+# 使用demo.load在页面加载时初始化chat模型选择器
+demo.load(
+    fn=_init_chat_model_selector,
+    inputs=[],
+    outputs=[chat["model_selector"], chat["model_status"]],
+)
 
 
 # ══════════════════════════════════════════════════════════════
 # LAUNCH
 # ══════════════════════════════════════════════════════════════
+
+# OCR API端点
+import json
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+
+@demo.app.post("/api/ocr")
+async def api_ocr(request: Request):
+    """OCR识别API"""
+    try:
+        body = await request.json()
+        image_data = body.get("image", "")
+        if not image_data:
+            return JSONResponse({"text": "", "error": "No image data"})
+        
+        result = ocr_service.recognize(image_data)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"text": "", "error": str(e)})
+
+
 if __name__ == "__main__":
     launch_kwargs = {
         "server_name": "0.0.0.0",

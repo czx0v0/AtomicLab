@@ -277,6 +277,31 @@ def build_chat_tab():
         send_btn = gr.Button("发送", variant="primary", scale=1, size="sm")
         clear_btn = gr.Button("清空", scale=1, size="sm")
 
+    # ── 左下角工具栏：模型选择 + 文献选择 ──
+    with gr.Row(elem_classes=["chat-toolbar"]):
+        # 模型选择器
+        model_selector = gr.Dropdown(
+            choices=[],  # 将在main.py中设置
+            value="",
+            label="模型",
+            show_label=True,
+            scale=2,
+            container=False,
+            elem_id="chat-model-selector",
+        )
+        # 当前文献选择器
+        doc_selector = gr.Dropdown(
+            choices=[("全部文献", "__all__")],
+            value="__all__",
+            label="发送文献",
+            show_label=True,
+            scale=2,
+            container=False,
+            elem_id="chat-doc-selector",
+        )
+        # 模型状态指示
+        model_status = gr.HTML("", elem_id="chat-model-status")
+
     # Hidden textbox for receiving "问AI" from reading page popup
     ai_ask_input = gr.Textbox(
         elem_id="ai-ask-input",
@@ -292,4 +317,7 @@ def build_chat_tab():
         "clear_btn": clear_btn,
         "ai_ask_input": ai_ask_input,
         "chat_status": chat_status,
+        "model_selector": model_selector,
+        "doc_selector": doc_selector,
+        "model_status": model_status,
     }

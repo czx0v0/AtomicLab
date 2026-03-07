@@ -247,7 +247,7 @@ def handle_write_search(query, tree, lib=None, search_type="keyword"):
             # Highlight match
             snippet = snippet.replace(q_lower, f"<mark>{q_lower}</mark>")
             h += (
-                f"<div class='org-item'>"
+                f"<div class='org-item' onclick=\"jumpToSource('{dm['pid']}', 1)\" style='cursor:pointer' title='点击跳转到原文'>"
                 f"<span class='org-icon'>📄</span>"
                 f"<span class='org-preview'><b>{esc(dm['doc_name'][:30])}</b> — ...{snippet}...</span>"
                 f"</div>"

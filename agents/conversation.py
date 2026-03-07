@@ -98,21 +98,41 @@ class ConversationAgent(BaseAgent):
 
                     if retrieval_result and retrieval_result.chunks:
                         rag_chunks_used = True
-                        for chunk in retrieval_result.chunks[:8]:
+
+                        # 按页码分组chunks，重组上下文
+                        chunks_by_page = {}
+                        for chunk in retrieval_result.chunks[:10]:
                             doc_title = (
                                 chunk.metadata.doc_title
                                 if chunk.metadata
                                 else "未知文献"
                             )
                             page_num = chunk.page_number if chunk.page_number else "?"
+                            key = (doc_title, page_num)
+                            if key not in chunks_by_page:
+                                chunks_by_page[key] = []
+                            chunks_by_page[key].append(chunk)
+
+                        # 合并同一页的chunks，避免内容被分割
+                        # TODO: one chapter's chunks
+                        for (
+                            doc_title,
+                            page_num,
+                        ), page_chunks in chunks_by_page.items():
+                            # 合并同一页的所有chunk内容
+                            combined_content = "\n".join(
+                                [c.content for c in page_chunks]
+                            )
                             chunk_type = (
-                                chunk.chunk_type if chunk.chunk_type else "text"
+                                page_chunks[0].chunk_type
+                                if page_chunks[0].chunk_type
+                                else "text"
                             )
 
                             # 构建上下文
                             source_label = f"[文献: {doc_title} p.{page_num}]"
                             context_parts.append(
-                                f"{source_label} ({chunk_type})\n{chunk.content}"
+                                f"{source_label} ({chunk_type})\n{combined_content}"
                             )
 
                             # 收集引用信息
@@ -154,6 +174,8 @@ class ConversationAgent(BaseAgent):
                                 "page": node.metadata.get("page", ""),
                                 "category": node.metadata.get("category", ""),
                                 "source_name": source_name,
+                                "source_pid": node.source_pid
+                                or "",  # 添加source_pid用于跳转
                             }
                         )
 
@@ -179,6 +201,7 @@ class ConversationAgent(BaseAgent):
                                 "page": n.get("page", ""),
                                 "category": n.get("category", ""),
                                 "source_name": n.get("source_name", ""),
+                                "source_pid": n.get("source_pid", ""),  # 添加source_pid用于跳转
                             }
                         )
 

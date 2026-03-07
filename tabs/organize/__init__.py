@@ -412,6 +412,7 @@ def handle_search(query, tree, lib, rag_service=None):
             page = node.metadata.get("page", "")
             translation = node.metadata.get("translation", "")
             annotation = node.metadata.get("annotation", "")
+            source_pid = node.source_pid or ""
 
             # Category badge
             from core.config import CATEGORY_COLORS
@@ -446,7 +447,10 @@ def handle_search(query, tree, lib, rag_service=None):
                 else ""
             )
 
-            h += f"""<div class="search-node-card" onclick="setGradioValue('#selected-node-input', '{node.id}')" style="cursor:pointer">
+            # 点击跳转功能
+            onclick = f"onclick=\"jumpToSource('{source_pid}', {page})\"" if source_pid and page else "onclick=\"setGradioValue('#selected-node-input', '{node.id}')\""
+            
+            h += f"""<div class="search-node-card" {onclick} style="cursor:pointer" title="点击跳转到原文">
   <div class="nt-top">{cat_badge}<span class="nt-type">{node.type}</span>{page_html}</div>
   <div class="nt-body">{content}</div>
   {ann_html}{trans_html}{tags_html}
@@ -826,7 +830,7 @@ def build_organize_tab():
         show_label=False,
     )
     note_action_tb = gr.Textbox(
-        elem_id="note-action-input",
+        elem_id="org-note-action-input",
         visible=False,
         show_label=False,
     )

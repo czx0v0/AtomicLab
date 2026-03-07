@@ -178,7 +178,10 @@ GLOBAL_JS = r"""
     
     // For other actions, send to Python handler via hidden textbox
     var payload = action + ':' + nodeId;
+    
+    // Update both read tab and organize tab inputs to ensure cross-page compatibility
     setGradioValue('#note-action-input', payload);
+    setGradioValue('#org-note-action-input', payload);
     
     // Show immediate feedback
     var messages = {
@@ -707,12 +710,52 @@ GLOBAL_JS = r"""
         annotation: data.annotation || '',
         doc_id: data.doc_id,
         rects: data.rects,
+        ocr_text: data.ocr_text || '',  // OCR识别的文字
         _t: Date.now()
       });
       
       // 触发保存截图笔记
       setGradioValue('#highlight-action-input', payload);
       showToast('已保存截图笔记');
+    }
+    
+    // 接收OCR请求
+    if (e.data && e.data.type === 'ocr') {
+      var ocrData = e.data.data;
+      if (!ocrData || !ocrData.image) return;
+      
+      console.log('[Atomic] PDF.js OCR请求');
+      
+      // 调用后端OCR服务
+      fetch('/api/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: ocrData.image })
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(result) {
+        var iframes = document.querySelectorAll('iframe');
+        iframes.forEach(function(iframe) {
+          try {
+            iframe.contentWindow.postMessage({
+              type: 'ocr_result',
+              data: { text: result.text || '' }
+            }, '*');
+          } catch(err) {}
+        });
+      })
+      .catch(function(err) {
+        console.error('[Atomic] OCR请求失败:', err);
+        var iframes = document.querySelectorAll('iframe');
+        iframes.forEach(function(iframe) {
+          try {
+            iframe.contentWindow.postMessage({
+              type: 'ocr_result',
+              data: { text: '' }
+            }, '*');
+          } catch(err2) {}
+        });
+      });
     }
     
     // 接收翻译请求

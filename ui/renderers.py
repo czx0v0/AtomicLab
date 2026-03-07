@@ -284,13 +284,15 @@ def render_note_cards(
             translation_html = (
                 f'\n  <div class="nt-translation"><b>译:</b> {esc(translation)}</div>'
             )
-        
+
         # 截图图片显示
         image_html = ""
         image_data = n.get("image", "")
+        source_pid = n.get("source_pid", "")
+        page_num = n.get("page", 1)
         if image_data:
-            # 截图类型：显示图片缩略图
-            image_html = f'\n  <div class="nt-image"><img src="{image_data}" style="max-width:100%;border-radius:4px;cursor:pointer" onclick="window.open(this.src, \'_blank\')" title="点击查看大图" /></div>'
+            # 截图类型：显示图片缩略图，点击跳转到原文位置
+            image_html = f'\n  <div class="nt-image"><img src="{image_data}" style="max-width:100%;border-radius:4px;cursor:pointer" onclick="jumpToSource(\'{source_pid}\', {page_num})" title="点击跳转到原文位置" /></div>'
 
         # Tags display (AI tags + manual tags with different colors)
         ai_tags = n.get("ai_tags", [])
@@ -956,6 +958,7 @@ def render_cited_notes(notes_data: list) -> str:
         page = note.get("page", "")
         cat = note.get("category", "")
         source = esc(note.get("source_name", "")[:20])
+        source_pid = note.get("source_pid", "")
 
         cat_badge = ""
         if cat:
@@ -965,10 +968,13 @@ def render_cited_notes(notes_data: list) -> str:
         page_html = f'<span class="nt-page">p.{page}</span>' if page else ""
         source_html = f'<span class="nt-source">{source}</span>' if source else ""
 
-        h += f"""<div class="nt nt-cited">
+        # 添加点击跳转功能
+        onclick = f"onclick=\"jumpToSource('{source_pid}', {page})\"" if source_pid and page else ""
+
+        h += f"""<div class="nt nt-cited" {onclick} style="cursor:pointer" title="点击跳转到原文">
   <div class="nt-top">{cat_badge}{page_html}{source_html}</div>
   <div class="nt-body">{content}</div>
 </div>"""
 
-    return f"""<div class="nt-cited-header" style="font-size:.75em;color:var(--text-muted);margin-top:8px">📎 引用来源 ({len(notes_data)})</div>
+    return f"""<div class="nt-cited-header" style="font-size:.75em;color:var(--text-muted);margin-top:8px">📎 引用来源 ({len(notes_data)}) - 点击跳转</div>
 <div class='nt-cited-wrap'>{h}</div>"""

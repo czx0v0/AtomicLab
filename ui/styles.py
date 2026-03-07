@@ -282,6 +282,13 @@ button.stop:hover,button.secondary:hover{background:#f7fafc!important;border-col
 .file-item-icon{font-size:1em;flex-shrink:0;}
 .file-item-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
+/* RAG status indicators */
+.rag-status{font-size:0.75em;margin-left:4px;padding:1px 4px;border-radius:3px;font-weight:500;}
+.rag-status.processing{background:#fef3c7;color:#d97706;animation:rag-pulse 1.5s ease-in-out infinite;}
+.rag-status.indexed{background:#d1fae5;color:#059669;}
+.rag-status.failed{background:#fee2e2;color:#dc2626;}
+@keyframes rag-pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}
+
 /* ══════════════════════════════════════════════════════════════
    Stats Bar
    ══════════════════════════════════════════════════════════════ */
@@ -578,6 +585,20 @@ mark[data-note-id].highlight-focus{animation:highlight-pulse 1s ease-in-out 2;bo
 /* Hidden action input */
 #note-action-input{position:absolute!important;width:1px!important;height:1px!important;
   overflow:hidden!important;opacity:0!important;pointer-events:none!important;}
+
+/* Chat toolbar - model selector and doc selector in chat tab */
+.chat-toolbar{margin-top:8px;padding:8px 0;border-top:1px solid var(--border);}
+.chat-toolbar .gradio-dropdown{min-width:120px;}
+#chat-model-status{font-size:.75em;color:var(--text-muted);margin-left:8px;}
+.chat-toolbar label{font-size:.75em;color:var(--text-muted);margin-bottom:2px;}
+
+/* Model status badges */
+.model-status{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.model-label{font-size:.7em;color:var(--text-muted);margin-right:4px;}
+.model-badge{font-size:.65em;padding:2px 6px;border-radius:4px;font-weight:500;}
+.model-badge.available{background:#e6fffa;color:#319795;}
+.model-badge.preferred{background:#e6f0ff;color:#3182ce;}
+.model-badge.cooldown{background:#fff3e6;color:#d97706;opacity:.7;}
 """
 
 # Header HTML — Pixel styled on white

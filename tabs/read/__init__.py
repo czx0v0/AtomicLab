@@ -70,7 +70,7 @@ COLOR_PRIORITY_MAP = {
 
 
 def _render_file_list(lib: dict, active_pid: str = "") -> str:
-    """Render clickable file list."""
+    """Render clickable file list with RAG status indicators."""
     if not lib:
         return "<div class='nc-empty'>上传文献后显示</div>"
     h = ""
@@ -79,12 +79,29 @@ def _render_file_list(lib: dict, active_pid: str = "") -> str:
         is_pdf = info.get("filepath", "").lower().endswith(".pdf")
         icon = "&#128196;" if is_pdf else "&#128221;"
         active_cls = " active" if pid == active_pid else ""
+        
+        # RAG状态指示器
+        rag_status = ""
+        if is_pdf:
+            rag_indexed = info.get("rag_indexed", False)
+            rag_processing = info.get("rag_processing", False)
+            chunk_count = info.get("chunk_count", 0)
+            rag_msg = info.get("rag_status", "")
+            
+            if rag_processing:
+                rag_status = f'<span class="rag-status processing" title="{rag_msg}">⏳</span>'
+            elif rag_indexed:
+                rag_status = f'<span class="rag-status indexed" title="已索引 {chunk_count} 个分块">✓{chunk_count}</span>'
+            elif "失败" in rag_msg:
+                rag_status = f'<span class="rag-status failed" title="{rag_msg}">❌</span>'
+        
         # Use JS to set hidden dropdown value
         h += (
             f"<div class='file-item{active_cls}' "
             f"onclick=\"setFileSelection('{pid}')\">"
             f"<span class='file-item-icon'>{icon}</span>"
             f"<span class='file-item-name'>{name}</span>"
+            f"{rag_status}"
             f"</div>"
         )
     return f"<div class='file-list'>{h}</div>"
@@ -429,7 +446,8 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
         if rag_service and fp.lower().endswith(".pdf"):
             # 先标记为处理中状态
             lib[pid]["rag_processing"] = True
-            lib[pid]["rag_status"] = "解析中..."
+            lib[pid]["rag_status"] = "📋 解析中..."
+            lib[pid]["rag_progress"] = 0  # 进度百分比
 
             try:
                 import threading
@@ -437,21 +455,31 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
                 def process_with_rag():
                     try:
                         print(f"[RAG] 开始处理: {fn}")
+                        lib[pid]["rag_status"] = "📄 PDF提取中..."
+                        lib[pid]["rag_progress"] = 10
+                        
                         result = rag_service.process_document(fp, pid)
+                        
                         if result.success:
+                            lib[pid]["rag_progress"] = 90
+                            lib[pid]["rag_status"] = "🔍 建立索引中..."
+                            
                             lib[pid]["rag_indexed"] = True
                             lib[pid]["rag_processing"] = False
-                            lib[pid]["rag_status"] = "已完成"
+                            lib[pid]["rag_status"] = "✅ 已完成"
                             lib[pid]["chunk_count"] = result.chunk_count
                             lib[pid]["parse_confidence"] = result.confidence
+                            lib[pid]["rag_progress"] = 100
                             print(f"[RAG] 完成: {fn} ({result.chunk_count} chunks)")
                         else:
                             lib[pid]["rag_processing"] = False
-                            lib[pid]["rag_status"] = f"失败: {result.error}"
+                            lib[pid]["rag_status"] = f"❌ 失败: {result.error[:30]}"
+                            lib[pid]["rag_progress"] = 0
                             print(f"[RAG] 失败: {fn} - {result.error}")
                     except Exception as e:
                         lib[pid]["rag_processing"] = False
-                        lib[pid]["rag_status"] = f"异常: {str(e)[:50]}"
+                        lib[pid]["rag_status"] = f"❌ 异常: {str(e)[:30]}"
+                        lib[pid]["rag_progress"] = 0
                         print(f"[RAG] 异常: {fn} - {e}")
 
                 # 在后台线程中处理，避免阻塞UI
@@ -460,7 +488,8 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
                 thread.start()
             except Exception as e:
                 lib[pid]["rag_processing"] = False
-                lib[pid]["rag_status"] = f"启动失败: {str(e)[:50]}"
+                lib[pid]["rag_status"] = f"❌ 启动失败: {str(e)[:30]}"
+                lib[pid]["rag_progress"] = 0
                 print(f"[RAG] 启动失败: {fn} - {e}")
 
     last_pid = list(lib.keys())[-1] if lib else None
@@ -511,10 +540,9 @@ def handle_page_next(page_st, pid, lib):
 
 
 def handle_mode_switch(mode, pid, lib, page_st, notes=None):
-    """Switch between text, PDF, PDF highlight, and Docling view modes.
+    """Switch between text, PDF, and PDF highlight view modes.
 
-    v2.2: 新增Docling模式支持
-    v2.3: 新增PDF高亮模式（保真渲染 + 高亮交互）- 默认模式
+    v2.3: PDF高亮模式为默认，移除了Docling模式（解析功能已整合到RAG服务中）
     """
     if mode == "PDF原版":
         return (
@@ -527,13 +555,6 @@ def handle_mode_switch(mode, pid, lib, page_st, notes=None):
         return (
             gr.update(visible=False),
             gr.update(value=pdfjs_html, visible=True),
-        )
-    elif mode == "Docling模式":
-        # Docling模式：使用结构化渲染
-        docling_html = _render_docling_view(pid, lib, notes or [])
-        return (
-            gr.update(visible=False),
-            gr.update(value=docling_html, visible=True),
         )
     else:
         # 文本模式
@@ -744,16 +765,19 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
         screenshot_page = data.get("page", "1")
         annotation_text = data.get("annotation", "")
         doc_id = data.get("doc_id", pid)
+        ocr_text = data.get("ocr_text", "")  # OCR识别的文字
         
         if not image_data:
             return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
         
         # 创建截图笔记
         nid = next_note_id()
+        # 如果有OCR文字，使用OCR文字作为content
+        content_text = ocr_text.strip() if ocr_text.strip() else f"[截图] 第{screenshot_page}页"
         note = {
             "id": nid,
             "type": "截图",  # 截图类型
-            "content": f"[截图] 第{screenshot_page}页",
+            "content": content_text,  # OCR文字或默认文本
             "annotation": annotation_text.strip() if annotation_text else "",
             "image": image_data,  # base64图片数据
             "page": int(screenshot_page) if str(screenshot_page).isdigit() else 1,
@@ -761,6 +785,7 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
             "priority": 3,
             "ts": time.strftime("%H:%M"),
             "source_pid": doc_id or pid or "",
+            "ocr": bool(ocr_text.strip()),  # 标记是否有OCR
         }
         notes.append(note)
         
@@ -1105,10 +1130,10 @@ def build_read_tab():
                 show_label=False,
             )
             view_mode = gr.Radio(
-                choices=["PDF高亮", "文本模式", "PDF原版", "Docling模式"],
+                choices=["PDF高亮", "文本模式", "PDF原版"],
                 value="PDF高亮",  # v2.3: PDF高亮模式为默认
                 label="查看模式",
-                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真 | Docling:RAG",
+                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真",
             )
 
         # ── Center: Reader ──
