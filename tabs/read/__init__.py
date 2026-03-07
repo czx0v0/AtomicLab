@@ -514,7 +514,7 @@ def handle_mode_switch(mode, pid, lib, page_st, notes=None):
     """Switch between text, PDF, PDF highlight, and Docling view modes.
 
     v2.2: 新增Docling模式支持
-    v2.3: 新增PDF高亮模式（保真渲染 + 高亮交互）
+    v2.3: 新增PDF高亮模式（保真渲染 + 高亮交互）- 默认模式
     """
     if mode == "PDF原版":
         return (
@@ -522,7 +522,7 @@ def handle_mode_switch(mode, pid, lib, page_st, notes=None):
             gr.update(value=_render_pdf_embed(pid, lib), visible=True),
         )
     elif mode == "PDF高亮":
-        # PDF高亮模式：保真渲染 + 高亮交互
+        # PDF高亮模式：保真渲染 + 高亮交互（默认模式）
         pdfjs_html = _render_pdfjs_highlight_view(pid, lib, notes or [])
         return (
             gr.update(visible=False),
@@ -1076,10 +1076,13 @@ def handle_popup_translate(text):
 
 
 def build_read_tab():
-    """Build the Read tab UI — file list + reader + visible notes."""
+    """Build the Read tab UI — file list + reader + visible notes.
+    
+    v2.3: PDF高亮模式为默认显示模式
+    """
     gr.HTML(
         "<div class='tip'>"
-        "选中文字自动弹出工具栏：高亮标记 · 一键翻译 · 复制 · 问AI | 左右翻页浏览"
+        "PDF高亮模式：选择文字弹出工具栏，或切换到截图模式框选区域 | 支持高亮·翻译·批注保存到知识图谱"
         "</div>"
     )
 
@@ -1102,10 +1105,10 @@ def build_read_tab():
                 show_label=False,
             )
             view_mode = gr.Radio(
-                choices=["文本模式", "PDF原版", "PDF高亮", "Docling模式"],
-                value="文本模式",
+                choices=["PDF高亮", "文本模式", "PDF原版", "Docling模式"],
+                value="PDF高亮",  # v2.3: PDF高亮模式为默认
                 label="查看模式",
-                info="文本:可高亮 | PDF原版:保真 | PDF高亮:保真+高亮 | Docling:RAG增强",
+                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真 | Docling:RAG",
             )
 
         # ── Center: Reader ──
@@ -1113,10 +1116,15 @@ def build_read_tab():
             with gr.Row():
                 prev_btn = gr.Button("◀ 上一页", scale=1, size="sm")
                 next_btn = gr.Button("下一页 ▶", scale=1, size="sm")
+            # v2.3: PDF高亮模式为默认，所以pdf_text_html初始隐藏，pdf_embed_html初始显示
             pdf_text_html = gr.HTML(
-                "<div class='txt-empty'>选择文献后，文本将在此显示</div>"
+                "<div class='txt-empty'>选择文献后，文本将在此显示</div>",
+                visible=False,  # 默认隐藏，因为PDF高亮模式是默认
             )
-            pdf_embed_html = gr.HTML(visible=False)
+            pdf_embed_html = gr.HTML(
+                "<div class='txt-empty'>选择文献后，PDF 将在此显示</div>",
+                visible=True,  # 默认显示，PDF高亮模式
+            )
 
         # ── Right: Notes (always visible) ──
         with gr.Column(scale=3, min_width=240):

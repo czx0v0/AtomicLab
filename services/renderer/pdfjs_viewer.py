@@ -142,7 +142,7 @@ class PDFJSViewer:
         file_size_mb: float,
         highlights_json: str,
     ) -> str:
-        """生成PDF.js viewer的完整HTML文档"""
+        """生成PDF.js viewer的完整HTML文档 - v2.3双模式交互版"""
 
         return f"""<!DOCTYPE html>
 <html>
@@ -154,6 +154,7 @@ class PDFJSViewer:
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ background: #525659; font-family: system-ui, sans-serif; }}
         
+        /* 顶部工具栏 */
         .toolbar {{
             background: #edf2f7;
             padding: 8px 12px;
@@ -163,7 +164,6 @@ class PDFJSViewer:
             align-items: center;
             flex-wrap: wrap;
         }}
-        
         .btn {{
             padding: 6px 12px;
             border: 1px solid #cbd5e0;
@@ -171,34 +171,49 @@ class PDFJSViewer:
             background: white;
             cursor: pointer;
             font-size: 12px;
+            transition: all 0.2s;
         }}
         .btn:hover {{ background: #e2e8f0; }}
         .btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+        .btn.active {{ background: #3182ce; color: white; border-color: #3182ce; }}
         
         .page-info {{ font-size: 13px; color: #4a5568; min-width: 80px; text-align: center; }}
         
-        .color-picker {{ display: flex; gap: 4px; margin-left: 8px; }}
-        .color-btn {{
-            width: 20px; height: 20px;
-            border-radius: 4px;
-            border: 2px solid transparent;
-            cursor: pointer;
+        /* 模式切换按钮 */
+        .mode-toggle {{
+            display: flex;
+            gap: 2px;
+            background: #e2e8f0;
+            padding: 2px;
+            border-radius: 6px;
         }}
-        .color-btn.selected {{ border-color: #2d3748; }}
+        .mode-btn {{
+            padding: 6px 14px;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            cursor: pointer;
+            font-size: 12px;
+            color: #4a5568;
+            transition: all 0.2s;
+        }}
+        .mode-btn:hover {{ background: rgba(255,255,255,0.5); }}
+        .mode-btn.active {{ background: white; color: #2d3748; font-weight: 500; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
         
+        /* PDF容器 */
         .container {{
             display: flex;
             justify-content: center;
             padding: 20px;
             min-height: calc(100vh - 50px);
         }}
-        
         .page-wrapper {{
             background: white;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             position: relative;
         }}
         
+        /* 文本层 */
         .text-layer {{
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -212,8 +227,9 @@ class PDFJSViewer:
             white-space: pre;
             pointer-events: all;
         }}
-        .text-layer ::selection {{ background: rgba(0, 0, 255, 0.3); }}
+        .text-layer ::selection {{ background: rgba(66, 153, 225, 0.4); }}
         
+        /* 高亮层 */
         .highlight-layer {{
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -223,21 +239,87 @@ class PDFJSViewer:
             position: absolute;
             pointer-events: auto;
             cursor: pointer;
+            transition: opacity 0.2s;
         }}
+        .highlight:hover {{ opacity: 0.8; }}
         .highlight.yellow {{ background: {self.HIGHLIGHT_COLORS['yellow']}; }}
         .highlight.green {{ background: {self.HIGHLIGHT_COLORS['green']}; }}
         .highlight.blue {{ background: {self.HIGHLIGHT_COLORS['blue']}; }}
         .highlight.pink {{ background: {self.HIGHLIGHT_COLORS['pink']}; }}
         
-        .loading {{ text-align: center; padding: 40px; color: #a0aec0; }}
-        .error {{ color: #e53e3e; }}
+        /* 浮动工具框 */
+        .popup-toolbar {{
+            position: fixed;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+            padding: 10px;
+            z-index: 1000;
+            display: none;
+            min-width: 200px;
+        }}
+        .popup-toolbar.show {{ display: block; animation: popIn 0.15s ease-out; }}
+        @keyframes popIn {{
+            from {{ opacity: 0; transform: translateY(5px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
         
+        .popup-colors {{
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+        }}
+        .popup-color-btn {{
+            width: 24px; height: 24px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: transform 0.15s;
+        }}
+        .popup-color-btn:hover {{ transform: scale(1.15); }}
+        .popup-color-btn.selected {{ border-color: #2d3748; }}
+        
+        .popup-annotation {{
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }}
+        .popup-annotation:focus {{ outline: none; border-color: #3182ce; }}
+        
+        .popup-actions {{
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }}
+        .popup-action-btn {{
+            padding: 5px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            background: #f7fafc;
+            cursor: pointer;
+            font-size: 11px;
+            color: #4a5568;
+        }}
+        .popup-action-btn:hover {{ background: #edf2f7; }}
+        .popup-action-btn.primary {{ background: #3182ce; color: white; border-color: #3182ce; }}
+        .popup-action-btn.primary:hover {{ background: #2c5282; }}
+        
+        /* 截图遮罩 */
         .screenshot-overlay {{
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.3);
+            background: rgba(0,0,0,0.2);
             cursor: crosshair;
-            z-index: 9999;
+            z-index: 999;
+        }}
+        .screenshot-selection {{
+            position: absolute;
+            border: 2px dashed #3182ce;
+            background: rgba(66, 153, 225, 0.1);
+            pointer-events: none;
         }}
         .screenshot-hint {{
             position: fixed;
@@ -248,8 +330,23 @@ class PDFJSViewer:
             padding: 10px 20px;
             border-radius: 6px;
             font-size: 14px;
-            z-index: 10000;
+            z-index: 1001;
         }}
+        
+        .loading {{ text-align: center; padding: 40px; color: #a0aec0; }}
+        .error {{ color: #e53e3e; }}
+        
+        /* 翻译结果 */
+        .translate-result {{
+            margin-top: 8px;
+            padding: 8px;
+            background: #f0f9ff;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #2c5282;
+            display: none;
+        }}
+        .translate-result.show {{ display: block; }}
     </style>
 </head>
 <body>
@@ -260,25 +357,37 @@ class PDFJSViewer:
         
         <div style="flex: 1;"></div>
         
-        <span style="font-size: 12px; color: #4a5568;">颜色:</span>
-        <div class="color-picker">
-            <div class="color-btn selected" data-color="yellow" style="background:{self.HIGHLIGHT_COLORS['yellow']}"></div>
-            <div class="color-btn" data-color="green" style="background:{self.HIGHLIGHT_COLORS['green']}"></div>
-            <div class="color-btn" data-color="blue" style="background:{self.HIGHLIGHT_COLORS['blue']}"></div>
-            <div class="color-btn" data-color="pink" style="background:{self.HIGHLIGHT_COLORS['pink']}"></div>
+        <!-- 双模式切换 -->
+        <div class="mode-toggle">
+            <button class="mode-btn active" id="highlightMode" title="选择文字高亮">✏️ 高亮</button>
+            <button class="mode-btn" id="screenshotMode" title="框选截图">📷 截图</button>
         </div>
-        
-        <button class="btn" id="highlightBtn">✏️ 添加高亮</button>
-        <button class="btn" id="screenshotBtn">📷 截图笔记</button>
     </div>
     
     <div class="container" id="container">
         <div class="loading">正在加载PDF...</div>
     </div>
+    
+    <!-- 浮动工具框 -->
+    <div class="popup-toolbar" id="popupToolbar">
+        <div class="popup-colors">
+            <div class="popup-color-btn selected" data-color="yellow" style="background:#fbd38d" title="黄色"></div>
+            <div class="popup-color-btn" data-color="green" style="background:#9ae6b4" title="绿色"></div>
+            <div class="popup-color-btn" data-color="blue" style="background:#90cdf4" title="蓝色"></div>
+            <div class="popup-color-btn" data-color="pink" style="background:#fbb6ce" title="粉色"></div>
+        </div>
+        <input type="text" class="popup-annotation" id="popupAnnotation" placeholder="添加批注（可选）..." />
+        <div class="translate-result" id="translateResult"></div>
+        <div class="popup-actions">
+            <button class="popup-action-btn" id="popupTranslate">翻译</button>
+            <button class="popup-action-btn primary" id="popupSave">保存笔记</button>
+        </div>
+    </div>
 
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/{self.PDFJS_VERSION}/pdf.worker.min.js';
         
+        // 全局状态
         const state = {{
             docId: '{doc_id}',
             pdf: null,
@@ -287,15 +396,26 @@ class PDFJSViewer:
             scale: 1.5,
             color: 'yellow',
             highlights: {highlights_json},
+            // 高亮模式状态
             selectedText: '',
-            selectedRects: []
+            selectedRects: [],
+            // 截图模式状态
+            isScreenshotMode: false,
+            screenshotStart: null,
+            screenshotImageData: null,
         }};
         
         const container = document.getElementById('container');
         const prevBtn = document.getElementById('prevBtn');
         const nextBtn = document.getElementById('nextBtn');
         const pageInfo = document.getElementById('pageInfo');
+        const popupToolbar = document.getElementById('popupToolbar');
+        const highlightModeBtn = document.getElementById('highlightMode');
+        const screenshotModeBtn = document.getElementById('screenshotMode');
         
+        // ═══════════════════════════════════════════════════════════════
+        // PDF初始化和渲染
+        // ═══════════════════════════════════════════════════════════════
         async function init() {{
             try {{
                 const pdfData = atob('{pdf_base64}');
@@ -310,30 +430,31 @@ class PDFJSViewer:
         
         async function renderPage(num) {{
             container.innerHTML = '<div class="loading">正在渲染...</div>';
+            hidePopup();
             
             const page = await state.pdf.getPage(num);
             const viewport = page.getViewport({{ scale: state.scale }});
             
-            // Canvas
+            // Canvas渲染
             const canvas = document.createElement('canvas');
             canvas.width = viewport.width;
             canvas.height = viewport.height;
             const ctx = canvas.getContext('2d');
             await page.render({{ canvasContext: ctx, viewport: viewport }}).promise;
             
-            // Wrapper
+            // 页面包装器
             const wrapper = document.createElement('div');
             wrapper.className = 'page-wrapper';
             wrapper.style.width = viewport.width + 'px';
             wrapper.style.height = viewport.height + 'px';
             wrapper.appendChild(canvas);
             
-            // Text layer
+            // 文本层
             const textLayer = document.createElement('div');
             textLayer.className = 'text-layer';
             wrapper.appendChild(textLayer);
             
-            // Highlight layer
+            // 高亮层
             const hlLayer = document.createElement('div');
             hlLayer.className = 'highlight-layer';
             hlLayer.id = 'hl-' + num;
@@ -342,7 +463,7 @@ class PDFJSViewer:
             container.innerHTML = '';
             container.appendChild(wrapper);
             
-            // Render text
+            // 渲染文本
             const textContent = await page.getTextContent();
             textContent.items.forEach(item => {{
                 const span = document.createElement('span');
@@ -353,31 +474,14 @@ class PDFJSViewer:
                 textLayer.appendChild(span);
             }});
             
-            // Render highlights
-            renderHighlights(num, viewport);
+            // 渲染已有高亮
+            renderHighlights(num);
             
-            // Text selection
-            textLayer.addEventListener('mouseup', () => {{
-                const sel = window.getSelection();
-                if (sel && !sel.isCollapsed) {{
-                    state.selectedText = sel.toString();
-                    const range = sel.getRangeAt(0);
-                    const rects = range.getClientRects();
-                    const wrapperRect = wrapper.getBoundingClientRect();
-                    state.selectedRects = [];
-                    for (let i = 0; i < rects.length; i++) {{
-                        state.selectedRects.push({{
-                            x: rects[i].left - wrapperRect.left,
-                            y: rects[i].top - wrapperRect.top,
-                            w: rects[i].width,
-                            h: rects[i].height
-                        }});
-                    }}
-                }}
-            }});
+            // 绑定选择事件（高亮模式）
+            textLayer.addEventListener('mouseup', onTextSelection);
         }}
         
-        function renderHighlights(pageNum, viewport) {{
+        function renderHighlights(pageNum) {{
             const layer = document.getElementById('hl-' + pageNum);
             if (!layer) return;
             layer.innerHTML = '';
@@ -385,164 +489,15 @@ class PDFJSViewer:
             state.highlights.filter(h => !h.coordinate || h.coordinate.page === pageNum).forEach(h => {{
                 if (!h.coordinate) return;
                 
-                // 支持多个rect（跨行选择）
-                if (h.rects && h.rects.length > 0) {{
-                    h.rects.forEach(r => {{
-                        const div = document.createElement('div');
-                        div.className = 'highlight ' + h.color;
-                        div.style.cssText = `left:${{r.x}}px;top:${{r.y}}px;width:${{r.w || r.width}}px;height:${{r.h || r.height}}px`;
-                        div.title = h.annotation || h.content;
-                        layer.appendChild(div);
-                    }});
-                }} else {{
-                    // 单rect兼容
+                const rects = h.rects && h.rects.length > 0 ? h.rects : [h.coordinate];
+                rects.forEach(r => {{
                     const div = document.createElement('div');
                     div.className = 'highlight ' + h.color;
-                    div.style.cssText = `left:${{h.coordinate.x}}px;top:${{h.coordinate.y}}px;width:${{h.coordinate.width}}px;height:${{h.coordinate.height}}px`;
+                    div.style.cssText = `left:${{r.x}}px;top:${{r.y}}px;width:${{r.w || r.width}}px;height:${{r.h || r.height}}px`;
                     div.title = h.annotation || h.content;
                     layer.appendChild(div);
-                }}
+                }});
             }});
-        }}
-        
-        function addHighlight() {{
-            if (!state.selectedText) {{
-                alert('请先选择要高亮的文本');
-                return;
-            }}
-            
-            // 支持跨行选择：保存所有rect
-            const hl = {{
-                id: 'HL-' + Date.now(),
-                doc_id: state.docId,
-                chunk_id: '',
-                content: state.selectedText,
-                color: state.color,
-                annotation: '',
-                coordinate: {{
-                    page: state.page,
-                    x: state.selectedRects[0]?.x || 0,
-                    y: state.selectedRects[0]?.y || 0,
-                    width: state.selectedRects[0]?.w || 100,
-                    height: state.selectedRects[0]?.h || 20
-                }},
-                rects: state.selectedRects,  // 保存所有rect支持跨行
-                created_at: new Date().toISOString()
-            }};
-            
-            state.highlights.push(hl);
-            renderHighlights(state.page);
-            
-            // 通知父页面保存到知识图谱
-            if (window.parent) {{
-                window.parent.postMessage({{ type: 'highlight', data: hl }}, '*');
-            }}
-            
-            window.getSelection().removeAllRanges();
-            state.selectedText = '';
-            state.selectedRects = [];
-        }}
-        
-        // ═══════════════════════════════════════════════════════════════
-        // 截图笔记功能
-        // ═══════════════════════════════════════════════════════════════
-        let screenshotMode = false;
-        let screenshotStart = null;
-        let screenshotOverlay = null;
-        
-        function startScreenshot() {{
-            screenshotMode = true;
-            screenshotStart = null;
-            
-            // 创建遮罩层
-            screenshotOverlay = document.createElement('div');
-            screenshotOverlay.className = 'screenshot-overlay';
-            screenshotOverlay.innerHTML = '<div class="screenshot-hint">拖动鼠标选择截图区域，按ESC取消</div>';
-            document.body.appendChild(screenshotOverlay);
-            
-            screenshotOverlay.addEventListener('mousedown', onScreenshotMouseDown);
-            screenshotOverlay.addEventListener('mousemove', onScreenshotMouseMove);
-            screenshotOverlay.addEventListener('mouseup', onScreenshotMouseUp);
-            
-            // ESC取消
-            document.addEventListener('keydown', cancelScreenshot);
-        }}
-        
-        function cancelScreenshot(e) {{
-            if (e && e.key !== 'Escape') return;
-            screenshotMode = false;
-            if (screenshotOverlay) {{
-                screenshotOverlay.remove();
-                screenshotOverlay = null;
-            }}
-            document.removeEventListener('keydown', cancelScreenshot);
-        }}
-        
-        function onScreenshotMouseDown(e) {{
-            screenshotStart = {{ x: e.clientX, y: e.clientY }};
-        }}
-        
-        function onScreenshotMouseMove(e) {{
-            if (!screenshotStart) return;
-            // 可以添加选区预览
-        }}
-        
-        function onScreenshotMouseUp(e) {{
-            if (!screenshotStart) return;
-            
-            const end = {{ x: e.clientX, y: e.clientY }};
-            const rect = {{
-                x: Math.min(screenshotStart.x, end.x),
-                y: Math.min(screenshotStart.y, end.y),
-                w: Math.abs(end.x - screenshotStart.x),
-                h: Math.abs(end.y - screenshotStart.y)
-            }};
-            
-            // 最小尺寸检查
-            if (rect.w < 20 || rect.h < 20) {{
-                cancelScreenshot();
-                return;
-            }}
-            
-            // 获取当前页面的canvas
-            const canvas = container.querySelector('canvas');
-            if (!canvas) {{
-                cancelScreenshot();
-                return;
-            }}
-            
-            // 计算相对于canvas的坐标
-            const canvasRect = canvas.getBoundingClientRect();
-            const cropX = rect.x - canvasRect.left;
-            const cropY = rect.y - canvasRect.top;
-            
-            // 创建裁剪canvas
-            const cropCanvas = document.createElement('canvas');
-            cropCanvas.width = rect.w;
-            cropCanvas.height = rect.h;
-            const ctx = cropCanvas.getContext('2d');
-            
-            // 从原canvas裁剪
-            ctx.drawImage(canvas, cropX, cropY, rect.w, rect.h, 0, 0, rect.w, rect.h);
-            
-            // 转为base64
-            const imageData = cropCanvas.toDataURL('image/png');
-            
-            // 通知父页面保存截图笔记
-            if (window.parent) {{
-                window.parent.postMessage({{ 
-                    type: 'screenshot', 
-                    data: {{
-                        image: imageData,
-                        page: state.page,
-                        doc_id: state.docId,
-                        annotation: '',
-                        rect: rect
-                    }}
-                }}, '*');
-            }}
-            
-            cancelScreenshot();
         }}
         
         function updateUI() {{
@@ -551,18 +506,279 @@ class PDFJSViewer:
             nextBtn.disabled = state.page >= state.total;
         }}
         
-        prevBtn.onclick = () => {{ if (state.page > 1) {{ state.page--; updateUI(); renderPage(state.page); }} }};
-        nextBtn.onclick = () => {{ if (state.page < state.total) {{ state.page++; updateUI(); renderPage(state.page); }} }};
-        document.getElementById('highlightBtn').onclick = addHighlight;
-        document.getElementById('screenshotBtn').onclick = startScreenshot;
+        // ═══════════════════════════════════════════════════════════════
+        // 模式切换
+        // ═══════════════════════════════════════════════════════════════
+        function setMode(mode) {{
+            state.isScreenshotMode = (mode === 'screenshot');
+            highlightModeBtn.classList.toggle('active', !state.isScreenshotMode);
+            screenshotModeBtn.classList.toggle('active', state.isScreenshotMode);
+            
+            if (state.isScreenshotMode) {{
+                container.style.cursor = 'crosshair';
+                startScreenshotOverlay();
+            }} else {{
+                container.style.cursor = 'default';
+                removeScreenshotOverlay();
+            }}
+            hidePopup();
+        }}
         
-        document.querySelectorAll('.color-btn').forEach(btn => {{
+        highlightModeBtn.onclick = () => setMode('highlight');
+        screenshotModeBtn.onclick = () => setMode('screenshot');
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 高亮模式：文本选择
+        // ═══════════════════════════════════════════════════════════════
+        function onTextSelection(e) {{
+            if (state.isScreenshotMode) return;
+            
+            const sel = window.getSelection();
+            if (!sel || sel.isCollapsed) return;
+            
+            state.selectedText = sel.toString().trim();
+            if (!state.selectedText) return;
+            
+            const range = sel.getRangeAt(0);
+            const rects = range.getClientRects();
+            const wrapperRect = container.querySelector('.page-wrapper').getBoundingClientRect();
+            
+            state.selectedRects = [];
+            for (let i = 0; i < rects.length; i++) {{
+                state.selectedRects.push({{
+                    x: rects[i].left - wrapperRect.left,
+                    y: rects[i].top - wrapperRect.top,
+                    w: rects[i].width,
+                    h: rects[i].height
+                }});
+            }}
+            
+            // 显示浮动工具框
+            const lastRect = rects[rects.length - 1];
+            showPopup(lastRect.left + lastRect.width / 2, lastRect.top - 10);
+        }}
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 截图模式：框选区域
+        // ═══════════════════════════════════════════════════════════════
+        let screenshotOverlay = null;
+        let screenshotSelection = null;
+        
+        function startScreenshotOverlay() {{
+            if (screenshotOverlay) return;
+            
+            screenshotOverlay = document.createElement('div');
+            screenshotOverlay.className = 'screenshot-overlay';
+            screenshotOverlay.innerHTML = '<div class="screenshot-hint">拖动鼠标框选截图区域，ESC取消</div>';
+            document.body.appendChild(screenshotOverlay);
+            
+            screenshotSelection = document.createElement('div');
+            screenshotSelection.className = 'screenshot-selection';
+            screenshotOverlay.appendChild(screenshotSelection);
+            
+            screenshotOverlay.addEventListener('mousedown', onScreenshotStart);
+            screenshotOverlay.addEventListener('mousemove', onScreenshotMove);
+            screenshotOverlay.addEventListener('mouseup', onScreenshotEnd);
+            document.addEventListener('keydown', cancelScreenshot);
+        }}
+        
+        function removeScreenshotOverlay() {{
+            if (screenshotOverlay) {{
+                screenshotOverlay.remove();
+                screenshotOverlay = null;
+                screenshotSelection = null;
+            }}
+            document.removeEventListener('keydown', cancelScreenshot);
+        }}
+        
+        function cancelScreenshot(e) {{
+            if (e && e.key !== 'Escape') return;
+            removeScreenshotOverlay();
+            state.screenshotStart = null;
+            state.screenshotImageData = null;
+            if (state.isScreenshotMode) {{
+                setMode('highlight');
+            }}
+        }}
+        
+        function onScreenshotStart(e) {{
+            state.screenshotStart = {{ x: e.clientX, y: e.clientY }};
+            screenshotSelection.style.left = e.clientX + 'px';
+            screenshotSelection.style.top = e.clientY + 'px';
+            screenshotSelection.style.width = '0';
+            screenshotSelection.style.height = '0';
+        }}
+        
+        function onScreenshotMove(e) {{
+            if (!state.screenshotStart) return;
+            
+            const x = Math.min(state.screenshotStart.x, e.clientX);
+            const y = Math.min(state.screenshotStart.y, e.clientY);
+            const w = Math.abs(e.clientX - state.screenshotStart.x);
+            const h = Math.abs(e.clientY - state.screenshotStart.y);
+            
+            screenshotSelection.style.left = x + 'px';
+            screenshotSelection.style.top = y + 'px';
+            screenshotSelection.style.width = w + 'px';
+            screenshotSelection.style.height = h + 'px';
+        }}
+        
+        function onScreenshotEnd(e) {{
+            if (!state.screenshotStart) return;
+            
+            const rect = {{
+                x: Math.min(state.screenshotStart.x, e.clientX),
+                y: Math.min(state.screenshotStart.y, e.clientY),
+                w: Math.abs(e.clientX - state.screenshotStart.x),
+                h: Math.abs(e.clientY - state.screenshotStart.y)
+            }};
+            
+            if (rect.w < 20 || rect.h < 20) {{
+                state.screenshotStart = null;
+                return;
+            }}
+            
+            // 裁剪截图
+            const canvas = container.querySelector('canvas');
+            if (!canvas) return;
+            
+            const canvasRect = canvas.getBoundingClientRect();
+            const cropCanvas = document.createElement('canvas');
+            cropCanvas.width = rect.w;
+            cropCanvas.height = rect.h;
+            const ctx = cropCanvas.getContext('2d');
+            ctx.drawImage(canvas, rect.x - canvasRect.left, rect.y - canvasRect.top, rect.w, rect.h, 0, 0, rect.w, rect.h);
+            
+            state.screenshotImageData = cropCanvas.toDataURL('image/png');
+            state.selectedRects = [{{ x: rect.x - canvasRect.left, y: rect.y - canvasRect.top, w: rect.w, h: rect.h }}];
+            
+            // 显示工具框
+            showPopup(rect.x + rect.w / 2, rect.y - 10);
+            
+            state.screenshotStart = null;
+        }}
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 浮动工具框
+        // ═══════════════════════════════════════════════════════════════
+        function showPopup(x, y) {{
+            // 重置状态
+            document.getElementById('popupAnnotation').value = '';
+            document.getElementById('translateResult').classList.remove('show');
+            document.getElementById('translateResult').textContent = '';
+            
+            // 定位
+            popupToolbar.style.left = Math.max(10, x - 100) + 'px';
+            popupToolbar.style.top = Math.max(10, y - 150) + 'px';
+            popupToolbar.classList.add('show');
+        }}
+        
+        function hidePopup() {{
+            popupToolbar.classList.remove('show');
+            state.selectedText = '';
+            state.selectedRects = [];
+            state.screenshotImageData = null;
+            window.getSelection()?.removeAllRanges();
+        }}
+        
+        // 颜色选择
+        popupToolbar.querySelectorAll('.popup-color-btn').forEach(btn => {{
             btn.onclick = () => {{
-                document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+                popupToolbar.querySelectorAll('.popup-color-btn').forEach(b => b.classList.remove('selected'));
                 btn.classList.add('selected');
                 state.color = btn.dataset.color;
             }};
         }});
+        
+        // 翻译按钮
+        document.getElementById('popupTranslate').onclick = async () => {{
+            const text = state.selectedText;
+            if (!text) return;
+            
+            const resultDiv = document.getElementById('translateResult');
+            resultDiv.textContent = '翻译中...';
+            resultDiv.classList.add('show');
+            
+            // 通知父页面翻译
+            if (window.parent) {{
+                window.parent.postMessage({{ 
+                    type: 'translate', 
+                    data: {{ text: text }}
+                }}, '*');
+            }}
+        }};
+        
+        // 监听翻译结果
+        window.addEventListener('message', function(e) {{
+            if (e.data && e.data.type === 'translate_result') {{
+                const translation = e.data.data ? e.data.data.translation : '';
+                const resultDiv = document.getElementById('translateResult');
+                if (translation) {{
+                    resultDiv.textContent = translation;
+                    resultDiv.classList.add('show');
+                }} else {{
+                    resultDiv.textContent = '翻译失败';
+                }}
+            }}
+        }});
+        
+        // 保存按钮
+        document.getElementById('popupSave').onclick = () => {{
+            const annotation = document.getElementById('popupAnnotation').value.trim();
+            
+            if (state.screenshotImageData) {{
+                // 截图笔记
+                const data = {{
+                    id: 'SS-' + Date.now(),
+                    image: state.screenshotImageData,
+                    page: state.page,
+                    doc_id: state.docId,
+                    annotation: annotation,
+                    rects: state.selectedRects
+                }};
+                if (window.parent) {{
+                    window.parent.postMessage({{ type: 'screenshot', data: data }}, '*');
+                }}
+            }} else if (state.selectedText) {{
+                // 高亮笔记
+                const hl = {{
+                    id: 'HL-' + Date.now(),
+                    doc_id: state.docId,
+                    chunk_id: '',
+                    content: state.selectedText,
+                    color: state.color,
+                    annotation: annotation,
+                    coordinate: {{
+                        page: state.page,
+                        x: state.selectedRects[0]?.x || 0,
+                        y: state.selectedRects[0]?.y || 0,
+                        width: state.selectedRects[0]?.w || 100,
+                        height: state.selectedRects[0]?.h || 20
+                    }},
+                    rects: state.selectedRects,
+                    created_at: new Date().toISOString()
+                }};
+                state.highlights.push(hl);
+                renderHighlights(state.page);
+                if (window.parent) {{
+                    window.parent.postMessage({{ type: 'highlight', data: hl }}, '*');
+                }}
+            }}
+            
+            hidePopup();
+            if (state.isScreenshotMode) setMode('highlight');
+        }};
+        
+        // 点击空白处关闭
+        document.addEventListener('mousedown', (e) => {{
+            if (!popupToolbar.contains(e.target) && !container.contains(e.target)) {{
+                hidePopup();
+            }}
+        }});
+        
+        // 翻页
+        prevBtn.onclick = () => {{ if (state.page > 1) {{ state.page--; updateUI(); renderPage(state.page); }} }};
+        nextBtn.onclick = () => {{ if (state.page < state.total) {{ state.page++; updateUI(); renderPage(state.page); }} }};
         
         init();
     </script>

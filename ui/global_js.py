@@ -662,6 +662,8 @@ GLOBAL_JS = r"""
   // ═══════════════════════════════════════════════════════════════
   // PDF.js iframe highlight message handler
   // ═══════════════════════════════════════════════════════════════
+  var pendingTranslateCallback = null;
+  
   window.addEventListener('message', function(e) {
     // 接收来自PDF.js iframe的高亮消息
     if (e.data && e.data.type === 'highlight') {
@@ -680,6 +682,7 @@ GLOBAL_JS = r"""
         // PDF.js特有字段
         pdfjs: true,
         coordinate: hl.coordinate,
+        rects: hl.rects,
         highlight_id: hl.id,
         _t: Date.now()
       });
@@ -703,12 +706,61 @@ GLOBAL_JS = r"""
         page: String(data.page || 1),
         annotation: data.annotation || '',
         doc_id: data.doc_id,
+        rects: data.rects,
         _t: Date.now()
       });
       
       // 触发保存截图笔记
       setGradioValue('#highlight-action-input', payload);
       showToast('已保存截图笔记');
+    }
+    
+    // 接收翻译请求
+    if (e.data && e.data.type === 'translate') {
+      var text = e.data.data ? e.data.data.text : '';
+      if (!text) return;
+      
+      console.log('[Atomic] PDF.js翻译请求:', text);
+      
+      // 发送翻译请求到Python
+      setGradioValue('#translate-action-input', Date.now() + '|' + text);
+      
+      // 设置回调，等待翻译结果
+      pendingTranslateCallback = function(result) {
+        // 发送翻译结果回iframe
+        var iframes = document.querySelectorAll('iframe');
+        iframes.forEach(function(iframe) {
+          try {
+            iframe.contentWindow.postMessage({
+              type: 'translate_result',
+              data: { translation: result }
+            }, '*');
+          } catch(err) {}
+        });
+      };
+      
+      // 轮询等待翻译结果
+      var pollCount = 0;
+      var pollTimer = setInterval(function() {
+        var result = getGradioValue('#translate-result-input');
+        if (result && result.trim()) {
+          if (pendingTranslateCallback) {
+            pendingTranslateCallback(result);
+            pendingTranslateCallback = null;
+          }
+          clearInterval(pollTimer);
+        }
+        if (++pollCount > 40) {
+          clearInterval(pollTimer);
+          pendingTranslateCallback = null;
+        }
+      }, 200);
+    }
+    
+    // 接收翻译结果（从iframe内部）
+    if (e.data && e.data.type === 'translate_result') {
+      // 转发给当前激活的iframe
+      // 这个分支在父页面不处理，由iframe内部处理
     }
   });
 
