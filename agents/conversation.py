@@ -16,7 +16,7 @@ try:
 
     # 使用全局RAG服务实例（与main.py共享）
     _rag_service = get_rag_service(RAG_CONFIG)
-    _rag_service.load()  # 尝试加载已有索引
+    # 不重复加载，使用main.py已加载的索引
     RAG_AVAILABLE = True
     print("✅ ConversationAgent: RAG服务已连接")
 except Exception as e:

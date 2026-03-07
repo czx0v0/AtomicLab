@@ -59,7 +59,8 @@ from core.config import RAG_CONFIG
 
 # 初始化RAG服务（使用全局单例）
 rag_service = get_rag_service(RAG_CONFIG)
-rag_service.load()  # 加载已有索引
+# 每次启动清空索引重新加载（避免旧索引损坏问题）
+rag_service.load(clear_existing=True)
 
 
 # ══════════════════════════════════════════════════════════════

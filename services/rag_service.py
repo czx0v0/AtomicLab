@@ -493,40 +493,66 @@ class RAGService:
             self.bm25_index.save()
         print("所有索引已保存")
 
-    def load(self):
-        """加载所有索引和chunk映射"""
+    def load(self, clear_existing: bool = False):
+        """加载所有索引和chunk映射
+
+        Args:
+            clear_existing: 是否清空现有索引重新加载
+        """
+        if clear_existing:
+            self.chunk_store.clear()
+            self.doc_chunks.clear()
+            print("🗑️ 已清空现有索引缓存")
+
         if self.vector_store:
             self.vector_store.load()
             # 从vector_store恢复chunk_store
             if hasattr(self.vector_store, "chunk_map"):
+                loaded_count = 0
                 for chunk_id, metadata in self.vector_store.chunk_map.items():
                     if chunk_id not in self.chunk_store:
-                        # 创建轻量级chunk对象
-                        from models.chunk import TextChunk, ChunkMetadata
+                        # 确保metadata是字典
+                        if isinstance(metadata, str):
+                            # 如果是字符串，尝试解析或跳过
+                            print(f"⚠️ chunk {chunk_id} 的metadata是字符串，跳过")
+                            continue
+                        if not isinstance(metadata, dict):
+                            print(f"⚠️ chunk {chunk_id} 的metadata格式不正确，跳过")
+                            continue
 
-                        chunk = TextChunk(
-                            chunk_id=chunk_id,
-                            content=metadata.get("content", ""),
-                            chunk_type=metadata.get("chunk_type", "text"),
-                            metadata=(
-                                ChunkMetadata(
-                                    doc_id=metadata.get("doc_id", ""),
-                                    doc_title=metadata.get("doc_title", ""),
-                                    page_number=metadata.get("page_number"),
-                                )
-                                if metadata
-                                else None
-                            ),
-                        )
-                        self.chunk_store[chunk_id] = chunk
+                        try:
+                            # 创建轻量级chunk对象
+                            from models.chunk import TextChunk, ChunkMetadata
 
-                        # 重建doc_chunks映射
-                        doc_id = metadata.get("doc_id", "")
-                        if doc_id:
-                            if doc_id not in self.doc_chunks:
-                                self.doc_chunks[doc_id] = []
-                            if chunk_id not in self.doc_chunks[doc_id]:
-                                self.doc_chunks[doc_id].append(chunk_id)
+                            chunk = TextChunk(
+                                chunk_id=chunk_id,
+                                content=metadata.get("content", ""),
+                                chunk_type=metadata.get("chunk_type", "text"),
+                                metadata=(
+                                    ChunkMetadata(
+                                        doc_id=metadata.get("doc_id", ""),
+                                        doc_title=metadata.get("doc_title", ""),
+                                        page_number=metadata.get("page_number"),
+                                    )
+                                    if metadata
+                                    else None
+                                ),
+                            )
+                            self.chunk_store[chunk_id] = chunk
+                            loaded_count += 1
+
+                            # 重建doc_chunks映射
+                            doc_id = metadata.get("doc_id", "")
+                            if doc_id:
+                                if doc_id not in self.doc_chunks:
+                                    self.doc_chunks[doc_id] = []
+                                if chunk_id not in self.doc_chunks[doc_id]:
+                                    self.doc_chunks[doc_id].append(chunk_id)
+                        except Exception as e:
+                            print(f"⚠️ 加载chunk {chunk_id} 失败: {e}")
+                            continue
+
+                print(f"✅ 从索引加载了 {loaded_count} 个chunks")
 
         if self.bm25_index:
             self.bm25_index.load()
