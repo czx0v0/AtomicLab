@@ -11,13 +11,16 @@ from knowledge.search import search_nodes
 
 # 尝试导入RAG服务
 try:
-    from services.rag_service import RAGService
+    from services.rag_service import get_rag_service
     from core.config import RAG_CONFIG
 
-    _rag_service = RAGService(RAG_CONFIG)
+    # 使用全局RAG服务实例（与main.py共享）
+    _rag_service = get_rag_service(RAG_CONFIG)
+    _rag_service.load()  # 尝试加载已有索引
     RAG_AVAILABLE = True
+    print("✅ ConversationAgent: RAG服务已连接")
 except Exception as e:
-    print(f"RAG服务初始化失败，将使用传统搜索: {e}")
+    print(f"⚠️ RAG服务初始化失败，将使用传统搜索: {e}")
     _rag_service = None
     RAG_AVAILABLE = False
 
@@ -60,35 +63,67 @@ class ConversationAgent(BaseAgent):
         cited_notes = []  # Track cited notes for display
         cited_docs = []  # Track cited documents for display
         rag_chunks_used = False
+        search_debug_info = []  # 检索调试信息
 
         # 0) 优先使用RAG服务进行语义检索（如果可用）
-        if RAG_AVAILABLE and _rag_service and _rag_service.hybrid_searcher:
-            try:
-                retrieval_result = _rag_service.retrieve(
-                    query=question, top_k=10, use_reranker=True
-                )
-                if retrieval_result and retrieval_result.chunks:
-                    print(f"RAG检索: 找到 {len(retrieval_result.chunks)} 个相关chunks")
-                    rag_chunks_used = True
-                    for chunk in retrieval_result.chunks[:8]:
-                        doc_title = (
-                            chunk.metadata.doc_title if chunk.metadata else "未知文献"
-                        )
-                        page_num = chunk.page_number if chunk.page_number else "?"
-                        chunk_type = chunk.chunk_type if chunk.chunk_type else "text"
+        if RAG_AVAILABLE and _rag_service:
+            # 检查hybrid_searcher是否可用
+            if not _rag_service.hybrid_searcher:
+                search_debug_info.append("⚠️ RAG混合检索器未初始化")
+                print("[RAG Debug] hybrid_searcher is None")
+            else:
+                try:
+                    print(f"[RAG Debug] 开始检索: '{question[:50]}...'")
+                    retrieval_result = _rag_service.retrieve(
+                        query=question, top_k=10, use_reranker=True
+                    )
 
-                        # 构建上下文
-                        source_label = f"[文献: {doc_title} p.{page_num}]"
-                        context_parts.append(
-                            f"{source_label} ({chunk_type})\n{chunk.content}"
-                        )
+                    chunk_count = (
+                        len(retrieval_result.chunks)
+                        if retrieval_result and retrieval_result.chunks
+                        else 0
+                    )
+                    search_debug_info.append(
+                        f"🔍 RAG检索: 找到 {chunk_count} 个相关片段"
+                    )
+                    print(f"[RAG Debug] 检索完成: {chunk_count} chunks")
 
-                        # 收集引用信息
-                        if doc_title not in cited_docs:
-                            cited_docs.append(doc_title)
-            except Exception as e:
-                print(f"RAG检索失败，回退到传统搜索: {e}")
-                rag_chunks_used = False
+                    if retrieval_result and retrieval_result.chunks:
+                        rag_chunks_used = True
+                        for chunk in retrieval_result.chunks[:8]:
+                            doc_title = (
+                                chunk.metadata.doc_title
+                                if chunk.metadata
+                                else "未知文献"
+                            )
+                            page_num = chunk.page_number if chunk.page_number else "?"
+                            chunk_type = (
+                                chunk.chunk_type if chunk.chunk_type else "text"
+                            )
+
+                            # 构建上下文
+                            source_label = f"[文献: {doc_title} p.{page_num}]"
+                            context_parts.append(
+                                f"{source_label} ({chunk_type})\n{chunk.content}"
+                            )
+
+                            # 收集引用信息
+                            if doc_title not in cited_docs:
+                                cited_docs.append(doc_title)
+
+                        search_debug_info.append(
+                            f"✅ 使用RAG检索结果: {len(context_parts)} 条上下文"
+                        )
+                    else:
+                        search_debug_info.append("⚠️ RAG检索无结果")
+                except Exception as e:
+                    error_msg = f"❌ RAG检索失败: {str(e)[:100]}"
+                    search_debug_info.append(error_msg)
+                    print(f"[RAG Debug] {error_msg}")
+                    rag_chunks_used = False
+        else:
+            search_debug_info.append("⚠️ RAG服务不可用")
+            print("[RAG Debug] RAG服务未初始化")
 
         # 1) 如果没有RAG结果，使用传统知识树搜索
         if not rag_chunks_used:
@@ -166,6 +201,15 @@ class ConversationAgent(BaseAgent):
                 if snippets_added > 0 and doc_name not in cited_docs:
                     cited_docs.append(doc_name)
 
+        # 记录传统搜索结果
+        if not rag_chunks_used:
+            if context_parts:
+                search_debug_info.append(
+                    f"📚 传统搜索: 找到 {len(context_parts)} 条相关内容"
+                )
+            else:
+                search_debug_info.append("📚 传统搜索: 无结果")
+
         # Build prompt
         if context_parts:
             rag_context = "\n---\n".join(context_parts[:20])
@@ -199,15 +243,28 @@ class ConversationAgent(BaseAgent):
                 max_tokens=1200,
             )
 
+            # 构建调试信息展示
+            debug_summary = (
+                " | ".join(search_debug_info) if search_debug_info else "无检索信息"
+            )
+
+            # 在回答前添加检索状态（仅当检索有问题时）
+            answer = result.strip()
+            if not context_parts:
+                answer = f"⚠️ **检索提示**: 未找到相关内容\n\n{answer}"
+
             return AgentOutput(
                 agent_id=self.agent_id,
                 status="success",
                 data={
-                    "answer": result.strip(),
+                    "answer": answer,
                     "notes_count": len(cited_notes),
                     "docs_count": len(cited_docs),
                     "cited_notes": cited_notes[:6],  # Limit to 6 for display
                     "cited_docs": cited_docs[:3],  # Limit to 3 for display
+                    "search_debug": debug_summary,  # 检索调试信息
+                    "context_count": len(context_parts),  # 上下文数量
+                    "rag_used": rag_chunks_used,  # 是否使用RAG
                 },
                 confidence=0.8 if context_parts else 0.3,
             )

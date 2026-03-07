@@ -54,11 +54,12 @@ from tabs.write import (
 from tabs.chat import build_chat_tab, handle_chat_send, handle_chat_clear, handle_ai_ask
 
 # RAG服务集成
-from services.rag_service import RAGService
+from services.rag_service import get_rag_service
 from core.config import RAG_CONFIG
 
-# 初始化RAG服务
-rag_service = RAGService(RAG_CONFIG)
+# 初始化RAG服务（使用全局单例）
+rag_service = get_rag_service(RAG_CONFIG)
+rag_service.load()  # 加载已有索引
 
 
 # ══════════════════════════════════════════════════════════════

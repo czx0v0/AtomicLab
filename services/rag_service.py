@@ -476,12 +476,46 @@ class RAGService:
         print("所有索引已保存")
 
     def load(self):
-        """加载所有索引"""
+        """加载所有索引和chunk映射"""
         if self.vector_store:
             self.vector_store.load()
+            # 从vector_store恢复chunk_store
+            if hasattr(self.vector_store, "chunk_map"):
+                for chunk_id, metadata in self.vector_store.chunk_map.items():
+                    if chunk_id not in self.chunk_store:
+                        # 创建轻量级chunk对象
+                        from models.chunk import TextChunk, ChunkMetadata
+
+                        chunk = TextChunk(
+                            chunk_id=chunk_id,
+                            content=metadata.get("content", ""),
+                            chunk_type=metadata.get("chunk_type", "text"),
+                            metadata=(
+                                ChunkMetadata(
+                                    doc_id=metadata.get("doc_id", ""),
+                                    doc_title=metadata.get("doc_title", ""),
+                                    page_number=metadata.get("page_number"),
+                                )
+                                if metadata
+                                else None
+                            ),
+                        )
+                        self.chunk_store[chunk_id] = chunk
+
+                        # 重建doc_chunks映射
+                        doc_id = metadata.get("doc_id", "")
+                        if doc_id:
+                            if doc_id not in self.doc_chunks:
+                                self.doc_chunks[doc_id] = []
+                            if chunk_id not in self.doc_chunks[doc_id]:
+                                self.doc_chunks[doc_id].append(chunk_id)
+
         if self.bm25_index:
             self.bm25_index.load()
-        print("所有索引已加载")
+
+        print(
+            f"✅ 索引已加载: {len(self.chunk_store)} chunks, {len(self.doc_chunks)} 文档"
+        )
 
 
 # 全局RAG服务实例

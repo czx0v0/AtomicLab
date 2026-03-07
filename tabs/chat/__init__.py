@@ -57,6 +57,11 @@ def _format_bot_message(output) -> str:
     cited_notes = data.get("cited_notes", [])
     cited_docs = data.get("cited_docs", [])
     note = data.get("note", "")
+    
+    # v2.2: 检索调试信息
+    search_debug = data.get("search_debug", "")
+    context_count = data.get("context_count", 0)
+    rag_used = data.get("rag_used", False)
 
     result = answer
 
@@ -79,6 +84,11 @@ def _format_bot_message(output) -> str:
     if ref_parts and not cited_notes:
         # Only show text summary if no card display
         result += f"\n\n---\n*参考来源: {' · '.join(ref_parts)}*"
+
+    # v2.2: 添加检索调试信息（折叠显示）
+    if search_debug:
+        rag_status = "🟢 RAG" if rag_used else "📚 传统"
+        result += f"\n\n<details><summary>🔍 检索详情 ({rag_status} | {context_count}条上下文)</summary>\n\n{search_debug}\n</details>"
 
     if note:
         result += f"\n\n> {esc(note)}"
