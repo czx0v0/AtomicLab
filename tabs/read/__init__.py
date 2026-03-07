@@ -30,6 +30,16 @@ from ui.renderers import (
     get_total_pages,
 )
 
+# v2.2: Docling渲染器
+try:
+    from services.renderer import DoclingRenderer
+    from ui.docling_styles import get_docling_styles
+    from ui.docling_interactions import wrap_with_interactions
+    DOCLING_RENDERER_AVAILABLE = True
+except ImportError as e:
+    print(f"[ReadTab] Docling渲染器不可用: {e}")
+    DOCLING_RENDERER_AVAILABLE = False
+
 # 颜色到优先级映射
 COLOR_PRIORITY_MAP = {
     "red": 5,  # 核心观点
@@ -105,6 +115,84 @@ def _render_pdf_embed(pid: str, lib: dict) -> str:
         f"<p style='padding:20px;color:#718096;'>浏览器无法预览 PDF，请切换到文本模式</p>"
         f"</object></div>"
     )
+
+
+def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
+    """Render Docling parsed document view with interactive highlighting.
+    
+    v2.2: 使用Docling解析结果渲染结构化文档视图
+    """
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，Docling视图将在此显示</div>"
+    
+    if not DOCLING_RENDERER_AVAILABLE:
+        return "<div class='txt-empty'>Docling渲染器未安装</div>"
+    
+    # 检查是否有RAG解析结果
+    doc_info = lib[pid]
+    
+    # 尝试从RAG服务获取解析结果
+    try:
+        from services.rag_service import RAGService
+        from core.config import RAG_CONFIG
+        
+        rag_service = RAGService(RAG_CONFIG)
+        
+        # 如果文档已索引，尝试获取chunks
+        if doc_info.get("rag_indexed"):
+            # 获取文档的chunks
+            chunks = []
+            if hasattr(rag_service, 'doc_chunks') and pid in rag_service.doc_chunks:
+                chunk_ids = rag_service.doc_chunks[pid]
+                for chunk_id in chunk_ids:
+                    if chunk_id in rag_service.chunk_store:
+                        chunks.append(rag_service.chunk_store[chunk_id])
+            
+            # 构建ParsedDocument-like结构
+            if chunks:
+                parsed_data = {
+                    "title": doc_info.get("name", "未命名文档"),
+                    "content": "\n\n".join([c.content for c in chunks if c.chunk_type == "text"]),
+                    "tables": [],
+                    "metadata": {
+                        "page_count": doc_info.get("chunk_count", 0),
+                        "parse_confidence": doc_info.get("parse_confidence", 0.8)
+                    }
+                }
+                
+                # 收集表格
+                for chunk in chunks:
+                    if chunk.chunk_type == "table" and hasattr(chunk, 'metadata'):
+                        table_meta = chunk.metadata
+                        if hasattr(table_meta, 'table_data'):
+                            parsed_data["tables"].append(table_meta.table_data)
+                
+                # 准备高亮
+                highlights = []
+                if notes:
+                    for note in notes:
+                        if note.get("source_pid") == pid and note.get("type") == "高亮":
+                            highlights.append({
+                                "id": note.get("id", ""),
+                                "content": note.get("content", ""),
+                                "color": note.get("color", "yellow"),
+                                "annotation": note.get("annotation", ""),
+                                "page": note.get("page", 1)
+                            })
+                
+                # 渲染
+                renderer = DoclingRenderer()
+                renderer.set_highlights(highlights)
+                html_content = renderer.render(parsed_data)
+                
+                # 包装交互功能
+                return wrap_with_interactions(html_content)
+    
+    except Exception as e:
+        print(f"[DoclingView] 渲染失败: {e}")
+    
+    # 降级到普通文本
+    return "<div class='txt-empty'>Docling解析结果不可用，请先上传PDF并等待解析完成</div>"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -230,14 +318,25 @@ def handle_page_next(page_st, pid, lib):
     return new_page, render_pdf_text(pid, lib, new_page)
 
 
-def handle_mode_switch(mode, pid, lib, page_st):
-    """Switch between text and PDF view modes."""
+def handle_mode_switch(mode, pid, lib, page_st, notes=None):
+    """Switch between text, PDF, and Docling view modes.
+    
+    v2.2: 新增Docling模式支持
+    """
     if mode == "PDF模式":
         return (
             gr.update(visible=False),
             gr.update(value=_render_pdf_embed(pid, lib), visible=True),
         )
+    elif mode == "Docling模式":
+        # Docling模式：使用结构化渲染
+        docling_html = _render_docling_view(pid, lib, notes or [])
+        return (
+            gr.update(visible=False),
+            gr.update(value=docling_html, visible=True),
+        )
     else:
+        # 文本模式
         return (
             gr.update(visible=True),
             gr.update(visible=False),
@@ -754,7 +853,7 @@ def build_read_tab():
                 show_label=False,
             )
             view_mode = gr.Radio(
-                choices=["文本模式", "PDF模式"],
+                choices=["文本模式", "PDF模式", "Docling模式"],
                 value="文本模式",
                 label="查看模式",
             )

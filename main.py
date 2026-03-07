@@ -215,7 +215,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
     )
     read["view_mode"].change(
         fn=handle_mode_switch,
-        inputs=[read["view_mode"], read["pdf_selector"], lib_st, page_st],
+        inputs=[read["view_mode"], read["pdf_selector"], lib_st, page_st, notes_st],
         outputs=[read["pdf_text_html"], read["pdf_embed_html"]],
     )
     # Popup: highlight action → auto-save note (v2.0: also creates annotation node + refresh PDF view)
