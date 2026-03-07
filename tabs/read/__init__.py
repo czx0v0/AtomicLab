@@ -165,8 +165,21 @@ def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str
     highlights = []
     if notes:
         for note in notes:
-            if note.get("source_pid") == pid and note.get("type") == "高亮":
+            if note.get("source_pid") == pid and note.get("type") in ("高亮", "highlight"):
                 coord_data = note.get("coordinate", {})
+                rects_data = note.get("rects", [])
+                
+                # 构建coordinate对象
+                coord = None
+                if coord_data:
+                    coord = PDFCoordinate(
+                        page=coord_data.get("page", 1),
+                        x=coord_data.get("x", 0),
+                        y=coord_data.get("y", 0),
+                        width=coord_data.get("width", 100),
+                        height=coord_data.get("height", 20),
+                    )
+                
                 highlights.append(
                     HighlightData(
                         highlight_id=note.get("id", ""),
@@ -175,6 +188,8 @@ def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str
                         content=note.get("content", ""),
                         color=note.get("color", "yellow"),
                         annotation=note.get("annotation", ""),
+                        coordinate=coord,
+                        rects=rects_data if rects_data else None,
                     )
                 )
 
@@ -616,6 +631,10 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
             "priority": priority,
             "ts": time.strftime("%H:%M"),
             "source_pid": pid or "",
+            # PDF.js特有字段（跨行高亮支持）
+            "rects": data.get("rects", []),
+            "coordinate": data.get("coordinate"),
+            "pdfjs": data.get("pdfjs", False),
         }
         notes.append(note)
 
@@ -718,6 +737,51 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
         current_page = int(page) if str(page).isdigit() else 1
         pdf_html = render_pdf_text(pid, lib, current_page)
         return notes, render_note_cards(notes, filter_pid=pid), tree, pdf_html, lib
+
+    elif action == "screenshot":
+        # v2.3: 截图笔记保存
+        image_data = data.get("image", "")
+        screenshot_page = data.get("page", "1")
+        annotation_text = data.get("annotation", "")
+        doc_id = data.get("doc_id", pid)
+        
+        if not image_data:
+            return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
+        
+        # 创建截图笔记
+        nid = next_note_id()
+        note = {
+            "id": nid,
+            "type": "截图",  # 截图类型
+            "content": f"[截图] 第{screenshot_page}页",
+            "annotation": annotation_text.strip() if annotation_text else "",
+            "image": image_data,  # base64图片数据
+            "page": int(screenshot_page) if str(screenshot_page).isdigit() else 1,
+            "color": "blue",  # 截图默认蓝色
+            "priority": 3,
+            "ts": time.strftime("%H:%M"),
+            "source_pid": doc_id or pid or "",
+        }
+        notes.append(note)
+        
+        # 保存到 lib
+        if pid and pid in lib:
+            if "notes" not in lib[pid]:
+                lib[pid]["notes"] = []
+            lib[pid]["notes"].append(note)
+        
+        # 创建知识树节点
+        if tree and pid and pid in lib:
+            doc_node = tree.find_document_node(pid)
+            if not doc_node:
+                domain_node = tree.find_domain_node("未分类")
+                if not domain_node:
+                    domain_node = tree.create_domain_node("未分类", pid)
+                doc_name = lib[pid].get("name", "未知文献")
+                doc_node = tree.create_document_node(doc_name, pid, domain_node.id)
+            tree.create_note_node(note=note, category="图像", doc_node_id=doc_node.id)
+        
+        return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
 
     return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
 

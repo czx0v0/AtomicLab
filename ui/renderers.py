@@ -284,6 +284,13 @@ def render_note_cards(
             translation_html = (
                 f'\n  <div class="nt-translation"><b>译:</b> {esc(translation)}</div>'
             )
+        
+        # 截图图片显示
+        image_html = ""
+        image_data = n.get("image", "")
+        if image_data:
+            # 截图类型：显示图片缩略图
+            image_html = f'\n  <div class="nt-image"><img src="{image_data}" style="max-width:100%;border-radius:4px;cursor:pointer" onclick="window.open(this.src, \'_blank\')" title="点击查看大图" /></div>'
 
         # Tags display (AI tags + manual tags with different colors)
         ai_tags = n.get("ai_tags", [])
@@ -327,7 +334,7 @@ def render_note_cards(
     <span class="nt-ts">{esc(n.get('ts', ''))}</span>
     {expand_btn}
   </div>
-  <div class="nt-body">{esc(content)}</div>{annotation_html}{translation_html}{tags_html}
+  <div class="nt-body">{esc(content)}</div>{image_html}{annotation_html}{translation_html}{tags_html}
   {actions_html}
 </div>"""
     return f"<div class='nt-wrap'>{h}</div>"

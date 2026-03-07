@@ -660,6 +660,59 @@ GLOBAL_JS = r"""
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // PDF.js iframe highlight message handler
+  // ═══════════════════════════════════════════════════════════════
+  window.addEventListener('message', function(e) {
+    // 接收来自PDF.js iframe的高亮消息
+    if (e.data && e.data.type === 'highlight') {
+      var hl = e.data.data;
+      if (!hl || !hl.content) return;
+      
+      console.log('[Atomic] PDF.js高亮消息:', hl);
+      
+      // 构建与文本模式相同格式的payload
+      var payload = JSON.stringify({
+        action: 'highlight',
+        text: hl.content,
+        page: String(hl.coordinate ? hl.coordinate.page : 1),
+        color: hl.color || 'yellow',
+        annotation: hl.annotation || '',
+        // PDF.js特有字段
+        pdfjs: true,
+        coordinate: hl.coordinate,
+        highlight_id: hl.id,
+        _t: Date.now()
+      });
+      
+      // 触发保存笔记
+      setGradioValue('#highlight-action-input', payload);
+      showToast('已保存高亮笔记到知识图谱');
+    }
+    
+    // 接收截图消息
+    if (e.data && e.data.type === 'screenshot') {
+      var data = e.data.data;
+      if (!data || !data.image) return;
+      
+      console.log('[Atomic] PDF.js截图消息:', data);
+      
+      // 构建截图笔记payload
+      var payload = JSON.stringify({
+        action: 'screenshot',
+        image: data.image,  // base64图片
+        page: String(data.page || 1),
+        annotation: data.annotation || '',
+        doc_id: data.doc_id,
+        _t: Date.now()
+      });
+      
+      // 触发保存截图笔记
+      setGradioValue('#highlight-action-input', payload);
+      showToast('已保存截图笔记');
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
   // File List: click to select file (sets hidden textbox value)
   // ═══════════════════════════════════════════════════════════════
   window.setFileSelection = function(pid) {

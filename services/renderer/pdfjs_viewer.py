@@ -50,6 +50,7 @@ class HighlightData:
     annotation: str = ""
     coordinate: PDFCoordinate = None
     created_at: str = ""
+    rects: list = None  # 支持多个rect（跨行选择）
 
     def to_dict(self) -> dict:
         return {
@@ -61,6 +62,7 @@ class HighlightData:
             "annotation": self.annotation,
             "coordinate": self.coordinate.to_dict() if self.coordinate else None,
             "created_at": self.created_at,
+            "rects": self.rects,  # 多rect支持
         }
 
 
@@ -229,6 +231,25 @@ class PDFJSViewer:
         
         .loading {{ text-align: center; padding: 40px; color: #a0aec0; }}
         .error {{ color: #e53e3e; }}
+        
+        .screenshot-overlay {{
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.3);
+            cursor: crosshair;
+            z-index: 9999;
+        }}
+        .screenshot-hint {{
+            position: fixed;
+            top: 20px; left: 50%;
+            transform: translateX(-50%);
+            background: #2d3748;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            z-index: 10000;
+        }}
     </style>
 </head>
 <body>
@@ -248,6 +269,7 @@ class PDFJSViewer:
         </div>
         
         <button class="btn" id="highlightBtn">✏️ 添加高亮</button>
+        <button class="btn" id="screenshotBtn">📷 截图笔记</button>
     </div>
     
     <div class="container" id="container">
@@ -362,11 +384,24 @@ class PDFJSViewer:
             
             state.highlights.filter(h => !h.coordinate || h.coordinate.page === pageNum).forEach(h => {{
                 if (!h.coordinate) return;
-                const div = document.createElement('div');
-                div.className = 'highlight ' + h.color;
-                div.style.cssText = `left:${{h.coordinate.x}}px;top:${{h.coordinate.y}}px;width:${{h.coordinate.width}}px;height:${{h.coordinate.height}}px`;
-                div.title = h.annotation || h.content;
-                layer.appendChild(div);
+                
+                // 支持多个rect（跨行选择）
+                if (h.rects && h.rects.length > 0) {{
+                    h.rects.forEach(r => {{
+                        const div = document.createElement('div');
+                        div.className = 'highlight ' + h.color;
+                        div.style.cssText = `left:${{r.x}}px;top:${{r.y}}px;width:${{r.w || r.width}}px;height:${{r.h || r.height}}px`;
+                        div.title = h.annotation || h.content;
+                        layer.appendChild(div);
+                    }});
+                }} else {{
+                    // 单rect兼容
+                    const div = document.createElement('div');
+                    div.className = 'highlight ' + h.color;
+                    div.style.cssText = `left:${{h.coordinate.x}}px;top:${{h.coordinate.y}}px;width:${{h.coordinate.width}}px;height:${{h.coordinate.height}}px`;
+                    div.title = h.annotation || h.content;
+                    layer.appendChild(div);
+                }}
             }});
         }}
         
@@ -376,6 +411,7 @@ class PDFJSViewer:
                 return;
             }}
             
+            // 支持跨行选择：保存所有rect
             const hl = {{
                 id: 'HL-' + Date.now(),
                 doc_id: state.docId,
@@ -390,13 +426,14 @@ class PDFJSViewer:
                     width: state.selectedRects[0]?.w || 100,
                     height: state.selectedRects[0]?.h || 20
                 }},
+                rects: state.selectedRects,  // 保存所有rect支持跨行
                 created_at: new Date().toISOString()
             }};
             
             state.highlights.push(hl);
             renderHighlights(state.page);
             
-            // 通知父页面
+            // 通知父页面保存到知识图谱
             if (window.parent) {{
                 window.parent.postMessage({{ type: 'highlight', data: hl }}, '*');
             }}
@@ -404,6 +441,108 @@ class PDFJSViewer:
             window.getSelection().removeAllRanges();
             state.selectedText = '';
             state.selectedRects = [];
+        }}
+        
+        // ═══════════════════════════════════════════════════════════════
+        // 截图笔记功能
+        // ═══════════════════════════════════════════════════════════════
+        let screenshotMode = false;
+        let screenshotStart = null;
+        let screenshotOverlay = null;
+        
+        function startScreenshot() {{
+            screenshotMode = true;
+            screenshotStart = null;
+            
+            // 创建遮罩层
+            screenshotOverlay = document.createElement('div');
+            screenshotOverlay.className = 'screenshot-overlay';
+            screenshotOverlay.innerHTML = '<div class="screenshot-hint">拖动鼠标选择截图区域，按ESC取消</div>';
+            document.body.appendChild(screenshotOverlay);
+            
+            screenshotOverlay.addEventListener('mousedown', onScreenshotMouseDown);
+            screenshotOverlay.addEventListener('mousemove', onScreenshotMouseMove);
+            screenshotOverlay.addEventListener('mouseup', onScreenshotMouseUp);
+            
+            // ESC取消
+            document.addEventListener('keydown', cancelScreenshot);
+        }}
+        
+        function cancelScreenshot(e) {{
+            if (e && e.key !== 'Escape') return;
+            screenshotMode = false;
+            if (screenshotOverlay) {{
+                screenshotOverlay.remove();
+                screenshotOverlay = null;
+            }}
+            document.removeEventListener('keydown', cancelScreenshot);
+        }}
+        
+        function onScreenshotMouseDown(e) {{
+            screenshotStart = {{ x: e.clientX, y: e.clientY }};
+        }}
+        
+        function onScreenshotMouseMove(e) {{
+            if (!screenshotStart) return;
+            // 可以添加选区预览
+        }}
+        
+        function onScreenshotMouseUp(e) {{
+            if (!screenshotStart) return;
+            
+            const end = {{ x: e.clientX, y: e.clientY }};
+            const rect = {{
+                x: Math.min(screenshotStart.x, end.x),
+                y: Math.min(screenshotStart.y, end.y),
+                w: Math.abs(end.x - screenshotStart.x),
+                h: Math.abs(end.y - screenshotStart.y)
+            }};
+            
+            // 最小尺寸检查
+            if (rect.w < 20 || rect.h < 20) {{
+                cancelScreenshot();
+                return;
+            }}
+            
+            // 获取当前页面的canvas
+            const canvas = container.querySelector('canvas');
+            if (!canvas) {{
+                cancelScreenshot();
+                return;
+            }}
+            
+            // 计算相对于canvas的坐标
+            const canvasRect = canvas.getBoundingClientRect();
+            const cropX = rect.x - canvasRect.left;
+            const cropY = rect.y - canvasRect.top;
+            
+            // 创建裁剪canvas
+            const cropCanvas = document.createElement('canvas');
+            cropCanvas.width = rect.w;
+            cropCanvas.height = rect.h;
+            const ctx = cropCanvas.getContext('2d');
+            
+            // 从原canvas裁剪
+            ctx.drawImage(canvas, cropX, cropY, rect.w, rect.h, 0, 0, rect.w, rect.h);
+            
+            // 转为base64
+            const imageData = cropCanvas.toDataURL('image/png');
+            
+            // 通知父页面保存截图笔记
+            if (window.parent) {{
+                window.parent.postMessage({{ 
+                    type: 'screenshot', 
+                    data: {{
+                        image: imageData,
+                        page: state.page,
+                        doc_id: state.docId,
+                        annotation: '',
+                        rect: rect
+                    }}
+                }}, '*');
+            }}
+            
+            cancelScreenshot();
         }}
         
         function updateUI() {{
@@ -415,6 +554,7 @@ class PDFJSViewer:
         prevBtn.onclick = () => {{ if (state.page > 1) {{ state.page--; updateUI(); renderPage(state.page); }} }};
         nextBtn.onclick = () => {{ if (state.page < state.total) {{ state.page++; updateUI(); renderPage(state.page); }} }};
         document.getElementById('highlightBtn').onclick = addHighlight;
+        document.getElementById('screenshotBtn').onclick = startScreenshot;
         
         document.querySelectorAll('.color-btn').forEach(btn => {{
             btn.onclick = () => {{
