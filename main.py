@@ -11,9 +11,33 @@ Architecture:
 - tabs/:      Tab UI builders and handlers (Read, Organize, Write, Chat)
 """
 
+import os
+import shutil
 import gradio as gr
 
 from core.config import APP_TITLE, ENABLE_AUTH, AUTH_PASSWORD, MODEL_DISPLAY_NAMES
+
+
+# ══════════════════════════════════════════════════════════════
+# STARTUP CLEANUP
+# ══════════════════════════════════════════════════════════════
+
+
+def _cleanup_storage():
+    """启动时清理storage文件夹，避免旧索引数据干扰。"""
+    storage_path = os.path.join(os.path.dirname(__file__), "storage")
+    if os.path.exists(storage_path):
+        try:
+            shutil.rmtree(storage_path)
+            print(f"[Startup] 已清理旧storage文件夹: {storage_path}")
+        except Exception as e:
+            print(f"[Startup] 清理storage失败: {e}")
+    else:
+        print(f"[Startup] storage文件夹不存在，无需清理")
+
+
+# 执行清理
+_cleanup_storage()
 from core.model_state import cooldown_manager
 from ui.styles import CSS, HEADER_HTML
 from ui.global_js import ECHARTS_HEAD, GLOBAL_JS
