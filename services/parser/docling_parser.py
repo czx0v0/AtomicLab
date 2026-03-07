@@ -166,12 +166,16 @@ class DoclingParser:
                 # 生成结构指纹
                 structure_hash = self._hash_table_structure(df)
 
+                # 确保headers和rows都是字符串类型
+                headers = [str(h) for h in df.columns]
+                rows = [[str(cell) for cell in row] for row in df.values.tolist()]
+                
                 tables.append(
                     ParsedTable(
                         table_id=f"{doc_id}_t{i:03d}",
                         caption=getattr(table, "caption", f"Table {i+1}"),
-                        headers=list(df.columns),
-                        rows=df.values.tolist(),
+                        headers=headers,
+                        rows=rows,
                         markdown=markdown,
                         html=html,
                         page_number=getattr(table, "page_number", 0),

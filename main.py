@@ -409,12 +409,12 @@ with gr.Blocks(title=APP_TITLE) as demo:
     chat["send_btn"].click(
         fn=handle_chat_send,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
-        outputs=[chat["chatbot"], chat["msg_input"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"]],
     )
     chat["msg_input"].submit(
         fn=handle_chat_send,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
-        outputs=[chat["chatbot"], chat["msg_input"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"]],
     )
     chat["clear_btn"].click(
         fn=handle_chat_clear,

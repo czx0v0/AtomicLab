@@ -205,11 +205,18 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
 
             # 构建ParsedDocument-like结构
             if chunks:
+                # 按chunk_index排序，保持文档顺序
+                sorted_chunks = sorted(chunks, key=lambda c: c.metadata.chunk_index if c.metadata and hasattr(c.metadata, 'chunk_index') else 0)
+                
+                # 构建内容，保留段落结构
+                content_parts = []
+                for chunk in sorted_chunks:
+                    if chunk.chunk_type in ("paragraph", "semantic", "section", "text"):
+                        content_parts.append(chunk.content)
+                
                 parsed_data = {
                     "title": doc_info.get("name", "未命名文档"),
-                    "content": "\n\n".join(
-                        [c.content for c in chunks if c.chunk_type == "text"]
-                    ),
+                    "content": "\n\n".join(content_parts),
                     "tables": [],
                     "metadata": {
                         "page_count": doc_info.get("chunk_count", 0),
@@ -217,12 +224,18 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
                     },
                 }
 
-                # 收集表格
-                for chunk in chunks:
-                    if chunk.chunk_type == "table" and hasattr(chunk, "metadata"):
-                        table_meta = chunk.metadata
-                        if hasattr(table_meta, "table_data"):
-                            parsed_data["tables"].append(table_meta.table_data)
+                # 收集表格 - 从所有chunks中找表格数据
+                for chunk in sorted_chunks:
+                    if chunk.chunk_type in ("table_semantic", "table_row"):
+                        if hasattr(chunk, 'table_data') and chunk.table_data:
+                            parsed_data["tables"].append({
+                                'html': chunk.content if chunk.content.startswith('<table') else f'<table><tr><td>{chunk.content}</td></tr></table>',
+                                'caption': f'Table from page {chunk.page_number}' if chunk.page_number else 'Table'
+                            })
+                        elif hasattr(chunk, 'metadata') and chunk.metadata:
+                            table_data = getattr(chunk.metadata, 'table_data', None)
+                            if table_data:
+                                parsed_data["tables"].append(table_data)
 
                 # 准备高亮
                 highlights = []
