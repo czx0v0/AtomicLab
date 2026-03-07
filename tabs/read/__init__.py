@@ -5,13 +5,15 @@ Tab 1: Upload PDFs, read extracted text, record notes.
        Single-page view with floating popup menu (WeChat Reading style).
        Highlight = auto-save note with annotation node support.
        Translate inline. Copy to clipboard.
-       Dual-mode: text extraction + original PDF rendering.
-       Clickable file list instead of dropdown.
 
 v2.0 更新:
 - 批注功能重写，支持 TreeNode(type="annotation")
 - 支持 priority (1-5) 和颜色映射
 - 批注作为章节/文档的子节点存储
+
+v2.3 更新:
+- 添加PDF.js高亮模式（保真渲染 + 高亮交互 + RAG分块）
+- 三种阅读模式：文本模式、PDF原版、PDF高亮(RAG增强)
 """
 
 import os
@@ -40,6 +42,16 @@ try:
 except ImportError as e:
     print(f"[ReadTab] Docling渲染器不可用: {e}")
     DOCLING_RENDERER_AVAILABLE = False
+
+# v2.3: PDF.js高亮渲染器
+try:
+    from services.renderer.pdfjs_viewer import PDFJSViewer, HighlightData
+    from services.renderer.coordinate_mapper import get_coordinate_mapper
+
+    PDFJS_VIEWER_AVAILABLE = True
+except ImportError as e:
+    print(f"[ReadTab] PDF.js渲染器不可用: {e}")
+    PDFJS_VIEWER_AVAILABLE = False
 
 # 颜色到优先级映射
 COLOR_PRIORITY_MAP = {
@@ -115,6 +127,62 @@ def _render_pdf_embed(pid: str, lib: dict) -> str:
         f"style='width:100%;height:700px;border:1px solid #e2e8f0;border-radius:8px;'>"
         f"<p style='padding:20px;color:#718096;'>浏览器无法预览 PDF，请切换到文本模式</p>"
         f"</object></div>"
+    )
+
+
+def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str:
+    """
+    Render PDF with PDF.js - supports highlighting and RAG integration.
+    
+    v2.3: 统一的保真渲染 + 高亮交互模式
+    - PDF.js保真渲染（公式、表格、图片完整显示）
+    - 文本层选择和高亮
+    - 与RAG chunk坐标映射
+    - 高亮数据持久化
+    """
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，PDF 将在此显示</div>"
+    
+    if not PDFJS_VIEWER_AVAILABLE:
+        return "<div class='txt-empty'>PDF.js渲染器未安装，请使用文本模式或PDF原版模式</div>"
+    
+    doc_info = lib[pid]
+    fp = doc_info.get("filepath", "")
+    
+    if not fp or not fp.lower().endswith(".pdf"):
+        return "<div class='txt-empty'>非 PDF 文件，请切换到文本模式</div>"
+    
+    # 检查文件大小
+    try:
+        file_size_mb = os.path.getsize(fp) / (1024 * 1024)
+    except OSError:
+        file_size_mb = 0
+    
+    if file_size_mb > 30:
+        return f"<div class='txt-empty'>PDF过大 ({file_size_mb:.1f}MB)，建议使用文本模式</div>"
+    
+    # 获取已有高亮笔记
+    highlights = []
+    if notes:
+        for note in notes:
+            if note.get("source_pid") == pid and note.get("type") == "高亮":
+                coord_data = note.get("coordinate", {})
+                highlights.append(HighlightData(
+                    highlight_id=note.get("id", ""),
+                    doc_id=pid,
+                    chunk_id=note.get("chunk_id", ""),
+                    content=note.get("content", ""),
+                    color=note.get("color", "yellow"),
+                    annotation=note.get("annotation", ""),
+                ))
+    
+    # 使用PDF.js渲染器
+    viewer = PDFJSViewer()
+    return viewer.render_viewer(
+        pdf_path=fp,
+        doc_id=pid,
+        highlights=highlights,
+        doc_name=doc_info.get("name", "未命名文档"),
     )
 
 
@@ -409,14 +477,22 @@ def handle_page_next(page_st, pid, lib):
 
 
 def handle_mode_switch(mode, pid, lib, page_st, notes=None):
-    """Switch between text, PDF, and Docling view modes.
+    """Switch between text, PDF, PDF highlight, and Docling view modes.
 
     v2.2: 新增Docling模式支持
+    v2.3: 新增PDF高亮模式（保真渲染 + 高亮交互）
     """
-    if mode == "PDF模式":
+    if mode == "PDF原版":
         return (
             gr.update(visible=False),
             gr.update(value=_render_pdf_embed(pid, lib), visible=True),
+        )
+    elif mode == "PDF高亮":
+        # PDF高亮模式：保真渲染 + 高亮交互
+        pdfjs_html = _render_pdfjs_highlight_view(pid, lib, notes or [])
+        return (
+            gr.update(visible=False),
+            gr.update(value=pdfjs_html, visible=True),
         )
     elif mode == "Docling模式":
         # Docling模式：使用结构化渲染
@@ -943,9 +1019,10 @@ def build_read_tab():
                 show_label=False,
             )
             view_mode = gr.Radio(
-                choices=["文本模式", "PDF模式", "Docling模式"],
+                choices=["文本模式", "PDF原版", "PDF高亮", "Docling模式"],
                 value="文本模式",
                 label="查看模式",
+                info="文本:可高亮 | PDF原版:保真 | PDF高亮:保真+高亮 | Docling:RAG增强",
             )
 
         # ── Center: Reader ──
