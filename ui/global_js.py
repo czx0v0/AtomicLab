@@ -179,9 +179,42 @@ GLOBAL_JS = r"""
     // For other actions, send to Python handler via hidden textbox
     var payload = action + ':' + nodeId;
     
-    // Update both read tab and organize tab inputs to ensure cross-page compatibility
-    setGradioValue('#note-action-input', payload);
-    setGradioValue('#org-note-action-input', payload);
+    // Detect which tab is currently active and use the correct input
+    var activeTab = null;
+    var tabButtons = document.querySelectorAll('button[role="tab"]');
+    tabButtons.forEach(function(btn) {
+      if (btn.getAttribute('aria-selected') === 'true' || btn.classList.contains('selected')) {
+        activeTab = btn.textContent.trim();
+      }
+    });
+    
+    // Also check by finding the active tab panel
+    if (!activeTab) {
+      var activePanel = document.querySelector('.tabitem[style*="display: block"]');
+      if (activePanel) {
+        // Determine which tab based on panel content
+        if (activePanel.querySelector('#pdf-selector-hidden') || activePanel.querySelector('.txt-reader')) {
+          activeTab = '阅读';
+        } else if (activePanel.querySelector('#org-note-action-input')) {
+          activeTab = '整理';
+        }
+      }
+    }
+    
+    console.log('[Atomic] Active tab detected:', activeTab);
+    
+    // Use the appropriate input based on active tab or node ID prefix
+    // Node IDs starting with "KN-" are from organize tab, "NT-" are from read tab
+    var isOrganizeNode = nodeId.startsWith('KN-');
+    var useOrganizeInput = isOrganizeNode || activeTab === '整理';
+    
+    if (useOrganizeInput) {
+      console.log('[Atomic] Using organize input for node:', nodeId);
+      setGradioValue('#org-note-action-input', payload);
+    } else {
+      console.log('[Atomic] Using read input for node:', nodeId);
+      setGradioValue('#note-action-input', payload);
+    }
     
     // Show immediate feedback
     var messages = {

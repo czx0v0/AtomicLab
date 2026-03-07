@@ -288,6 +288,7 @@ def build_chat_tab():
             scale=2,
             container=False,
             elem_id="chat-model-selector",
+            allow_custom_value=True,  # 允许初始值为空
         )
         # 当前文献选择器
         doc_selector = gr.Dropdown(
@@ -306,7 +307,6 @@ def build_chat_tab():
     ai_ask_input = gr.Textbox(
         elem_id="ai-ask-input",
         visible=True,
-        show_label=False,
         container=False,
     )
 

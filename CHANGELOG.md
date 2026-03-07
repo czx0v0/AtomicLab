@@ -1,5 +1,51 @@
 # 更新日志
 
+### 2026-03-07 v2.3.2 (search-enhancements)
+
+#### 🚀 新功能
+
+**1. 模糊匹配搜索**
+- 支持部分匹配：输入部分字母或汉字也能找到相关结果
+- 前缀匹配：查询前缀与字段内容匹配时降权显示
+- Token匹配：自动分词后部分Token匹配也可检索
+- 精确匹配优先：完整匹配的结果排在前面，模糊匹配作为备选
+
+**2. References章节检索增强**
+- 章节标题自动识别（References、Introduction、Methods等）
+- 章节名称加入chunk元数据，支持按章节检索
+- 搜索时自动包含章节信息
+
+#### 🔧 改进
+
+- **OCR服务增强**：详细日志输出、图片格式转换重试、错误信息反馈
+- **翻译按钮修复**：整理Tab翻译按钮无反馈问题修复
+- **事件绑定修复**：note_action_tb组件visible状态正确设置
+
+#### 🐛 Bug修复
+
+| 问题 | 解决方案 |
+|------|----------|
+| References章节搜索不完整 | 添加章节识别和元数据索引 |
+| OCR有时识别失败 | 增强错误处理和格式转换重试 |
+| 整理Tab翻译按钮无反馈 | 修复JS事件绑定和组件状态 |
+| demo.load报错 | 移入with demo上下文内调用 |
+| show_label警告 | 移除container=False时的show_label参数 |
+| Dropdown值警告 | 添加allow_custom_value=True |
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `knowledge/search.py` | 新增模糊匹配算法 `_calculate_node_match` |
+| `services/search/keyword_search.py` | 模糊匹配评分增强 |
+| `services/chunking/semantic_chunker.py` | 章节识别 `_extract_section_headers` |
+| `models/chunk.py` | 新增 `section_name` 字段 |
+| `services/ocr_service.py` | 增强错误处理和日志 |
+| `ui/global_js.py` | 修复noteAction事件分发 |
+| `main.py` | 修复demo.load调用位置 |
+
+---
+
 ### 2026-03-07 v2.3.1 (ui-enhancements)
 
 #### 🚀 新功能

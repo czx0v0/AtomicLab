@@ -88,6 +88,7 @@ rag_service.load(clear_existing=True)
 
 # OCR服务集成
 from services.ocr_service import get_ocr_service
+
 ocr_service = get_ocr_service()
 
 
@@ -460,29 +461,27 @@ with gr.Blocks(title=APP_TITLE) as demo:
             gr.update(value=pid),  # write tab
         ),
         inputs=[chat["doc_selector"]],
-        outputs=[read["pdf_selector"], org["org_doc_selector"], wrt["write_doc_selector"]],
+        outputs=[
+            read["pdf_selector"],
+            org["org_doc_selector"],
+            wrt["write_doc_selector"],
+        ],
     )
 
-# ══════════════════════════════════════════════════════════════
-# POST-INIT HOOK
-# ══════════════════════════════════════════════════════════════
+    # ── Page Load Initialization ──
+    # 初始化chat tab的模型选择器（必须在with demo:上下文内）
+    def _init_chat_model_selector():
+        """Initialize chat tab model selector after demo is built."""
+        model_choices = _get_model_choices()
+        preferred = cooldown_manager.get_preferred()
+        status_html = _get_model_status_html()
+        return gr.update(choices=model_choices, value=preferred), status_html
 
-
-def _init_chat_model_selector():
-    """Initialize chat tab model selector after demo is built."""
-    # 设置模型选择器选项和默认值
-    model_choices = _get_model_choices()
-    preferred = cooldown_manager.get_preferred()
-    status_html = _get_model_status_html()
-    return gr.update(choices=model_choices, value=preferred), status_html
-
-
-# 使用demo.load在页面加载时初始化chat模型选择器
-demo.load(
-    fn=_init_chat_model_selector,
-    inputs=[],
-    outputs=[chat["model_selector"], chat["model_status"]],
-)
+    demo.load(
+        fn=_init_chat_model_selector,
+        inputs=[],
+        outputs=[chat["model_selector"], chat["model_status"]],
+    )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -503,7 +502,7 @@ async def api_ocr(request: Request):
         image_data = body.get("image", "")
         if not image_data:
             return JSONResponse({"text": "", "error": "No image data"})
-        
+
         result = ocr_service.recognize(image_data)
         return JSONResponse(result)
     except Exception as e:

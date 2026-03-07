@@ -71,6 +71,7 @@ class SemanticChunker:
             # 清除缓存并重新下载
             import shutil
             from pathlib import Path
+
             cache_dir = Path.home() / ".cache" / "torch" / "sentence_transformers"
             model_cache = cache_dir / model_name.replace("/", "_")
             if model_cache.exists():
@@ -111,11 +112,23 @@ class SemanticChunker:
         Returns:
             TextChunk列表
         """
+        # 0. 识别章节标题并提取元数据
+        section_headers = self._extract_section_headers(text)
+
         # 1. 句子分割
         sentences = self._split_sentences(text)
         if len(sentences) <= 1:
             # 文本太短,直接作为一个chunk
-            return [self._create_chunk(text, doc_id, doc_title, 1.0, **kwargs)]
+            return [
+                self._create_chunk(
+                    text,
+                    doc_id,
+                    doc_title,
+                    1.0,
+                    section_name=self._find_section(text, 0, section_headers),
+                    **kwargs,
+                )
+            ]
 
         # 2. 计算句子embeddings
         print(f"计算 {len(sentences)} 个句子的embeddings...")
@@ -140,11 +153,18 @@ class SemanticChunker:
             chunk_sentences = sentences[start:end]
             chunk_text = "".join(chunk_sentences)
 
+            # 确定该chunk所属的章节
+            section_name = self._find_section(chunk_text, start, section_headers)
+
             # 检查大小限制
             if self._estimate_tokens(chunk_text) > self.max_chunk_size:
                 # 进一步分割
                 sub_chunks = self._split_by_token_limit(
-                    chunk_sentences, doc_id, doc_title, **kwargs
+                    chunk_sentences,
+                    doc_id,
+                    doc_title,
+                    section_name=section_name,
+                    **kwargs,
                 )
                 chunks.extend(sub_chunks)
             else:
@@ -153,7 +173,13 @@ class SemanticChunker:
                 coherence = sum(chunk_sims) / len(chunk_sims)
 
                 chunk = self._create_chunk(
-                    chunk_text, doc_id, doc_title, coherence, chunk_index=i, **kwargs
+                    chunk_text,
+                    doc_id,
+                    doc_title,
+                    coherence,
+                    chunk_index=i,
+                    section_name=section_name,
+                    **kwargs,
                 )
                 chunks.append(chunk)
 
@@ -164,6 +190,102 @@ class SemanticChunker:
 
         print(f"语义分块完成: {len(sentences)} 个句子 -> {len(chunks)} 个chunks")
         return chunks
+
+    def _extract_section_headers(self, text: str) -> List[dict]:
+        """
+        提取章节标题及其位置
+
+        识别常见章节标题如:
+        - References / 参考文献
+        - Introduction / 引言
+        - Methods / 方法
+        - Results / 结果
+        - Discussion / 讨论
+        - Conclusion / 结论
+        """
+        import re
+
+        # 常见章节标题模式
+        section_patterns = [
+            # 英文
+            r"^references\s*$",
+            r"^introduction\s*$",
+            r"^methods?\s*$",
+            r"^results?\s*$",
+            r"^discussion\s*$",
+            r"^conclusions?\s*$",
+            r"^abstract\s*$",
+            r"^background\s*$",
+            r"^related\s+work\s*$",
+            r"^appendix\s*$",
+            # 编号章节
+            r"^\d+\.?\s+[A-Z][a-z]+",
+            # 中文
+            r"^参考文献\s*$",
+            r"^引言\s*$",
+            r"^方法\s*$",
+            r"^结果\s*$",
+            r"^讨论\s*$",
+            r"^结论\s*$",
+            r"^摘要\s*$",
+            r"^附录\s*$",
+        ]
+
+        headers = []
+        lines = text.split("\n")
+
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+
+            # 检查是否匹配章节标题
+            for pattern in section_patterns:
+                if re.match(pattern, line_stripped, re.IGNORECASE):
+                    headers.append(
+                        {
+                            "name": line_stripped,
+                            "line_index": i,
+                            "position": sum(len(l) + 1 for l in lines[:i]),  # 字符位置
+                        }
+                    )
+                    break
+
+        return headers
+
+    def _find_section(
+        self, chunk_text: str, sentence_index: int, section_headers: List[dict]
+    ) -> str:
+        """
+        确定chunk所属的章节
+
+        Args:
+            chunk_text: chunk内容
+            sentence_index: 句子索引（估算用）
+            section_headers: 章节标题列表
+
+        Returns:
+            章节名称（如 "References", "Introduction" 等）
+        """
+        if not section_headers:
+            return ""
+
+        # 获取chunk的大致字符位置
+        chunk_start_pos = 0  # 简化处理，使用第一个匹配的章节
+
+        # 在chunk内容中查找章节标题
+        chunk_lower = chunk_text.lower()
+        for header in section_headers:
+            header_lower = header["name"].lower()
+            # 如果chunk包含章节标题，或者位于该章节之后
+            if header_lower in chunk_lower or chunk_start_pos >= header["position"]:
+                return header["name"]
+
+        # 返回最后一个章节（如果在所有章节之后）
+        if section_headers:
+            return section_headers[-1]["name"]
+
+        return ""
 
     def _split_sentences(self, text: str) -> List[str]:
         """
@@ -233,7 +355,12 @@ class SemanticChunker:
         return split_points
 
     def _split_by_token_limit(
-        self, sentences: List[str], doc_id: str, doc_title: str, **kwargs
+        self,
+        sentences: List[str],
+        doc_id: str,
+        doc_title: str,
+        section_name: str = "",
+        **kwargs,
     ) -> List[TextChunk]:
         """
         按token限制分割(备用方案)
@@ -246,7 +373,12 @@ class SemanticChunker:
                 if current_text:
                     chunks.append(
                         self._create_chunk(
-                            current_text, doc_id, doc_title, 0.5, **kwargs
+                            current_text,
+                            doc_id,
+                            doc_title,
+                            0.5,
+                            section_name=section_name,
+                            **kwargs,
                         )
                     )
                 current_text = sent
@@ -255,7 +387,14 @@ class SemanticChunker:
 
         if current_text:
             chunks.append(
-                self._create_chunk(current_text, doc_id, doc_title, 0.5, **kwargs)
+                self._create_chunk(
+                    current_text,
+                    doc_id,
+                    doc_title,
+                    0.5,
+                    section_name=section_name,
+                    **kwargs,
+                )
             )
 
         return chunks
@@ -267,6 +406,7 @@ class SemanticChunker:
         doc_title: str,
         coherence: float,
         chunk_index: int = 0,
+        section_name: str = "",
         **kwargs,
     ) -> TextChunk:
         """创建TextChunk"""
@@ -281,9 +421,10 @@ class SemanticChunker:
                 chunk_index=chunk_index,
                 token_count=self._estimate_tokens(content),
                 keywords=kwargs.get("keywords", []),
+                section_name=section_name,  # 添加章节名称到元数据
             ),
-            semantic_coherence=coherence,
-            quality_score=coherence,  # 用连贯性作为质量分
+            semantic_coherence=coherence,  # 用连贯性作为质量分
+            quality_score=coherence,
         )
 
     def _estimate_tokens(self, text: str) -> int:

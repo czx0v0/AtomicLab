@@ -110,11 +110,11 @@ class KeywordSearchService:
 
         # 搜索新版 KnowledgeGraph
         if self.graph:
-            results.extend(self._search_graph(tokens, include_docs))
+            results.extend(self._search_graph(tokens, include_docs, query))
 
         # 搜索旧版 KnowledgeTree（兼容）
         if self.tree and hasattr(self.tree, "nodes"):
-            results.extend(self._search_tree(tokens))
+            results.extend(self._search_tree(tokens, query))
 
         # 搜索文献库原文
         if include_docs and self.lib:
@@ -179,14 +179,16 @@ class KeywordSearchService:
         node: any,
         tokens: List[str],
         doc: any = None,
+        query: str = "",
     ) -> tuple[float, str]:
         """
-        计算节点匹配分数
+        计算节点匹配分数 - 支持精确匹配和模糊匹配
 
         Args:
             node: 节点对象或字典
             tokens: 分词列表
             doc: 所属文献（可选）
+            query: 原始查询词（用于模糊匹配）
 
         Returns:
             (分数, 最佳匹配字段)
@@ -217,12 +219,34 @@ class KeywordSearchService:
             # 计算匹配分数
             field_score = 0.0
             for token in tokens:
+                # 1. 精确匹配（完整包含）
                 if token in field_text:
-                    # 完整匹配
                     field_score += weight
                     # 精确匹配加分
                     if token == field_text or f" {token} " in f" {field_text} ":
                         field_score += weight * 0.5
+                
+                # 2. 模糊匹配（前缀匹配）
+                elif len(token) >= 3:
+                    # 检查字段中的词是否以token开头
+                    words = field_text.split()
+                    for word in words:
+                        if word.startswith(token[:min(4, len(token))]):
+                            # 前缀匹配，降权
+                            field_score += weight * 0.5
+                            break
+                    
+                    # 检查token是否是字段内容的子串（部分匹配）
+                    if token[:min(4, len(token))] in field_text:
+                        field_score += weight * 0.3
+
+            # 3. 原始查询的部分匹配（针对用户输入不完整的情况）
+            if query and len(query) >= 3:
+                query_lower = query.lower()
+                # 检查查询前缀
+                prefix_len = min(4, len(query))
+                if query_lower[:prefix_len] in field_text:
+                    field_score += weight * 0.4
 
             total_score += field_score
 
@@ -282,7 +306,7 @@ class KeywordSearchService:
         return fields
 
     def _search_graph(
-        self, tokens: List[str], include_docs: bool
+        self, tokens: List[str], include_docs: bool, query: str = ""
     ) -> List[SearchResult]:
         """搜索 KnowledgeGraph"""
         results = []
@@ -290,7 +314,7 @@ class KeywordSearchService:
         # 搜索树节点
         for node in self.graph.get_all_nodes():
             doc = self.graph.get_document(node.doc_id)
-            score, matched_field = self._calculate_score(node, tokens, doc)
+            score, matched_field = self._calculate_score(node, tokens, doc, query)
 
             if score > 0:
                 highlight = self._generate_highlight(node, tokens)
@@ -308,7 +332,7 @@ class KeywordSearchService:
         # 搜索文献节点
         if include_docs:
             for doc in self.graph.documents.values():
-                score, matched_field = self._calculate_score(doc, tokens)
+                score, matched_field = self._calculate_score(doc, tokens, query=query)
                 if score > 0:
                     results.append(
                         SearchResult(
@@ -322,7 +346,7 @@ class KeywordSearchService:
 
         return results
 
-    def _search_tree(self, tokens: List[str]) -> List[SearchResult]:
+    def _search_tree(self, tokens: List[str], query: str = "") -> List[SearchResult]:
         """搜索旧版 KnowledgeTree"""
         results = []
 
@@ -331,7 +355,7 @@ class KeywordSearchService:
             if node.source_pid:
                 doc = self.lib.get(node.source_pid, {})
 
-            score, matched_field = self._calculate_score(node, tokens, doc)
+            score, matched_field = self._calculate_score(node, tokens, doc, query)
 
             if score > 0:
                 highlight = self._generate_highlight(node, tokens)

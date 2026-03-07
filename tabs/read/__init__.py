@@ -79,7 +79,7 @@ def _render_file_list(lib: dict, active_pid: str = "") -> str:
         is_pdf = info.get("filepath", "").lower().endswith(".pdf")
         icon = "&#128196;" if is_pdf else "&#128221;"
         active_cls = " active" if pid == active_pid else ""
-        
+
         # RAG状态指示器
         rag_status = ""
         if is_pdf:
@@ -87,14 +87,18 @@ def _render_file_list(lib: dict, active_pid: str = "") -> str:
             rag_processing = info.get("rag_processing", False)
             chunk_count = info.get("chunk_count", 0)
             rag_msg = info.get("rag_status", "")
-            
+
             if rag_processing:
-                rag_status = f'<span class="rag-status processing" title="{rag_msg}">⏳</span>'
+                rag_status = (
+                    f'<span class="rag-status processing" title="{rag_msg}">⏳</span>'
+                )
             elif rag_indexed:
                 rag_status = f'<span class="rag-status indexed" title="已索引 {chunk_count} 个分块">✓{chunk_count}</span>'
             elif "失败" in rag_msg:
-                rag_status = f'<span class="rag-status failed" title="{rag_msg}">❌</span>'
-        
+                rag_status = (
+                    f'<span class="rag-status failed" title="{rag_msg}">❌</span>'
+                )
+
         # Use JS to set hidden dropdown value
         h += (
             f"<div class='file-item{active_cls}' "
@@ -182,10 +186,13 @@ def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str
     highlights = []
     if notes:
         for note in notes:
-            if note.get("source_pid") == pid and note.get("type") in ("高亮", "highlight"):
+            if note.get("source_pid") == pid and note.get("type") in (
+                "高亮",
+                "highlight",
+            ):
                 coord_data = note.get("coordinate", {})
                 rects_data = note.get("rects", [])
-                
+
                 # 构建coordinate对象
                 coord = None
                 if coord_data:
@@ -196,7 +203,7 @@ def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str
                         width=coord_data.get("width", 100),
                         height=coord_data.get("height", 20),
                     )
-                
+
                 highlights.append(
                     HighlightData(
                         highlight_id=note.get("id", ""),
@@ -457,13 +464,13 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
                         print(f"[RAG] 开始处理: {fn}")
                         lib[pid]["rag_status"] = "📄 PDF提取中..."
                         lib[pid]["rag_progress"] = 10
-                        
+
                         result = rag_service.process_document(fp, pid)
-                        
+
                         if result.success:
                             lib[pid]["rag_progress"] = 90
                             lib[pid]["rag_status"] = "🔍 建立索引中..."
-                            
+
                             lib[pid]["rag_indexed"] = True
                             lib[pid]["rag_processing"] = False
                             lib[pid]["rag_status"] = "✅ 已完成"
@@ -766,14 +773,22 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
         annotation_text = data.get("annotation", "")
         doc_id = data.get("doc_id", pid)
         ocr_text = data.get("ocr_text", "")  # OCR识别的文字
-        
+
         if not image_data:
-            return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
-        
+            return (
+                notes,
+                render_note_cards(notes, filter_pid=pid),
+                tree,
+                gr.update(),
+                lib,
+            )
+
         # 创建截图笔记
         nid = next_note_id()
         # 如果有OCR文字，使用OCR文字作为content
-        content_text = ocr_text.strip() if ocr_text.strip() else f"[截图] 第{screenshot_page}页"
+        content_text = (
+            ocr_text.strip() if ocr_text.strip() else f"[截图] 第{screenshot_page}页"
+        )
         note = {
             "id": nid,
             "type": "截图",  # 截图类型
@@ -788,13 +803,13 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
             "ocr": bool(ocr_text.strip()),  # 标记是否有OCR
         }
         notes.append(note)
-        
+
         # 保存到 lib
         if pid and pid in lib:
             if "notes" not in lib[pid]:
                 lib[pid]["notes"] = []
             lib[pid]["notes"].append(note)
-        
+
         # 创建知识树节点
         if tree and pid and pid in lib:
             doc_node = tree.find_document_node(pid)
@@ -805,7 +820,7 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
                 doc_name = lib[pid].get("name", "未知文献")
                 doc_node = tree.create_document_node(doc_name, pid, domain_node.id)
             tree.create_note_node(note=note, category="图像", doc_node_id=doc_node.id)
-        
+
         return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
 
     return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
@@ -1102,7 +1117,7 @@ def handle_popup_translate(text):
 
 def build_read_tab():
     """Build the Read tab UI — file list + reader + visible notes.
-    
+
     v2.3: PDF高亮模式为默认显示模式
     """
     gr.HTML(
@@ -1161,26 +1176,22 @@ def build_read_tab():
     highlight_action_tb = gr.Textbox(
         elem_id="highlight-action-input",
         visible=True,
-        show_label=False,
         container=False,
     )
     translate_action_tb = gr.Textbox(
         elem_id="translate-action-input",
         visible=True,
-        show_label=False,
         container=False,
     )
     translate_result_tb = gr.Textbox(
         elem_id="translate-result-input",
         visible=True,
-        show_label=False,
         container=False,
     )
     # Hidden textbox for note card action buttons (translate, tag, annotate)
     note_action_tb = gr.Textbox(
         elem_id="note-action-input",
         visible=True,
-        show_label=False,
         container=False,
     )
 

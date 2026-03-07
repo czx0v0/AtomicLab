@@ -201,7 +201,9 @@ class ConversationAgent(BaseAgent):
                                 "page": n.get("page", ""),
                                 "category": n.get("category", ""),
                                 "source_name": n.get("source_name", ""),
-                                "source_pid": n.get("source_pid", ""),  # 添加source_pid用于跳转
+                                "source_pid": n.get(
+                                    "source_pid", ""
+                                ),  # 添加source_pid用于跳转
                             }
                         )
 

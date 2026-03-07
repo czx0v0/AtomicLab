@@ -448,8 +448,12 @@ def handle_search(query, tree, lib, rag_service=None):
             )
 
             # 点击跳转功能
-            onclick = f"onclick=\"jumpToSource('{source_pid}', {page})\"" if source_pid and page else "onclick=\"setGradioValue('#selected-node-input', '{node.id}')\""
-            
+            onclick = (
+                f"onclick=\"jumpToSource('{source_pid}', {page})\""
+                if source_pid and page
+                else "onclick=\"setGradioValue('#selected-node-input', '{node.id}')\""
+            )
+
             h += f"""<div class="search-node-card" {onclick} style="cursor:pointer" title="点击跳转到原文">
   <div class="nt-top">{cat_badge}<span class="nt-type">{node.type}</span>{page_html}</div>
   <div class="nt-body">{content}</div>
@@ -827,12 +831,11 @@ def build_organize_tab():
     selected_node_id = gr.Textbox(
         elem_id="selected-node-input",
         visible=False,
-        show_label=False,
     )
     note_action_tb = gr.Textbox(
         elem_id="org-note-action-input",
-        visible=False,
-        show_label=False,
+        visible=True,  # Must be visible for events to work
+        container=False,
     )
 
     return {

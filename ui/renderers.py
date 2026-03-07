@@ -969,7 +969,11 @@ def render_cited_notes(notes_data: list) -> str:
         source_html = f'<span class="nt-source">{source}</span>' if source else ""
 
         # 添加点击跳转功能
-        onclick = f"onclick=\"jumpToSource('{source_pid}', {page})\"" if source_pid and page else ""
+        onclick = (
+            f"onclick=\"jumpToSource('{source_pid}', {page})\""
+            if source_pid and page
+            else ""
+        )
 
         h += f"""<div class="nt nt-cited" {onclick} style="cursor:pointer" title="点击跳转到原文">
   <div class="nt-top">{cat_badge}{page_html}{source_html}</div>

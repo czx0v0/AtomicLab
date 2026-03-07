@@ -39,6 +39,9 @@ class ChunkMetadata:
     keywords: List[str] = field(default_factory=list)
     entities: List[str] = field(default_factory=list)  # 命名实体
 
+    # 章节信息（新增）
+    section_name: str = ""  # 章节名称，如 "References", "Introduction"
+
     # 溯源信息
     source_section: Optional[str] = None
     page_number: Optional[int] = None
@@ -62,6 +65,7 @@ class ChunkMetadata:
             "token_count": self.token_count,
             "keywords": self.keywords,
             "entities": self.entities,
+            "section_name": self.section_name,
             "source_section": self.source_section,
             "page_number": self.page_number,
             "parent_table": self.parent_table,
@@ -125,12 +129,15 @@ class TextChunk:
         }
 
     def get_searchable_text(self) -> str:
-        """获取可搜索文本"""
+        """获取可搜索文本（包含章节名称以便可以被检索到）"""
         parts = [self.content]
         if self.metadata.keywords:
             parts.extend(self.metadata.keywords)
         if self.metadata.source_section:
             parts.append(self.metadata.source_section)
+        # 添加章节名称到搜索文本
+        if self.metadata.section_name:
+            parts.append(self.metadata.section_name)
         return " ".join(parts)
 
     def get_display_text(self, max_length: int = 200) -> str:
