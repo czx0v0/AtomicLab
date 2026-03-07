@@ -82,7 +82,7 @@ def handle_generate_summary(notes, pid, lib, stats, tree):
     Returns: (lib, stats, stats_html, agent_status, doc_tree_html, tree, ref_tree_html, global_graph_html)
     """
     if not notes:
-        return (
+        yield (
             lib,
             stats,
             render_stats(stats),
@@ -92,6 +92,19 @@ def handle_generate_summary(notes, pid, lib, stats, tree):
             render_doc_note_tree(tree, None),
             _render_graph(tree),
         )
+        return
+
+    # 发送开始状态
+    yield (
+        lib,
+        stats,
+        render_stats(stats),
+        "<span class='agent-st'>🔄 正在准备笔记...</span>",
+        render_doc_note_tree(tree, pid),
+        tree,
+        render_doc_note_tree(tree, None),
+        _render_graph(tree),
+    )
 
     # Filter notes for current document only
     if pid:
@@ -100,7 +113,7 @@ def handle_generate_summary(notes, pid, lib, stats, tree):
         doc_notes = list(notes)
 
     if not doc_notes:
-        return (
+        yield (
             lib,
             stats,
             render_stats(stats),
@@ -110,8 +123,21 @@ def handle_generate_summary(notes, pid, lib, stats, tree):
             render_doc_note_tree(tree, None),
             _render_graph(tree),
         )
+        return
 
     ctx = lib[pid]["text"][:3000] if pid and pid in lib else "(无文献上下文)"
+
+    # 发送AI处理状态
+    yield (
+        lib,
+        stats,
+        render_stats(stats),
+        f"<span class='agent-st'>🤖 AI正在分析 {len(doc_notes)} 条笔记...</span>",
+        render_doc_note_tree(tree, pid),
+        tree,
+        render_doc_note_tree(tree, None),
+        _render_graph(tree),
+    )
 
     crusher = CrusherAgent()
     result = crusher.execute(
@@ -120,16 +146,17 @@ def handle_generate_summary(notes, pid, lib, stats, tree):
     )
 
     if result.status != "success":
-        return (
+        yield (
             lib,
             stats,
             render_stats(stats),
-            f"<span class='agent-st'>Crusher 失败: {esc(result.error[:60])}</span>",
+            f"<span class='agent-st'>❌ Crusher 失败: {esc(result.error[:60])}</span>",
             render_doc_note_tree(tree, pid),
             tree,
             render_doc_note_tree(tree, None),
             _render_graph(tree),
         )
+        return
 
     data = result.data
     domain = data.get("domain", "未知")
@@ -190,11 +217,9 @@ def handle_generate_summary(notes, pid, lib, stats, tree):
     stats["nodes"] = len(tree.nodes)
 
     doc_name = lib[pid]["name"][:30] if pid and pid in lib else "文献"
-    status_msg = (
-        f"Crusher: {doc_name} · {len(doc_notes)} 条笔记 → {len(classified_notes)} 分类"
-    )
+    status_msg = f"✅ Crusher: {doc_name} · {len(doc_notes)} 条笔记 → {len(classified_notes)} 分类"
 
-    return (
+    yield (
         lib,
         stats,
         render_stats(stats),
@@ -210,10 +235,17 @@ def handle_synthesize(tree, lib):
     """Execute Synthesizer: cross-document analysis."""
     note_nodes = [n for n in tree.nodes.values() if n.type == "note"]
     if len(note_nodes) < 2:
-        return (
+        yield (
             "<div class='nc-empty'>至少需要 2 条已分类笔记才能进行跨文献合成</div>",
             tree,
         )
+        return
+
+    # 发送准备状态
+    yield (
+        f"<div style='padding:20px;text-align:center'><span class='agent-st'>🔄 正在准备 {len(note_nodes)} 条笔记...</span></div>",
+        tree
+    )
 
     synth_notes = []
     for nn in note_nodes:
@@ -235,6 +267,12 @@ def handle_synthesize(tree, lib):
 
     doc_list = [n.label for n in tree.nodes.values() if n.type == "document"]
 
+    # 发送AI处理状态
+    yield (
+        f"<div style='padding:20px;text-align:center'><span class='agent-st'>🤖 AI正在跨文献分析 {len(synth_notes)} 条笔记...</span></div>",
+        tree
+    )
+
     synth = SynthesizerAgent()
     result = synth.execute(
         payload={"notes": synth_notes},
@@ -242,7 +280,8 @@ def handle_synthesize(tree, lib):
     )
 
     if result.status != "success":
-        return f"<div class='nc-empty'>合成失败: {esc(result.error[:120])}</div>", tree
+        yield f"<div class='nc-empty'>❌ 合成失败: {esc(result.error[:120])}</div>", tree
+        return
 
     data = result.data
 
@@ -257,7 +296,7 @@ def handle_synthesize(tree, lib):
                 synth_notes[to_idx]["node_id"],
             )
 
-    return render_synth_result(data), tree
+    yield render_synth_result(data), tree
 
 
 def handle_org_doc_select(selected_pid, tree, lib):

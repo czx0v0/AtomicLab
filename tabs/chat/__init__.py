@@ -27,6 +27,46 @@ _INTENT_LABELS = {
 }
 
 
+def _build_status(status_type: str, message: str, context_count: int = 0) -> str:
+    """Build status HTML for real-time feedback."""
+    status_icons = {
+        "retrieving": "🔍",
+        "generating": "✍️",
+        "no_results": "⚠️",
+        "complete": "✅",
+        "error": "❌",
+    }
+    icon = status_icons.get(status_type, "⏳")
+    
+    # 进度条样式
+    progress_style = ""
+    if status_type == "retrieving":
+        progress_style = "background: linear-gradient(90deg, #3182ce 0%, #63b3ed 50%, #3182ce 100%); background-size: 200% 100%; animation: progress-move 1.5s ease-in-out infinite;"
+    elif status_type == "generating":
+        progress_style = "background: linear-gradient(90deg, #38a169 0%, #68d391 50%, #38a169 100%); background-size: 200% 100%; animation: progress-move 1.5s ease-in-out infinite;"
+    elif status_type == "complete":
+        progress_style = "background: #38a169;"
+    elif status_type == "error":
+        progress_style = "background: #e53e3e;"
+    
+    progress_html = f"""
+    <div style="height: 3px; width: 100%; margin-top: 8px; border-radius: 2px; {progress_style}"></div>
+    <style>
+    @keyframes progress-move {{
+        0% {{ background-position: 100% 0; }}
+        100% {{ background-position: -100% 0; }}
+    }}
+    </style>
+    """
+    
+    return f"""
+    <div style="padding: 8px 12px; background: #f7fafc; border-radius: 6px; border-left: 3px solid {'#3182ce' if status_type in ['retrieving', 'generating'] else '#38a169' if status_type == 'complete' else '#e53e3e'}; font-size: 13px; color: #4a5568;">
+        <span style="font-weight: 500;">{icon} {message}</span>
+        {progress_html if status_type in ['retrieving', 'generating'] else ''}
+    </div>
+    """
+
+
 # ══════════════════════════════════════════════════════════════
 # INTERNAL HELPERS
 # ══════════════════════════════════════════════════════════════
@@ -111,14 +151,19 @@ def handle_chat_send(message, chat_history, tree, lib, notes):
         notes: List of note dicts
 
     Returns:
-        (updated_history, cleared_input)
+        (updated_history, cleared_input, status_html)
     """
     if not message or not message.strip():
-        return chat_history, ""
+        return chat_history, "", ""
+
+    # 先显示用户消息和状态
+    chat_history = chat_history or []
+    chat_history.append({"role": "user", "content": message.strip()})
+    chat_history.append({"role": "assistant", "content": "🔍 正在分析意图..."})
 
     # Build conversation history for multi-turn
     history_for_agent = []
-    for msg in chat_history or []:
+    for msg in chat_history[:-2] or []:  # 排除刚添加的临时消息
         if isinstance(msg, dict):
             history_for_agent.append(msg)
         elif isinstance(msg, (list, tuple)) and len(msg) == 2:
@@ -135,16 +180,36 @@ def handle_chat_send(message, chat_history, tree, lib, notes):
         "notes": notes,
     }
 
+    # 更新状态：正在检索
+    chat_history[-1]["content"] = "🔍 正在检索相关文档..."
+    yield chat_history, "", _build_status("retrieving", "正在检索知识库...")
+
     try:
         output = _router.execute(payload, context)
+        
+        # 更新状态：已找到结果
+        data = output.data or {}
+        context_count = data.get("context_count", 0)
+        rag_used = data.get("rag_used", False)
+        
+        if context_count > 0:
+            search_type = "RAG语义检索" if rag_used else "传统搜索"
+            chat_history[-1]["content"] = f"✅ 找到 {context_count} 个相关片段，正在生成答案..."
+            yield chat_history, "", _build_status("generating", f"{search_type}: {context_count} 条上下文", context_count)
+        else:
+            chat_history[-1]["content"] = "⚠️ 未找到相关内容，基于一般知识回答..."
+            yield chat_history, "", _build_status("no_results", "知识库无匹配结果")
+        
+        # 生成最终回答
         bot_reply = _format_bot_message(output)
+        chat_history[-1]["content"] = bot_reply
+        
+        status_msg = f"✅ 完成 | {'RAG' if rag_used else '传统'}检索 | {context_count} 条上下文"
+        yield chat_history, "", _build_status("complete", status_msg, context_count)
+        
     except Exception as e:
-        bot_reply = f"系统异常：{e}"
-
-    chat_history = chat_history or []
-    chat_history.append({"role": "user", "content": message.strip()})
-    chat_history.append({"role": "assistant", "content": bot_reply})
-    return chat_history, ""
+        chat_history[-1]["content"] = f"❌ 系统异常：{e}"
+        yield chat_history, "", _build_status("error", f"处理失败: {str(e)[:50]}")
 
 
 def handle_chat_clear():
@@ -174,7 +239,7 @@ def build_chat_tab():
 
     Returns:
         Dict of component references:
-            chatbot, msg_input, send_btn, clear_btn
+            chatbot, msg_input, send_btn, clear_btn, status_html
     """
     gr.HTML(
         "<div class='tip'>"
@@ -182,6 +247,13 @@ def build_chat_tab():
         "支持翻译、知识问答、跨文献分析。"
         "</div>"
     )
+    
+    # 状态显示区域
+    chat_status = gr.HTML(
+        value="",
+        elem_id="chat-status",
+    )
+    
     chatbot = gr.Chatbot(
         label="AI 助手",
         height=480,
@@ -213,4 +285,5 @@ def build_chat_tab():
         "send_btn": send_btn,
         "clear_btn": clear_btn,
         "ai_ask_input": ai_ask_input,
+        "chat_status": chat_status,
     }

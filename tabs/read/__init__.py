@@ -137,7 +137,7 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
     is_processing = doc_info.get("rag_processing", False)
     chunk_count = doc_info.get("chunk_count", 0)
     rag_status = doc_info.get("rag_status", "")
-        
+
     # 如果正在处理中
     if is_processing:
         return f"""
@@ -151,7 +151,7 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
             </div>
         </div>
         """
-        
+
     # 如果有状态但失败了
     if rag_status and "失败" in rag_status:
         return f"""
@@ -162,7 +162,7 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
             <p style='color: #718096; font-size: 14px;'>请切换到"文本模式"查看，或重新上传</p>
         </div>
         """
-        
+
     # 如果正在处理中（有chunk_count但未标记为indexed）
     if chunk_count > 0 and not is_indexed:
         return f"""
@@ -315,7 +315,7 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
             # 先标记为处理中状态
             lib[pid]["rag_processing"] = True
             lib[pid]["rag_status"] = "解析中..."
-            
+
             try:
                 import threading
 

@@ -330,10 +330,11 @@ def handle_ai_suggest(draft_text, tree):
         tree: KnowledgeTree for context
 
     Returns:
-        Suggestion text
+        Suggestion text (with status prefix for streaming)
     """
     if not draft_text or not draft_text.strip():
-        return "请先在写作区输入一些内容，AI 将基于你的知识库提供续写建议。"
+        yield "请先在写作区输入一些内容，AI 将基于你的知识库提供续写建议。"
+        return
 
     # Build context from knowledge tree
     context_parts = []
@@ -352,7 +353,13 @@ def handle_ai_suggest(draft_text, tree):
     # Take last ~500 chars of draft for prompt
     tail = draft_text.strip()[-500:]
 
+    # 发送准备状态
+    yield "🔄 正在分析知识库..."
+
     try:
+        # 发送生成状态
+        yield "✍️ AI正在生成续写建议..."
+
         result = call_llm(
             system_prompt=(
                 "你是学术写作助手。基于用户的知识库和当前草稿，提供续写建议。\n"
@@ -366,9 +373,9 @@ def handle_ai_suggest(draft_text, tree):
             temperature=0.5,
             max_tokens=300,
         )
-        return result.strip()
+        yield result.strip()
     except Exception as e:
-        return f"[AI 建议失败] {e}"
+        yield f"❌ AI 建议失败: {e}"
 
 
 def handle_write_doc_select(selected_pid, tree, lib):
