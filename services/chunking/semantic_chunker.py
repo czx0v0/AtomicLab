@@ -64,7 +64,20 @@ class SemanticChunker:
         self.similarity_threshold = similarity_threshold
 
         print(f"加载语义分块模型: {model_name}")
-        self.model = SentenceTransformer(model_name, device=device)
+        try:
+            self.model = SentenceTransformer(model_name, device=device)
+        except Exception as e:
+            print(f"⚠️ 模型加载失败，尝试重新下载: {e}")
+            # 清除缓存并重新下载
+            import shutil
+            from pathlib import Path
+            cache_dir = Path.home() / ".cache" / "torch" / "sentence_transformers"
+            model_cache = cache_dir / model_name.replace("/", "_")
+            if model_cache.exists():
+                print(f"清理缓存: {model_cache}")
+                shutil.rmtree(model_cache)
+            # 重新加载
+            self.model = SentenceTransformer(model_name, device=device)
 
         self.nlp = None
         self._init_nlp()

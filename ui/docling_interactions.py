@@ -459,7 +459,7 @@ def get_interaction_js() -> str:
 def wrap_with_interactions(html_content: str) -> str:
     """将HTML内容包装为可交互的Docling视图"""
     from .docling_styles import get_docling_styles
-    
+
     return f"""
     {get_docling_styles()}
     {get_interaction_js()}

@@ -146,10 +146,28 @@ class RAGService:
 
         # 3. Embedding模型
         if ST_AVAILABLE:
-            self.embedding_model = SentenceTransformer(
-                self.config.embedding_model, device=self.config.device
-            )
-            print(f"✓ Embedding模型加载成功: {self.config.embedding_model}")
+            try:
+                self.embedding_model = SentenceTransformer(
+                    self.config.embedding_model, device=self.config.device
+                )
+                print(f"✓ Embedding模型加载成功: {self.config.embedding_model}")
+            except Exception as e:
+                print(f"⚠️ Embedding模型加载失败: {e}")
+                print("尝试清理缓存并重新加载...")
+                # 清理缓存
+                import shutil
+
+                cache_dir = Path.home() / ".cache" / "torch" / "sentence_transformers"
+                model_name = self.config.embedding_model.replace("/", "_")
+                model_cache = cache_dir / model_name
+                if model_cache.exists():
+                    shutil.rmtree(model_cache)
+                    print(f"已清理缓存: {model_cache}")
+                # 重试
+                self.embedding_model = SentenceTransformer(
+                    self.config.embedding_model, device=self.config.device
+                )
+                print(f"✓ Embedding模型重新加载成功")
         else:
             self.embedding_model = None
 

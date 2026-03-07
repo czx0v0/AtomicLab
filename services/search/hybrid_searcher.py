@@ -57,7 +57,18 @@ class HybridSearcher:
 
         # 加载embedding模型
         print(f"加载embedding模型: {embedding_model}")
-        self.embedding_model = SentenceTransformer(embedding_model, device=device)
+        try:
+            self.embedding_model = SentenceTransformer(embedding_model, device=device)
+        except Exception as e:
+            print(f"⚠️ 模型加载失败，尝试清理缓存: {e}")
+            import shutil
+            from pathlib import Path
+
+            cache_dir = Path.home() / ".cache" / "torch" / "sentence_transformers"
+            model_cache = cache_dir / embedding_model.replace("/", "_")
+            if model_cache.exists():
+                shutil.rmtree(model_cache)
+            self.embedding_model = SentenceTransformer(embedding_model, device=device)
 
         # RRF参数
         self.rrf_k = 60  # RRF平滑参数,标准值60

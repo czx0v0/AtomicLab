@@ -56,7 +56,18 @@ class RerankerService:
             )
 
         print(f"加载重排序模型: {model_name}")
-        self.model = CrossEncoder(model_name, device=device, max_length=max_length)
+        try:
+            self.model = CrossEncoder(model_name, device=device, max_length=max_length)
+        except Exception as e:
+            print(f"⚠️ 重排序模型加载失败，尝试清理缓存: {e}")
+            import shutil
+            from pathlib import Path
+
+            cache_dir = Path.home() / ".cache" / "torch" / "sentence_transformers"
+            model_cache = cache_dir / model_name.replace("/", "_")
+            if model_cache.exists():
+                shutil.rmtree(model_cache)
+            self.model = CrossEncoder(model_name, device=device, max_length=max_length)
         self.model_name = model_name
         self.batch_size = batch_size
 

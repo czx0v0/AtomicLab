@@ -57,7 +57,7 @@ def _format_bot_message(output) -> str:
     cited_notes = data.get("cited_notes", [])
     cited_docs = data.get("cited_docs", [])
     note = data.get("note", "")
-    
+
     # v2.2: 检索调试信息
     search_debug = data.get("search_debug", "")
     context_count = data.get("context_count", 0)
