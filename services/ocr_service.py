@@ -16,13 +16,18 @@ from typing import Optional
 
 
 # 尝试导入PaddleOCR
+PADDLEOCR_AVAILABLE = False
+PADDLEOCR_ERROR = ""
 try:
     from paddleocr import PaddleOCR
-
     PADDLEOCR_AVAILABLE = True
-except ImportError:
-    PADDLEOCR_AVAILABLE = False
-    print("[OCR] ⚠️ PaddleOCR未安装，请运行: pip install paddleocr>=2.7.0")
+except ImportError as e:
+    PADDLEOCR_ERROR = str(e)
+    print(f"[OCR] ⚠️ PaddleOCR导入失败: {e}")
+except Exception as e:
+    PADDLEOCR_ERROR = str(e)
+    print(f"[OCR] ⚠️ PaddleOCR初始化异常: {e}")
+    print(f"[OCR] 可能需要安装: pip install langchain 或 pip install paddleocr==2.7.0.3")
 
 # 尝试导入EasyOCR
 try:
