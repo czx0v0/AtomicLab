@@ -1554,6 +1554,13 @@ def build_read_tab():
 
     v2.3: PDF高亮模式为默认显示模式
     """
+    # 上传提示
+    gr.HTML("""
+    <div class='upload-notice' style='background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:0.85em;color:#92400e;'>
+    ⚠️ <strong>提示：</strong>上传的文件仅在当前会话中使用，不会永久保存。刷新页面后需要重新上传。
+    </div>
+    """)
+    
     gr.HTML(
         "<div class='tip'>"
         "PDF高亮模式：选择文字弹出工具栏，或切换到截图模式框选区域 | 支持高亮·翻译·批注保存到知识图谱"

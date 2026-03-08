@@ -114,7 +114,12 @@ JSON输出："""
 
         try:
             # 调用LLM
-            response = call_llm(prompt, max_tokens=300, temperature=0.3)
+            response = call_llm(
+                system_prompt="你是学术文献摘要生成专家。请为给定的章节内容生成简洁摘要。",
+                user_prompt=prompt,
+                max_tokens=300,
+                temperature=0.3,
+            )
 
             # 解析JSON响应
             # 尝试提取JSON部分

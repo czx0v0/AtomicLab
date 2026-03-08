@@ -79,8 +79,8 @@ class AtomicDecomposer:
         try:
             # 调用LLM
             response = call_llm(
-                prompt,
-                model=self.model,
+                system_prompt="你是学术知识解构专家。请将给定的学术笔记解构为原子知识的三层结构。",
+                user_prompt=prompt,
                 max_tokens=800,
                 temperature=0.3,
             )
