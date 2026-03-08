@@ -14,7 +14,14 @@ from openai import OpenAI
 from core.config import API_BASE, MS_KEY
 
 # VLM模型配置
-VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"  # 可替换为其他视觉模型
+# ModelScope支持的VLM模型列表:
+# - Qwen/Qwen2.5-VL-7B-Instruct (推荐)
+# - Qwen/Qwen2-VL-7B-Instruct
+VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
+
+# VLM模型可用性标记
+VLM_AVAILABLE = False
+VLM_ERROR = ""
 
 
 class OCRService:
@@ -80,20 +87,17 @@ class OCRService:
                         "content": [
                             {
                                 "type": "text",
-                                "text": "请识别并提取图片中的所有文字内容。如果有公式，请用LaTeX格式输出。只输出识别的文字，不要添加任何解释。"
+                                "text": "请识别并提取图片中的所有文字内容。如果有公式，请用LaTeX格式输出。只输出识别的文字，不要添加任何解释。",
                             },
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": image_url}
-                            }
-                        ]
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ],
                     }
                 ],
                 max_tokens=2000,
             )
 
             recognized_text = response.choices[0].message.content
-            
+
             if recognized_text:
                 print(f"[VLM] 识别成功: {len(recognized_text)} 字符")
                 return {
@@ -112,12 +116,31 @@ class OCRService:
 
         except Exception as e:
             error_msg = str(e)
-            print(f"[VLM] 识别错误: {error_msg}")
+            error_type = type(e).__name__
+            print(f"[VLM] 识别错误 ({error_type}): {error_msg}")
             print(f"[VLM] 错误堆栈: {traceback.format_exc()}")
+            
+            # 构建详细的错误信息
+            detailed_error = f"{error_type}: {error_msg}"
+            
+            # 针对常见错误提供解决方案
+            if "401" in error_msg or "Unauthorized" in error_msg:
+                detailed_error = "API Key无效或已过期，请检查MS_KEY配置"
+            elif "404" in error_msg or "not found" in error_msg:
+                detailed_error = f"模型 {VLM_MODEL} 不可用，请检查模型名称"
+            elif "429" in error_msg or "rate limit" in error_msg.lower():
+                detailed_error = "API调用频率超限，请稍后重试"
+            elif "timeout" in error_msg.lower():
+                detailed_error = "API请求超时，请检查网络连接"
+            elif "connection" in error_msg.lower():
+                detailed_error = "网络连接失败，请检查网络或API_BASE配置"
+            
             return {
                 "text": "",
                 "confidence": 0,
-                "error": error_msg,
+                "error": detailed_error,
+                "error_detail": error_msg,
+                "model": VLM_MODEL,
             }
 
     def is_available(self) -> bool:
