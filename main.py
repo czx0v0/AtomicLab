@@ -327,18 +327,18 @@ with gr.Blocks(title=APP_TITLE) as demo:
         inputs=[tree_st],
         outputs=[wrt["write_graph_html"]],
     )
-    
+
     # 原子知识解构按钮
     org["atomic_btn"].click(
         fn=handle_atomic_decompose,
         inputs=[read["pdf_selector"], notes_st, lib_st, tree_st],
         outputs=[org["agent_status"], tree_st, org["atomic_result_html"]],
     )
-    
+
     # 引用关系提取按钮
     org["citation_btn"].click(
         fn=handle_extract_citations,
-        inputs=[read["pdf_selector"], lib_st],
+        inputs=[read["pdf_selector"], lib_st, notes_st],
         outputs=[org["agent_status"], org["citation_result_html"]],
     )
     # Organize document selector - syncs with other tabs

@@ -23,13 +23,13 @@ from core.config import IN_MODELSCOPE_SPACE, MODEL_CACHE_DIR
 if IN_MODELSCOPE_SPACE and MODEL_CACHE_DIR:
     # ModelScope创空间: 使用持久化存储目录
     SENTENCE_TRANSFORMERS_CACHE = os.path.join(MODEL_CACHE_DIR, "sentence_transformers")
-    
+
     # 确保目录存在
     os.makedirs(SENTENCE_TRANSFORMERS_CACHE, exist_ok=True)
-    
+
     # 设置环境变量（仅在创空间）
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = SENTENCE_TRANSFORMERS_CACHE
-    
+
     print(f"[RAG] ModelScope创空间模式")
     print(f"[RAG] 模型缓存目录: {SENTENCE_TRANSFORMERS_CACHE}")
 else:
@@ -171,12 +171,14 @@ class RAGService:
         if ST_AVAILABLE:
             try:
                 # 根据环境选择缓存目录
-                cache_folder = SENTENCE_TRANSFORMERS_CACHE if IN_MODELSCOPE_SPACE else None
-                
+                cache_folder = (
+                    SENTENCE_TRANSFORMERS_CACHE if IN_MODELSCOPE_SPACE else None
+                )
+
                 self.embedding_model = SentenceTransformer(
-                    self.config.embedding_model, 
+                    self.config.embedding_model,
                     device=self.config.device,
-                    cache_folder=cache_folder
+                    cache_folder=cache_folder,
                 )
                 print(f"✓ Embedding模型加载成功: {self.config.embedding_model}")
                 if cache_folder:
@@ -254,6 +256,7 @@ class RAGService:
         # 7. 章节摘要生成器
         try:
             from services.summarizer import SectionSummarizer
+
             self.summarizer = SectionSummarizer(use_cache=True)
             print("✓ 章节摘要生成器初始化成功")
         except ImportError as e:
@@ -307,7 +310,7 @@ class RAGService:
 
             # 5. 索引
             self._index_chunks(parsed.doc_id, chunks)
-            
+
             # 6. 生成章节摘要（可选）
             if self.summarizer and parsed.sections:
                 print("\n生成章节摘要...")
@@ -320,14 +323,14 @@ class RAGService:
                     for s in parsed.sections
                 ]
                 summaries = self.summarizer.batch_summarize(sections_data)
-                
+
                 # 更新ParsedSection的summary字段
                 for section in parsed.sections:
                     if section.section_id in summaries:
                         summary_obj = summaries[section.section_id]
                         section.summary = summary_obj.summary
                         section.key_points = summary_obj.key_points
-                
+
                 print(f"章节摘要生成完成: {len(summaries)} 个章节")
 
             elapsed = (time.time() - start_time) * 1000

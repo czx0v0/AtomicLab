@@ -301,7 +301,7 @@ def handle_synthesize(tree, lib):
 
 def handle_atomic_decompose(pid, notes, lib, tree):
     """Execute Atomic Decomposition: decompose notes into Axiom + Methodology + Boundary.
-    
+
     原子知识解构：将笔记解构为三层结构
     - Axiom（公理）：核心概念或事实
     - Methodology（方法）：技术路径或方法
@@ -314,10 +314,10 @@ def handle_atomic_decompose(pid, notes, lib, tree):
             "<div class='nc-empty'>暂无原子知识</div>",
         )
         return
-    
+
     # 过滤当前文档的笔记
     doc_notes = [n for n in notes if n.get("source_pid") == pid] if pid else notes
-    
+
     if not doc_notes:
         yield (
             "<span class='agent-st'>当前文献暂无笔记</span>",
@@ -325,34 +325,34 @@ def handle_atomic_decompose(pid, notes, lib, tree):
             "<div class='nc-empty'>暂无原子知识</div>",
         )
         return
-    
+
     yield (
         "<span class='agent-st'>🔄 正在进行原子知识解构...</span>",
         tree,
         "<div class='nc-empty'>处理中...</div>",
     )
-    
+
     try:
         from services.atomic_decomposer import AtomicDecomposer
-        
+
         decomposer = AtomicDecomposer()
         results_html = ""
         total_atoms = 0
-        
+
         for i, note in enumerate(doc_notes[:10]):  # 限制最多处理10条
             content = note.get("content", "")
             note_id = note.get("id", f"note_{i}")
             doc_id = note.get("source_pid", pid or "")
-            
+
             if not content or len(content) < 20:
                 continue
-            
+
             # 解构笔记
             decomposition = decomposer.decompose(content, note_id, doc_id)
-            
+
             if decomposition.atoms:
                 total_atoms += len(decomposition.atoms)
-                
+
                 # 渲染原子知识
                 for atom in decomposition.atoms:
                     results_html += f"""
@@ -364,16 +364,16 @@ def handle_atomic_decompose(pid, notes, lib, tree):
                         <div style='margin-top:8px;font-size:0.85em;color:#9ca3af;'>标签: {', '.join(atom.tags) if atom.tags else '无'}</div>
                     </div>
                     """
-        
+
         if not results_html:
             results_html = "<div class='nc-empty'>未能提取有效原子知识</div>"
-        
+
         yield (
             f"<span class='agent-st'>✅ 解构完成: {total_atoms} 个原子知识</span>",
             tree,
             results_html,
         )
-        
+
     except Exception as e:
         yield (
             f"<span class='agent-st'>❌ 解构失败: {esc(str(e)[:50])}</span>",
@@ -382,69 +382,113 @@ def handle_atomic_decompose(pid, notes, lib, tree):
         )
 
 
-def handle_extract_citations(pid, lib):
+def handle_extract_citations(pid, lib, notes):
     """Extract citations from the current document.
-    
+
     引用关系提取：从文献中提取参考文献
     支持 IEEE/APA/GB/T 7714 格式
+
+    v2.2优化：多源提取策略
+    1. 从RAG chunks提取（处理chunk拆分问题）
+    2. 从用户高亮笔记提取
+    3. 从文档原始文本提取
     """
     if not pid or pid not in lib:
         yield "<span class='agent-st'>请先选择文献</span>", "<div class='nc-empty'>暂无引用关系</div>"
         return
-    
+
     doc_info = lib[pid]
-    
-    # 获取文档文本
+    doc_name = doc_info.get("name", "未知文献")
+
+    yield "<span class='agent-st'>🔄 正在提取引用关系...</span>", "<div class='nc-empty'>处理中...</div>"
+
     try:
+        from services.citation_extractor import CitationExtractor
         from services.rag_service import get_rag_service
         from core.config import RAG_CONFIG
-        
-        rag_service = get_rag_service(RAG_CONFIG)
-        
-        # 尝试获取文档内容
-        text_content = ""
-        if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
-            chunk_ids = rag_service.doc_chunks[pid]
-            chunks = [rag_service.chunk_store[cid] for cid in chunk_ids if cid in rag_service.chunk_store]
-            text_content = "\n\n".join([c.content for c in chunks])
-        
-        if not text_content:
-            # 回退到原始文本
-            text_content = doc_info.get("text", "")
-        
-        if not text_content:
-            yield "<span class='agent-st'>文档内容为空</span>", "<div class='nc-empty'>暂无引用关系</div>"
-            return
-        
-        yield "<span class='agent-st'>🔄 正在提取引用关系...</span>", "<div class='nc-empty'>处理中...</div>"
-        
-        from services.citation_extractor import CitationExtractor
-        
+
         extractor = CitationExtractor(enable_crossref=True)
-        result = extractor.extract_from_text(text_content, pid)
-        
-        if not result.citations:
+        result = None
+
+        # 策略1: 从RAG chunks提取
+        try:
+            rag_service = get_rag_service(RAG_CONFIG)
+            if hasattr(rag_service, "chunk_store") and rag_service.chunk_store:
+                # 获取该文档的所有chunks
+                doc_chunks = []
+                for chunk_id, chunk in rag_service.chunk_store.items():
+                    if hasattr(chunk, "metadata") and chunk.metadata:
+                        if (
+                            chunk.metadata.doc_id == pid
+                            or chunk.metadata.source_pid == pid
+                        ):
+                            doc_chunks.append(chunk)
+
+                if doc_chunks:
+                    # 按chunk_index排序
+                    doc_chunks.sort(
+                        key=lambda c: (
+                            getattr(c.metadata, "chunk_index", 0)
+                            if hasattr(c, "metadata")
+                            else 0
+                        )
+                    )
+                    print(f"[Citation] 从 {len(doc_chunks)} 个chunks提取")
+                    result = extractor.extract_from_chunks(doc_chunks, pid)
+        except Exception as e:
+            print(f"[Citation] RAG chunk提取失败: {e}")
+
+        # 策略2: 从用户笔记提取（如果已高亮参考文献部分）
+        if not result or not result.citations:
+            if notes:
+                doc_notes = [n for n in notes if n.get("source_pid") == pid]
+                if doc_notes:
+                    print(f"[Citation] 从 {len(doc_notes)} 条笔记提取")
+                    result = extractor.extract_from_notes(doc_notes, pid)
+
+        # 策略3: 从原始文本提取
+        if not result or not result.citations:
+            text_content = doc_info.get("text", "")
+            if text_content:
+                print(f"[Citation] 从原始文本提取 ({len(text_content)} 字符)")
+                result = extractor.extract_from_text(text_content, pid)
+
+        if not result or not result.citations:
             yield (
-                "<span class='agent-st'>未找到引用文献</span>",
-                "<div class='nc-empty'>未检测到参考文献部分</div>",
+                f"<span class='agent-st'>未找到引用文献 - 请尝试高亮参考文献部分后重试</span>",
+                """<div class='nc-empty'>
+                    <p>未检测到参考文献部分</p>
+                    <p style='font-size:0.85em;color:#6b7280;'>
+                        建议：在阅读页选中参考文献内容，添加高亮笔记后再试
+                    </p>
+                </div>""",
             )
             return
-        
+
         # 渲染结果
         citations_html = f"""
         <div style='padding:12px;background:#f0f9ff;border-radius:8px;margin-bottom:12px;'>
-            <div style='font-weight:600;color:#0369a1;'>提取结果</div>
+            <div style='font-weight:600;color:#0369a1;'>📄 {esc(doc_name)}</div>
             <div style='color:#4b5563;font-size:0.9em;'>
-                共 {result.parsed_citations} 条引用 · {result.extraction_time_ms:.0f}ms
+                提取 {result.parsed_citations} 条引用 · {result.extraction_time_ms:.0f}ms
+                {" · 来源: RAG" if result.reference_section_found else " · 来源: 全文搜索"}
             </div>
         </div>
         """
-        
+
         for i, citation in enumerate(result.citations[:20]):  # 最多显示20条
+            # 确定来源API标签
+            api_tag = ""
+            if citation.source_api == "crossref":
+                api_tag = "<span style='background:#dbeafe;color:#1e40af;padding:1px 4px;border-radius:3px;font-size:0.75em'>CrossRef</span>"
+            elif citation.source_api == "semantic_scholar":
+                api_tag = "<span style='background:#dcfce7;color:#166534;padding:1px 4px;border-radius:3px;font-size:0.75em'>S2</span>"
+
             citations_html += f"""
             <div class='citation-card' style='background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin:6px 0;'>
-                <div style='font-weight:500;color:#1f2937;margin-bottom:4px;'>
-                    {i+1}. {esc(citation.title or '(无标题)')}
+                <div style='font-weight:500;color:#1f2937;margin-bottom:4px;display:flex;justify-content:space-between;'>
+                    <span>{i+1}. {esc(citation.title or '(无标题)')}</span>
+                    {api_tag}
                 </div>
                 <div style='font-size:0.85em;color:#6b7280;'>
                     {esc(', '.join(citation.authors[:3]) if citation.authors else '(未知作者)')}
@@ -452,19 +496,23 @@ def handle_extract_citations(pid, lib):
                     {f" · {esc(citation.journal)}" if citation.journal else ""}
                 </div>
                 {f"<div style='font-size:0.8em;color:#9ca3af;margin-top:4px;'>DOI: {esc(citation.doi)}</div>" if citation.doi else ""}
-                {f"<div style='font-size:0.8em;color:#059669;margin-top:4px;'>被引: {citation.citation_count} 次</div>" if citation.citation_count else ""}
+                {f"<div style='font-size:0.8em;color:#059669;margin-top:4px;'>📊 被引: {citation.citation_count} 次</div>" if citation.citation_count else ""}
             </div>
             """
-        
+
         if len(result.citations) > 20:
             citations_html += f"<div style='text-align:center;color:#6b7280;padding:8px;'>... 还有 {len(result.citations) - 20} 条引用</div>"
-        
+
         yield (
             f"<span class='agent-st'>✅ 提取完成: {result.parsed_citations} 条引用</span>",
             citations_html,
         )
-        
+
     except Exception as e:
+        import traceback
+
+        print(f"[Citation] 提取失败: {e}")
+        print(traceback.format_exc())
         yield (
             f"<span class='agent-st'>❌ 提取失败: {esc(str(e)[:50])}</span>",
             "<div class='nc-empty'>提取失败</div>",
@@ -980,7 +1028,7 @@ def build_organize_tab():
         )
         search_btn = gr.Button("搜索", scale=1, size="sm")
         refresh_btn = gr.Button("刷新显示", scale=1, size="sm")
-    
+
     with gr.Row():
         summary_btn = gr.Button("生成摘要(AI)", variant="primary", scale=1, size="sm")
         atomic_btn = gr.Button("原子解构(AI)", variant="secondary", scale=1, size="sm")

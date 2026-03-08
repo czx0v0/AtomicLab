@@ -22,5 +22,5 @@ jobs:
         uses: Andrew-Chen-Wang/github-wiki-action@v4
         with:
           strategy: 'init'
-          wiki-folder: 'repowiki/zh'
-          commit-message: 'Auto-sync wiki from repowiki/zh folder'
+          wiki-folder: '.qoder/repowiki/zh'
+          commit-message: 'Auto-sync wiki from .qoder/repowiki/zh folder'
