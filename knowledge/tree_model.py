@@ -38,7 +38,7 @@ class KnowledgeNode:
     """
 
     id: str
-    type: Literal["domain", "document", "note", "tag"]
+    type: Literal["domain", "document", "section", "note", "tag"]
     label: str
     content: str = ""
     source_pid: str = ""
@@ -275,6 +275,67 @@ class KnowledgeTree:
                 return n
         return None
 
+    # ── section ─────────────────────────────────────────────────
+
+    def create_section_node(
+        self,
+        section_heading: str,
+        source_pid: str,
+        doc_node_id: str,
+        level: int = 2,
+        page_start: int = None,
+        page_end: int = None,
+    ) -> KnowledgeNode:
+        """Create a section node under a document.
+
+        Args:
+            section_heading: Section heading text
+            source_pid: Document PID
+            doc_node_id: Parent document node ID
+            level: Heading level (1=H1, 2=H2, etc.)
+            page_start: Starting page number
+            page_end: Ending page number
+        """
+        node = KnowledgeNode(
+            id=next_node_id(),
+            type="section",
+            label=section_heading[:50],
+            content=section_heading,
+            source_pid=source_pid,
+            parent_id=doc_node_id,
+            weight=0.7,
+            metadata={
+                "level": level,
+                "page_start": page_start,
+                "page_end": page_end,
+            },
+        )
+        self.add_node(node)
+        if doc_node_id:
+            self._link_parent_child(doc_node_id, node.id, "contains")
+        return node
+
+    def find_section_node(self, doc_node_id: str, section_heading: str) -> Optional[KnowledgeNode]:
+        """Find a section node by heading under a specific document."""
+        for n in self.nodes.values():
+            if (
+                n.type == "section"
+                and n.parent_id == doc_node_id
+                and section_heading.lower() in n.label.lower()
+            ):
+                return n
+        return None
+
+    def get_sections_by_page(self, doc_node_id: str, page: int) -> Optional[KnowledgeNode]:
+        """Find the section node that contains a given page."""
+        for n in self.nodes.values():
+            if n.type == "section" and n.parent_id == doc_node_id:
+                start = n.metadata.get("page_start", 0)
+                end = n.metadata.get("page_end", 9999)
+                if start and end and start <= page <= end:
+                    return n
+        return None
+
     def find_note_by_original_id(self, original_id: str) -> "KnowledgeNode":
         """Find a note node by its original note ID (from notes_st).
 
@@ -296,22 +357,28 @@ class KnowledgeTree:
         note: dict,
         category: str = "其他",
         doc_node_id: str = None,
+        section_node_id: str = None,
     ) -> KnowledgeNode:
-        """Create a note node under a document.
+        """Create a note node under a document or section.
 
         Args:
             note: Original note dict {id, content, page, annotation, translation, ...}
             category: AI classification (方法/公式/图像/定义/观点/数据/其他)
-            doc_node_id: Parent document node ID
+            doc_node_id: Parent document node ID (used if no section)
+            section_node_id: Parent section node ID (preferred if provided)
         """
         content = note.get("content", "")
+        
+        # Prefer section as parent if provided, otherwise use document
+        parent_id = section_node_id if section_node_id else doc_node_id
+        
         node = KnowledgeNode(
             id=next_node_id(),
             type="note",
             label=content[:20] + ("..." if len(content) > 20 else ""),
             content=content,
             source_pid=note.get("source_pid", ""),
-            parent_id=doc_node_id,
+            parent_id=parent_id,
             weight=0.6,
             metadata={
                 "page": note.get("page", 1),
@@ -323,8 +390,8 @@ class KnowledgeTree:
             },
         )
         self.add_node(node)
-        if doc_node_id:
-            self._link_parent_child(doc_node_id, node.id, "contains")
+        if parent_id:
+            self._link_parent_child(parent_id, node.id, "contains")
         return node
 
     # ── tag ────────────────────────────────────────────────────
