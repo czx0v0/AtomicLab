@@ -34,11 +34,11 @@ class AtomicDecomposer:
     - Boundary（边界）：适用范围和限制
     """
 
-    def __init__(self, model: str = "qwen2.5-72b-instruct"):
+    def __init__(self, model: str = "deepseek-chat"):
         """初始化解构器
-
+            
         Args:
-            model: LLM模型名称（默认Qwen2.5-72B-Instruct）
+            model: LLM模型名称（默认DeepSeek V2，兼容call_llm默认配置）
         """
         self.model = model
         self.cache: Dict[str, AtomicDecomposition] = {}
