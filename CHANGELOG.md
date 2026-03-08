@@ -5,18 +5,20 @@
 #### 🚀 新功能
 
 **1. 原子知识解构 (Atomic-RAG)**
+
 - 三层解构结构：Axiom（公理）+ Methodology（方法）+ Boundary（边界）
 - 七分类系统：Method/Definition/Formula/Context/Data/Result/Insight
-- 基于Qwen2.5-72B-Instruct的高阶逻辑推理
 - 提供原子知识to_rag_text()方法，用于向量检索
 
 **2. 引用关系提取**
+
 - 支持多种引用格式解析：IEEE/APA/GB/T 7714
 - 自动识别参考文献部分
 - CrossRef API集成（可选），补充元数据
 - 构建文献引用关系图谱
 
 **3. 知识树三级结构**
+
 - 文献→章节→笔记三级层次结构
 - 章节级RAG检索，提升召回率和精度
 - 章节摘要生成，辅助检索语义理解
@@ -24,26 +26,27 @@
 #### 🔧 改进
 
 - **三层结构详细说明**：
+
   - 两层结构（文献→笔记）：检索精度低，噪音多
   - 三层结构（文献→章节→笔记）：先定位章节，再检索笔记
   - 性能提升：检索时间↓70%，召回率↑30%，精度↑33%
-
 - **Wiki同步修复**：
+
   - 移除.gitignore中的.github/*规则
   - 更新wiki-folder为repowiki/zh
   - GitHub Actions自动化同步生效
 
 #### 📝 代码变更
 
-| 文件 | 变更描述 |
-|------|----------|
-| `models/atomic_knowledge.py` | 原子知识解构数据模型（新增） |
-| `services/atomic_decomposer.py` | 原子知识解构服务（新增） |
-| `services/citation_extractor.py` | 引用关系提取服务（新增） |
-| `services/summarizer.py` | 章节摘要生成服务（新增） |
-| `knowledge/tree_model.py` | Section节点类型和方法 |
-| `.gitignore` | 移除.github/*规则 |
-| `.github/workflows/sync-wiki.yml` | 更新wiki-folder路径 |
+| 文件                                | 变更描述                     |
+| ----------------------------------- | ---------------------------- |
+| `models/atomic_knowledge.py`      | 原子知识解构数据模型（新增） |
+| `services/atomic_decomposer.py`   | 原子知识解构服务（新增）     |
+| `services/citation_extractor.py`  | 引用关系提取服务（新增）     |
+| `services/summarizer.py`          | 章节摘要生成服务（新增）     |
+| `knowledge/tree_model.py`         | Section节点类型和方法        |
+| `.gitignore`                      | 移除.github/*规则            |
+| `.github/workflows/sync-wiki.yml` | 更新wiki-folder路径          |
 
 ---
 
@@ -52,12 +55,14 @@
 #### 🚀 新功能
 
 **1. Docling结构显示模式**
+
 - 多模式章节提取：支持Markdown标题、编号章节、大写章节名等多种格式
 - 章节层级可视化：正确渲染Markdown标题层级（#, ##, ###）
 - 参考文献过滤：自动识别并过滤参考文献格式的条目（如"23. Author, N., ..."）
 - 辅助文本分块：基于章节层级组织内容
 
 **2. 分块数据库显示模式**
+
 - 按章节组织分块：显示文本分块的章节归属关系
 - 层级结构展示：树状结构显示章节-分块关系
 - 分块类型标注：语义分块、表格分块等类型标识
@@ -66,24 +71,23 @@
 #### 🔧 改进
 
 - **多模式章节提取**：
+
   - 模式1：标准Markdown标题（## Chapter）
   - 模式2：编号章节（1. INTRODUCTION, Task 1: Peak Prediction）
   - 模式3：大写章节名（INTRODUCTION, RELATED WORK, ACKNOWLEDGEMENT）
   - 模式4：关键词匹配（references, introduction, task, web server等）
   - 模式5：元数据回退（过滤参考文献格式）
-
 - **调试输出优化**：详细的章节提取过程追踪，帮助定位问题
-
 - **层级显示**：使用CSS data-level属性实现视觉层级区分
 
 #### 📝 代码变更
 
-| 文件 | 变更描述 |
-|------|----------|
+| 文件                      | 变更描述                               |
+| ------------------------- | -------------------------------------- |
 | `tabs/read/__init__.py` | 多模式章节提取逻辑，增强正则表达式匹配 |
-| `ui/renderers.py` | 章节层级渲染，树状结构显示 |
-| `ui/styles.py` | CSS层级样式（data-level属性） |
-| `README.md` | 新增Docling结构和分块数据库模式说明 |
+| `ui/renderers.py`       | 章节层级渲染，树状结构显示             |
+| `ui/styles.py`          | CSS层级样式（data-level属性）          |
+| `README.md`             | 新增Docling结构和分块数据库模式说明    |
 
 ---
 
@@ -92,12 +96,14 @@
 #### 🚀 新功能
 
 **1. 模糊匹配搜索**
+
 - 支持部分匹配：输入部分字母或汉字也能找到相关结果
 - 前缀匹配：查询前缀与字段内容匹配时降权显示
 - Token匹配：自动分词后部分Token匹配也可检索
 - 精确匹配优先：完整匹配的结果排在前面，模糊匹配作为备选
 
 **2. References章节检索增强**
+
 - 章节标题自动识别（References、Introduction、Methods等）
 - 章节名称加入chunk元数据，支持按章节检索
 - 搜索时自动包含章节信息
@@ -110,26 +116,26 @@
 
 #### 🐛 Bug修复
 
-| 问题 | 解决方案 |
-|------|----------|
-| References章节搜索不完整 | 添加章节识别和元数据索引 |
-| OCR有时识别失败 | 增强错误处理和格式转换重试 |
-| 整理Tab翻译按钮无反馈 | 修复JS事件绑定和组件状态 |
-| demo.load报错 | 移入with demo上下文内调用 |
-| show_label警告 | 移除container=False时的show_label参数 |
-| Dropdown值警告 | 添加allow_custom_value=True |
+| 问题                     | 解决方案                              |
+| ------------------------ | ------------------------------------- |
+| References章节搜索不完整 | 添加章节识别和元数据索引              |
+| OCR有时识别失败          | 增强错误处理和格式转换重试            |
+| 整理Tab翻译按钮无反馈    | 修复JS事件绑定和组件状态              |
+| demo.load报错            | 移入with demo上下文内调用             |
+| show_label警告           | 移除container=False时的show_label参数 |
+| Dropdown值警告           | 添加allow_custom_value=True           |
 
 #### 📝 代码变更
 
-| 文件 | 变更描述 |
-|------|----------|
-| `knowledge/search.py` | 新增模糊匹配算法 `_calculate_node_match` |
-| `services/search/keyword_search.py` | 模糊匹配评分增强 |
-| `services/chunking/semantic_chunker.py` | 章节识别 `_extract_section_headers` |
-| `models/chunk.py` | 新增 `section_name` 字段 |
-| `services/ocr_service.py` | 增强错误处理和日志 |
-| `ui/global_js.py` | 修复noteAction事件分发 |
-| `main.py` | 修复demo.load调用位置 |
+| 文件                                      | 变更描述                                   |
+| ----------------------------------------- | ------------------------------------------ |
+| `knowledge/search.py`                   | 新增模糊匹配算法 `_calculate_node_match` |
+| `services/search/keyword_search.py`     | 模糊匹配评分增强                           |
+| `services/chunking/semantic_chunker.py` | 章节识别 `_extract_section_headers`      |
+| `models/chunk.py`                       | 新增 `section_name` 字段                 |
+| `services/ocr_service.py`               | 增强错误处理和日志                         |
+| `ui/global_js.py`                       | 修复noteAction事件分发                     |
+| `main.py`                               | 修复demo.load调用位置                      |
 
 ---
 
@@ -138,15 +144,18 @@
 #### 🚀 新功能
 
 **1. 截图笔记卡片跳转功能**
+
 - 点击截图笔记卡片可跳转到原始PDF文档对应页面位置
 - 利用现有的页面索引信息实现精准定位
 
 **2. AI助手回答中的可点击卡片**
+
 - AI回答中的引用笔记卡片支持点击跳转到原文
 - 整理页面和写作页面搜索结果卡片支持跳转
 - 笔记卡片显示来源文献和页码信息
 
 **3. AI助手输入区工具栏**
+
 - 模型选择器移至AI助手输入框左下角
 - 新增"当前文献"选择器，可指定AI分析的文献范围
 - 文献选择器与其他Tab同步联动
@@ -158,11 +167,11 @@
 
 #### 🐛 Bug修复
 
-| 问题 | 解决方案 |
-|------|----------|
-| 截图笔记点击无反应 | 添加jumpToSource跳转功能 |
-| AI引用卡片无法跳转 | 添加source_pid到cited_notes数据 |
-| 整理页搜索结果点击无跳转 | 添加jumpToSource跳转逻辑 |
+| 问题                     | 解决方案                        |
+| ------------------------ | ------------------------------- |
+| 截图笔记点击无反应       | 添加jumpToSource跳转功能        |
+| AI引用卡片无法跳转       | 添加source_pid到cited_notes数据 |
+| 整理页搜索结果点击无跳转 | 添加jumpToSource跳转逻辑        |
 
 ---
 
@@ -202,32 +211,32 @@
 
 #### 🐛 Bug修复
 
-| 问题 | 解决方案 |
-|------|----------|
-| PDF高亮显示"正在加载" | 使用iframe srcdoc嵌入完整HTML文档 |
-| ChunkMetadata doc_id参数错误 | doc_id移至TextChunk层级 |
-| Chat输出数量不匹配警告 | 添加chat_status到outputs |
-| SQL查询无结果 | 新增查询扩展功能 |
-| Docling表格解析警告 | str()转换headers和rows |
+| 问题                         | 解决方案                          |
+| ---------------------------- | --------------------------------- |
+| PDF高亮显示"正在加载"        | 使用iframe srcdoc嵌入完整HTML文档 |
+| ChunkMetadata doc_id参数错误 | doc_id移至TextChunk层级           |
+| Chat输出数量不匹配警告       | 添加chat_status到outputs          |
+| SQL查询无结果                | 新增查询扩展功能                  |
+| Docling表格解析警告          | str()转换headers和rows            |
 
 #### 📦 新增文件
 
-| 文件路径 | 功能描述 |
-|----------|----------|
-| `services/renderer/pdfjs_viewer.py` | PDF.js渲染器服务 |
+| 文件路径                                   | 功能描述          |
+| ------------------------------------------ | ----------------- |
+| `services/renderer/pdfjs_viewer.py`      | PDF.js渲染器服务  |
 | `services/renderer/coordinate_mapper.py` | PDF-Chunk坐标映射 |
-| `services/renderer/__init__.py` | 渲染器模块初始化 |
+| `services/renderer/__init__.py`          | 渲染器模块初始化  |
 
 #### 📊 技术架构对比
 
-| 特性 | MinerU (magic-pdf) | 当前方案 (Docling + PDF.js) |
-|------|-------------------|---------------------------|
-| 定位 | 文档解析工具 | 全流程科研工作站 |
-| 解析精度 | 90+ (VLM) | 82-85 |
-| 扫描PDF | ✅ 自动OCR | ⚠️ 需配置 |
-| 高亮交互 | ❌ 无 | ✅ 完整支持 |
-| RAG集成 | ❌ 无 | ✅ 三路混合检索 |
-| AI对话 | ❌ 无 | ✅ RAG增强问答 |
+| 特性     | MinerU (magic-pdf) | 当前方案 (Docling + PDF.js) |
+| -------- | ------------------ | --------------------------- |
+| 定位     | 文档解析工具       | 全流程科研工作站            |
+| 解析精度 | 90+ (VLM)          | 82-85                       |
+| 扫描PDF  | ✅ 自动OCR         | ⚠️ 需配置                 |
+| 高亮交互 | ❌ 无              | ✅ 完整支持                 |
+| RAG集成  | ❌ 无              | ✅ 三路混合检索             |
+| AI对话   | ❌ 无              | ✅ RAG增强问答              |
 
 ---
 
@@ -285,15 +294,15 @@
 
 #### 🔧 修改文件
 
-| 文件路径                      | 变更说明                                |
-| ----------------------------- | --------------------------------------- |
-| `main.py`                   | 集成RAG服务初始化，更新事件绑定         |
-| `core/config.py`            | 添加RAG_CONFIG配置项                    |
-| `tabs/read/__init__.py`     | 上传时触发RAG文档处理                   |
-| `tabs/organize/__init__.py` | 搜索时优先使用RAG检索                   |
-| `agents/conversation.py`    | 集成RAG检索到AI问答，支持精准引用       |
-| `services/parser/docling_parser.py` | 修复Docling API弃用警告         |
-| `requirements.txt`          | 添加docling、faiss-cpu、rank-bm25等依赖 |
+| 文件路径                              | 变更说明                                |
+| ------------------------------------- | --------------------------------------- |
+| `main.py`                           | 集成RAG服务初始化，更新事件绑定         |
+| `core/config.py`                    | 添加RAG_CONFIG配置项                    |
+| `tabs/read/__init__.py`             | 上传时触发RAG文档处理                   |
+| `tabs/organize/__init__.py`         | 搜索时优先使用RAG检索                   |
+| `agents/conversation.py`            | 集成RAG检索到AI问答，支持精准引用       |
+| `services/parser/docling_parser.py` | 修复Docling API弃用警告                 |
+| `requirements.txt`                  | 添加docling、faiss-cpu、rank-bm25等依赖 |
 
 #### 📊 核心算法
 
@@ -319,11 +328,11 @@ score = Σ(weight_i / (k + rank_i))
 
 #### 🐛 Bug修复
 
-| 问题 | 解决方案 |
-|------|----------|
-| Docling API弃用警告 | 添加`doc`参数到`export_to_dataframe()`等方法 |
-| RAG检索未生效 | ConversationAgent优先使用RAG服务检索 |
-| 参考文献检索失败 | 语义检索支持全文检索，不再只搜索开头 |
+| 问题                | 解决方案                                           |
+| ------------------- | -------------------------------------------------- |
+| Docling API弃用警告 | 添加 `doc`参数到 `export_to_dataframe()`等方法 |
+| RAG检索未生效       | ConversationAgent优先使用RAG服务检索               |
+| 参考文献检索失败    | 语义检索支持全文检索，不再只搜索开头               |
 
 ---
 
