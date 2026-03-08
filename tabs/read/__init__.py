@@ -1612,11 +1612,15 @@ def build_read_tab():
     with gr.Row():
         # ── Left: File list ──
         with gr.Column(scale=2, min_width=200):
-            upload_f = gr.File(
-                label="上传文献",
-                file_types=[".pdf", ".txt", ".md"],
-                file_count="multiple",
-            )
+            with gr.Row():
+                upload_f = gr.File(
+                    label="上传文献",
+                    file_types=[".pdf", ".txt", ".md"],
+                    file_count="multiple",
+                    scale=4,
+                )
+                # 重置按钮 - 清空所有状态
+                reset_btn = gr.Button("🔄 重置", scale=1, size="sm", variant="secondary")
             gr.Markdown("### 文献列表")
             file_list_html = gr.HTML("<div class='nc-empty'>上传文献后显示</div>")
             # Hidden textbox for programmatic value setting
@@ -1692,4 +1696,5 @@ def build_read_tab():
         "translate_action_tb": translate_action_tb,
         "translate_result_tb": translate_result_tb,
         "note_action_tb": note_action_tb,
+        "reset_btn": reset_btn,
     }

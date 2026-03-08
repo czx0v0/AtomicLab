@@ -122,33 +122,12 @@ JSON输出："""
             )
 
             # 解析JSON响应
-            # 尝试提取JSON部分
-            json_start = response.find("{")
-            json_end = response.rfind("}") + 1
-
-            if json_start >= 0 and json_end > json_start:
-                json_str = response[json_start:json_end]
-                data = json.loads(json_str)
-
-                summary = SectionSummary(
-                    section_id=section_id or cache_key if self.use_cache else "",
-                    heading=section_name,
-                    summary=data.get("summary", ""),
-                    key_points=data.get("key_points", []),
-                    word_count=word_count,
-                )
-            else:
-                # JSON解析失败，使用原始响应作为摘要
-                summary = SectionSummary(
-                    section_id=section_id or cache_key if self.use_cache else "",
-                    heading=section_name,
-                    summary=response[:200],
-                    key_points=[],
-                    word_count=word_count,
-                )
+            summary = self._parse_summary_response(
+                response, section_id, section_name, word_count, cache_key
+            )
 
             # 缓存结果
-            if self.use_cache:
+            if self.use_cache and summary:
                 self.cache[cache_key] = summary
 
             return summary
@@ -163,6 +142,90 @@ JSON输出："""
                 key_points=[],
                 word_count=word_count,
             )
+
+    def _parse_summary_response(
+        self,
+        response: str,
+        section_id: str,
+        section_name: str,
+        word_count: int,
+        cache_key: str,
+    ) -> SectionSummary:
+        """解析LLM返回的摘要响应，支持多种格式"""
+        import re
+
+        # 尝试提取JSON部分
+        json_start = response.find("{")
+        json_end = response.rfind("}") + 1
+
+        if json_start >= 0 and json_end > json_start:
+            json_str = response[json_start:json_end]
+
+            try:
+                # 尝试直接解析
+                data = json.loads(json_str)
+                return SectionSummary(
+                    section_id=section_id or cache_key if self.use_cache else "",
+                    heading=section_name,
+                    summary=data.get("summary", ""),
+                    key_points=data.get("key_points", []),
+                    word_count=word_count,
+                )
+            except json.JSONDecodeError as e:
+                print(f"[SectionSummarizer] JSON解析失败: {e}, 尝试修复...")
+
+                # 尝试修复常见JSON问题
+                # 1. 修复单引号
+                json_str_fixed = json_str.replace("'", '"')
+                # 2. 修复缺少引号的key
+                json_str_fixed = re.sub(r"(\w+)\s*:", r'"\1":', json_str_fixed)
+                # 3. 修复尾部逗号
+                json_str_fixed = re.sub(r",\s*}", "}", json_str_fixed)
+                json_str_fixed = re.sub(r",\s*]", "]", json_str_fixed)
+
+                try:
+                    data = json.loads(json_str_fixed)
+                    return SectionSummary(
+                        section_id=section_id or cache_key if self.use_cache else "",
+                        heading=section_name,
+                        summary=data.get("summary", ""),
+                        key_points=data.get("key_points", []),
+                        word_count=word_count,
+                    )
+                except:
+                    pass
+
+        # JSON解析完全失败，尝试从文本中提取
+        summary_text = ""
+        key_points = []
+
+        # 尝试匹配 summary 字段
+        summary_match = re.search(
+            r'"?summary"?\s*[:：]\s*["\']?([^"\'\n}]+)', response, re.IGNORECASE
+        )
+        if summary_match:
+            summary_text = summary_match.group(1).strip()
+
+        # 尝试匹配 key_points 字段
+        points_match = re.search(
+            r'"?key_?points"?\s*[:：]\s*\[([^\]]+)\]', response, re.IGNORECASE
+        )
+        if points_match:
+            points_str = points_match.group(1)
+            # 提取每个要点
+            key_points = re.findall(r'"([^"]+)"', points_str)
+
+        # 如果都没有提取到，使用原始响应
+        if not summary_text:
+            summary_text = response[:200]
+
+        return SectionSummary(
+            section_id=section_id or cache_key if self.use_cache else "",
+            heading=section_name,
+            summary=summary_text,
+            key_points=key_points,
+            word_count=word_count,
+        )
 
     def batch_summarize(
         self, sections: List[Dict], progress_callback=None
