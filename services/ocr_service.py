@@ -35,7 +35,9 @@ except ImportError:
 
 if not PADDLEOCR_AVAILABLE and not EASYOCR_AVAILABLE:
     print("[OCR] ❌ 未安装任何OCR引擎！截图识别功能将不可用")
-    print("[OCR] 请安装其中一个: pip install paddleocr>=2.7.0 或 pip install easyocr>=1.7.0")
+    print(
+        "[OCR] 请安装其中一个: pip install paddleocr>=2.7.0 或 pip install easyocr>=1.7.0"
+    )
 
 
 class OCRService:

@@ -337,12 +337,28 @@ class RAGService:
 
             print(f"\n文档处理完成: {len(chunks)} 个chunks, 耗时 {elapsed:.1f}ms")
 
+            # 构建章节信息列表（用于知识树构建）
+            sections_data = None
+            if parsed.sections:
+                sections_data = [
+                    {
+                        "section_id": s.section_id,
+                        "heading": s.heading,
+                        "level": s.level,
+                        "summary": s.summary,
+                        "page_start": s.page_start,
+                        "page_end": s.page_end,
+                    }
+                    for s in parsed.sections
+                ]
+
             return ProcessingResult(
                 success=True,
                 doc_id=parsed.doc_id,
                 chunk_count=len(chunks),
                 confidence=parsed.parse_confidence,
                 processing_time_ms=elapsed,
+                sections=sections_data,
             )
 
         except Exception as e:

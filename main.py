@@ -77,7 +77,7 @@ from tabs.write import (
     get_doc_choices,
     _render_write_graph,
 )
-from tabs.chat import build_chat_tab, handle_chat_send, handle_chat_clear, handle_ai_ask
+from tabs.chat import build_chat_tab, handle_chat_send, handle_chat_clear, handle_ai_ask, handle_feedback
 
 # RAG服务集成
 from services.rag_service import get_rag_service
@@ -460,6 +460,12 @@ with gr.Blocks(title=APP_TITLE) as demo:
         fn=handle_ai_ask,
         inputs=[chat["ai_ask_input"], chat["chatbot"], tree_st, lib_st, notes_st],
         outputs=[chat["chatbot"], chat["msg_input"]],
+    )
+    # AI回答反馈处理（点赞/点踩）
+    chat["chatbot"].like(
+        fn=handle_feedback,
+        inputs=[],
+        outputs=[chat["chat_status"]],
     )
 
     # ── Chat Tab Model Selector Events ──

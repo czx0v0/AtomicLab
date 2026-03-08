@@ -897,6 +897,24 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
                             lib[pid]["parse_confidence"] = result.confidence
                             lib[pid]["rag_progress"] = 100
                             print(f"[RAG] 完成: {fn} ({result.chunk_count} chunks)")
+                            
+                            # 创建section节点（章节信息同步到知识树）
+                            if result.sections:
+                                doc_node = tree.find_document_node(pid)
+                                if doc_node:
+                                    for sec_data in result.sections:
+                                        section_node = tree.create_section_node(
+                                            section_heading=sec_data.get("heading", "未知章节"),
+                                            source_pid=pid,
+                                            doc_node_id=doc_node.id,
+                                            level=sec_data.get("level", 2),
+                                            page_start=sec_data.get("page_start"),
+                                            page_end=sec_data.get("page_end"),
+                                        )
+                                        # 添加章节摘要到metadata
+                                        if sec_data.get("summary"):
+                                            section_node.metadata["summary"] = sec_data["summary"]
+                                    print(f"[RAG] 创建 {len(result.sections)} 个章节节点")
                         else:
                             lib[pid]["rag_processing"] = False
                             lib[pid]["rag_status"] = f"❌ 失败: {result.error[:30]}"
