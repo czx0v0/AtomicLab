@@ -1,42 +1,77 @@
 """
 OCR Service
 ===========
-截图文字识别服务 - 使用VLM视觉语言模型
+截图文字识别服务
 
-使用ModelScope API调用Qwen2-VL等视觉模型，无需本地OCR依赖。
+支持多种OCR引擎:
+1. VLM API (需要支持的API服务)
+2. EasyOCR (本地运行，免费)
+3. 百度OCR API (需要API Key)
+
+注意: ModelScope API不支持VLM模型，需要使用其他服务或本地模型
 """
 
 import base64
 import traceback
 from typing import Optional
-from openai import OpenAI
+
+# 尝试导入EasyOCR作为备选
+try:
+    import easyocr
+
+    EASYOCR_AVAILABLE = True
+except ImportError:
+    EASYOCR_AVAILABLE = False
+    print("[OCR] EasyOCR未安装，请运行: pip install easyocr")
 
 from core.config import API_BASE, MS_KEY
 
 # VLM模型配置
-# ModelScope支持的VLM模型列表:
-# - Qwen/Qwen2.5-VL-7B-Instruct (推荐)
-# - Qwen/Qwen2-VL-7B-Instruct
 VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
-
-# VLM模型可用性标记
 VLM_AVAILABLE = False
 VLM_ERROR = ""
 
+# 检测VLM可用性
+if MS_KEY:
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(base_url=API_BASE, api_key=MS_KEY, max_retries=0)
+        # 尝试简单请求检测模型
+        # 注意: ModelScope当前不支持VLM模型
+        VLM_AVAILABLE = False  # 暂时禁用VLM
+        VLM_ERROR = "ModelScope API不支持VLM模型，请使用EasyOCR"
+    except Exception as e:
+        VLM_ERROR = str(e)
+        print(f"[OCR] VLM不可用: {e}")
+
 
 class OCRService:
-    """OCR识别服务 - 使用VLM视觉语言模型"""
+    """OCR识别服务 - 支持VLM和EasyOCR"""
 
     _instance = None
+    _easyocr_reader = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
+    @property
+    def easyocr_reader(self):
+        """延迟加载EasyOCR"""
+        if self._easyocr_reader is None and EASYOCR_AVAILABLE:
+            try:
+                print("[OCR] 正在初始化EasyOCR...")
+                self._easyocr_reader = easyocr.Reader(["ch_sim", "en"], gpu=False)
+                print("[OCR] EasyOCR初始化成功")
+            except Exception as e:
+                print(f"[OCR] EasyOCR初始化失败: {e}")
+        return self._easyocr_reader
+
     def recognize(self, image_data: str) -> dict:
         """
-        使用VLM识别图片中的文字
+        识别图片中的文字
 
         Args:
             image_data: base64编码的图片数据
@@ -45,16 +80,22 @@ class OCRService:
             dict: {
                 "text": "识别的文字",
                 "confidence": 0.95,
-                "engine": "vlm"
+                "engine": "easyocr"
             }
         """
-        if not MS_KEY:
-            return {
-                "text": "",
-                "confidence": 0,
-                "error": "未配置API Key (MS_KEY)",
-            }
+        # 优先使用EasyOCR（因为VLM不可用）
+        if self.easyocr_reader:
+            return self._recognize_easyocr(image_data)
 
+        # 如果EasyOCR不可用，返回错误
+        return {
+            "text": "",
+            "confidence": 0,
+            "error": "OCR不可用：请安装EasyOCR (pip install easyocr) 或配置支持VLM的API服务",
+        }
+
+    def _recognize_easyocr(self, image_data: str) -> dict:
+        """使用EasyOCR识别"""
         try:
             # 处理base64图片数据
             if image_data.startswith("data:image"):
@@ -62,7 +103,11 @@ class OCRService:
             else:
                 image_base64 = image_data
 
-            # 验证图片数据
+            # 解码图片
+            import numpy as np
+            from PIL import Image
+            import io
+
             image_bytes = base64.b64decode(image_base64)
             if len(image_bytes) < 100:
                 return {
@@ -71,81 +116,52 @@ class OCRService:
                     "error": "图片数据过小",
                 }
 
-            print(f"[VLM] 使用 {VLM_MODEL} 识别图片 ({len(image_bytes)} bytes)...")
+            image = Image.open(io.BytesIO(image_bytes))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            img_array = np.array(image)
 
-            # 构建图片URL (data URI格式)
-            image_url = f"data:image/png;base64,{image_base64}"
+            print(f"[EasyOCR] 识别图片 ({len(image_bytes)} bytes)...")
+            results = self.easyocr_reader.readtext(img_array)
 
-            # 调用VLM API
-            client = OpenAI(base_url=API_BASE, api_key=MS_KEY, max_retries=1)
+            texts = []
+            total_conf = 0
+            for detection in results:
+                box, text, conf = detection
+                texts.append(text)
+                total_conf += conf
 
-            response = client.chat.completions.create(
-                model=VLM_MODEL,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "请识别并提取图片中的所有文字内容。如果有公式，请用LaTeX格式输出。只输出识别的文字，不要添加任何解释。",
-                            },
-                            {"type": "image_url", "image_url": {"url": image_url}},
-                        ],
-                    }
-                ],
-                max_tokens=2000,
-            )
-
-            recognized_text = response.choices[0].message.content
-
-            if recognized_text:
-                print(f"[VLM] 识别成功: {len(recognized_text)} 字符")
+            if texts:
+                recognized_text = "\n".join(texts)
+                avg_conf = total_conf / len(results) if results else 0
+                print(f"[EasyOCR] 识别成功: {len(texts)} 行文字, 置信度 {avg_conf:.2f}")
                 return {
                     "text": recognized_text,
-                    "confidence": 0.9,  # VLM通常置信度高
-                    "engine": "vlm",
-                    "model": VLM_MODEL,
+                    "confidence": avg_conf,
+                    "engine": "easyocr",
                 }
             else:
-                print("[VLM] 未识别到文字")
+                print("[EasyOCR] 未识别到文字")
                 return {
                     "text": "",
                     "confidence": 0,
-                    "engine": "vlm",
+                    "engine": "easyocr",
                 }
 
         except Exception as e:
             error_msg = str(e)
             error_type = type(e).__name__
-            print(f"[VLM] 识别错误 ({error_type}): {error_msg}")
-            print(f"[VLM] 错误堆栈: {traceback.format_exc()}")
-            
-            # 构建详细的错误信息
-            detailed_error = f"{error_type}: {error_msg}"
-            
-            # 针对常见错误提供解决方案
-            if "401" in error_msg or "Unauthorized" in error_msg:
-                detailed_error = "API Key无效或已过期，请检查MS_KEY配置"
-            elif "404" in error_msg or "not found" in error_msg:
-                detailed_error = f"模型 {VLM_MODEL} 不可用，请检查模型名称"
-            elif "429" in error_msg or "rate limit" in error_msg.lower():
-                detailed_error = "API调用频率超限，请稍后重试"
-            elif "timeout" in error_msg.lower():
-                detailed_error = "API请求超时，请检查网络连接"
-            elif "connection" in error_msg.lower():
-                detailed_error = "网络连接失败，请检查网络或API_BASE配置"
-            
+            print(f"[EasyOCR] 识别错误 ({error_type}): {error_msg}")
+            print(f"[EasyOCR] 错误堆栈: {traceback.format_exc()}")
             return {
                 "text": "",
                 "confidence": 0,
-                "error": detailed_error,
-                "error_detail": error_msg,
-                "model": VLM_MODEL,
+                "error": f"{error_type}: {error_msg}",
             }
 
     def is_available(self) -> bool:
         """检查OCR服务是否可用"""
-        return bool(MS_KEY)
+        return self.easyocr_reader is not None
 
 
 # 全局实例

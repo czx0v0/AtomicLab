@@ -41,7 +41,7 @@ _cleanup_storage()
 from core.model_state import cooldown_manager
 from ui.styles import CSS, HEADER_HTML
 from ui.global_js import ECHARTS_HEAD, GLOBAL_JS
-from ui.renderers import render_note_cards
+from ui.renderers import render_note_cards, render_stats
 from knowledge.tree_model import KnowledgeTree
 
 from tabs.read import (
@@ -146,11 +146,25 @@ def _handle_reset_cooldowns():
 
 with gr.Blocks(title=APP_TITLE) as demo:
     # ── Shared State ──
+    # 注意: Gradio的State在每个会话中独立，但刷新页面可能会保持会话
+    # 如果需要完全重置，用户需要清除浏览器Cookie或打开新标签页
     lib_st = gr.State({})
     stats_st = gr.State({"docs": 0, "notes": 0, "nodes": 0})
     notes_st = gr.State([])
     tree_st = gr.State(KnowledgeTree())
     page_st = gr.State(1)  # current reading page
+
+    # 添加重置按钮，让用户可以手动清空状态
+    def reset_all_state():
+        """重置所有状态"""
+        print("[Reset] 用户请求重置所有状态")
+        return (
+            {},  # lib
+            {"docs": 0, "notes": 0, "nodes": 0},  # stats
+            [],  # notes
+            KnowledgeTree(),  # tree
+            1,  # page
+        )
 
     gr.HTML(HEADER_HTML)
 
@@ -167,6 +181,41 @@ with gr.Blocks(title=APP_TITLE) as demo:
     # ═══════════════════════════════════════════════
     # EVENT BINDINGS
     # ═══════════════════════════════════════════════
+
+    # ── Reset Button (清空所有状态) ──
+    read["reset_btn"].click(
+        fn=reset_all_state,
+        inputs=[],
+        outputs=[lib_st, stats_st, notes_st, tree_st, page_st],
+    ).then(
+        fn=lambda: (
+            gr.update(value=""),  # pdf_selector
+            gr.update(value="<div class='nc-empty'>上传文献后显示</div>"),  # file_list_html
+            gr.update(value="<div class='txt-empty'>选择文献后，文本将在此显示</div>"),  # pdf_text_html
+            gr.update(value="<div class='txt-empty'>选择文献后，PDF 将在此显示</div>"),  # pdf_embed_html
+            render_note_cards([]),  # notes_html
+            render_stats({"docs": 0, "notes": 0, "nodes": 0}),  # stats_html
+            _render_graph(KnowledgeTree()),  # global_graph_html
+            _render_write_graph(KnowledgeTree(), None),  # write_graph_html
+            gr.update(choices=[]),  # write_doc_selector
+            gr.update(choices=[("全部文献", "__all__")]),  # org_doc_selector
+            gr.update(choices=[]),  # chat doc_selector
+        ),
+        inputs=[],
+        outputs=[
+            read["pdf_selector"],
+            read["file_list_html"],
+            read["pdf_text_html"],
+            read["pdf_embed_html"],
+            read["notes_html"],
+            org["stats_html"],
+            org["global_graph_html"],
+            wrt["write_graph_html"],
+            wrt["write_doc_selector"],
+            org["org_doc_selector"],
+            chat["doc_selector"],
+        ],
+    )
 
     # ── Tab 1: Read ──
     read["upload_f"].change(
