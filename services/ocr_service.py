@@ -1,100 +1,35 @@
 """
 OCR Service
 ===========
-截图文字识别服务
+截图文字识别服务 - 使用VLM视觉语言模型
 
-支持多种OCR引擎:
-- PaddleOCR (推荐，免费本地运行)
-- EasyOCR (备选)
-- 百度OCR API (需API Key)
+使用ModelScope API调用Qwen2-VL等视觉模型，无需本地OCR依赖。
 """
 
 import base64
-import io
 import traceback
 from typing import Optional
+from openai import OpenAI
 
+from core.config import API_BASE, MS_KEY
 
-# 尝试导入PaddleOCR
-PADDLEOCR_AVAILABLE = False
-PADDLEOCR_ERROR = ""
-try:
-    from paddleocr import PaddleOCR
-    PADDLEOCR_AVAILABLE = True
-except ImportError as e:
-    PADDLEOCR_ERROR = str(e)
-    print(f"[OCR] ⚠️ PaddleOCR导入失败: {e}")
-except Exception as e:
-    PADDLEOCR_ERROR = str(e)
-    print(f"[OCR] ⚠️ PaddleOCR初始化异常: {e}")
-    print(f"[OCR] 可能需要安装: pip install langchain 或 pip install paddleocr==2.7.0.3")
-
-# 尝试导入EasyOCR
-try:
-    import easyocr
-
-    EASYOCR_AVAILABLE = True
-except ImportError:
-    EASYOCR_AVAILABLE = False
-    print("[OCR] ⚠️ EasyOCR未安装，请运行: pip install easyocr>=1.7.0")
-
-if not PADDLEOCR_AVAILABLE and not EASYOCR_AVAILABLE:
-    print("[OCR] ❌ 未安装任何OCR引擎！截图识别功能将不可用")
-    print(
-        "[OCR] 请安装其中一个: pip install paddleocr>=2.7.0 或 pip install easyocr>=1.7.0"
-    )
+# VLM模型配置
+VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"  # 可替换为其他视觉模型
 
 
 class OCRService:
-    """OCR识别服务"""
+    """OCR识别服务 - 使用VLM视觉语言模型"""
 
     _instance = None
-    _ocr_engine = None
-    _engine_type = None  # 'paddle', 'easy', 'none'
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    @property
-    def engine(self):
-        """延迟加载OCR引擎"""
-        if self._ocr_engine is None:
-            if PADDLEOCR_AVAILABLE:
-                try:
-                    print("[OCR] 正在初始化 PaddleOCR 引擎...")
-                    self._ocr_engine = PaddleOCR(
-                        use_angle_cls=True,
-                        lang="ch",  # 中英文混合
-                        show_log=False,
-                        use_gpu=False,
-                    )
-                    self._engine_type = "paddle"
-                    print("[OCR] ✓ PaddleOCR引擎初始化成功")
-                except Exception as e:
-                    print(f"[OCR] ⚠️ PaddleOCR初始化失败: {e}")
-                    print(f"[OCR] 错误详情: {traceback.format_exc()}")
-                    self._ocr_engine = None
-            elif EASYOCR_AVAILABLE:
-                try:
-                    print("[OCR] 正在初始化 EasyOCR 引擎...")
-                    self._ocr_engine = easyocr.Reader(["ch_sim", "en"], gpu=False)
-                    self._engine_type = "easy"
-                    print("[OCR] ✓ EasyOCR引擎初始化成功")
-                except Exception as e:
-                    print(f"[OCR] ⚠️ EasyOCR初始化失败: {e}")
-                    print(f"[OCR] 错误详情: {traceback.format_exc()}")
-                    self._ocr_engine = None
-            else:
-                print("[OCR] ⚠️ 未安装OCR引擎，请安装 paddleocr 或 easyocr")
-                self._ocr_engine = None
-                self._engine_type = "none"
-        return self._ocr_engine
-
     def recognize(self, image_data: str) -> dict:
         """
-        识别图片中的文字
+        使用VLM识别图片中的文字
 
         Args:
             image_data: base64编码的图片数据
@@ -103,153 +38,91 @@ class OCRService:
             dict: {
                 "text": "识别的文字",
                 "confidence": 0.95,
-                "boxes": [...],  # 文字位置框
-                "engine": "paddle"  # 使用的引擎
+                "engine": "vlm"
             }
         """
-        engine = self.engine
-
-        if engine is None:
-            return self._fallback_ocr(image_data, "OCR引擎未初始化")
-
-        try:
-            # 解码base64图片
-            if image_data.startswith("data:image"):
-                image_data = image_data.split(",", 1)[1]
-
-            image_bytes = base64.b64decode(image_data)
-
-            # 验证图片数据
-            if len(image_bytes) < 100:
-                print(f"[OCR] 图片数据过小: {len(image_bytes)} bytes")
-                return {
-                    "text": "",
-                    "confidence": 0,
-                    "boxes": [],
-                    "error": "图片数据过小",
-                }
-
-            image = io.BytesIO(image_bytes)
-
-            # 使用PaddleOCR
-            if self._engine_type == "paddle" and hasattr(engine, "ocr"):
-                print(f"[OCR] 使用PaddleOCR识别图片 ({len(image_bytes)} bytes)...")
-
-                try:
-                    result = engine.ocr(image.read(), cls=True)
-                except Exception as ocr_error:
-                    # 尝试使用PIL转换后再识别
-                    print(f"[OCR] 直接识别失败，尝试转换图片格式: {ocr_error}")
-                    try:
-                        from PIL import Image
-                        import numpy as np
-
-                        image.seek(0)
-                        img = Image.open(image)
-                        if img.mode != "RGB":
-                            img = img.convert("RGB")
-                        img_array = np.array(img)
-                        result = engine.ocr(img_array, cls=True)
-                    except Exception as conv_error:
-                        print(f"[OCR] 图片转换失败: {conv_error}")
-                        return self._fallback_ocr(image_data, str(conv_error))
-
-                if result and result[0]:
-                    texts = []
-                    boxes = []
-                    total_conf = 0
-                    count = 0
-
-                    for line in result[0]:
-                        if len(line) >= 2:
-                            box = line[0]  # 坐标
-                            text_info = line[1]  # (文字, 置信度)
-                            text = (
-                                text_info[0]
-                                if isinstance(text_info, tuple)
-                                else str(text_info)
-                            )
-                            conf = (
-                                text_info[1]
-                                if isinstance(text_info, tuple) and len(text_info) > 1
-                                else 1.0
-                            )
-
-                            texts.append(text)
-                            boxes.append(box)
-                            total_conf += conf
-                            count += 1
-
-                    if texts:
-                        recognized_text = "\n".join(texts)
-                        print(
-                            f"[OCR] 识别成功: {len(texts)} 行文字, 平均置信度 {total_conf/count:.2f}"
-                        )
-                        return {
-                            "text": recognized_text,
-                            "confidence": total_conf / count if count > 0 else 0,
-                            "boxes": boxes,
-                            "engine": "paddle",
-                        }
-
-            # 使用EasyOCR
-            elif self._engine_type == "easy" and hasattr(engine, "readtext"):
-                print(f"[OCR] 使用EasyOCR识别图片 ({len(image_bytes)} bytes)...")
-                import numpy as np
-                from PIL import Image
-
-                image.seek(0)
-                img = Image.open(image)
-                if img.mode != "RGB":
-                    img = img.convert("RGB")
-                img_array = np.array(img)
-
-                results = engine.readtext(img_array)
-
-                texts = []
-                boxes = []
-                total_conf = 0
-
-                for detection in results:
-                    box, text, conf = detection
-                    texts.append(text)
-                    boxes.append(box)
-                    total_conf += conf
-
-                if texts:
-                    print(f"[OCR] 识别成功: {len(texts)} 行文字")
-                    return {
-                        "text": "\n".join(texts),
-                        "confidence": total_conf / len(results) if results else 0,
-                        "boxes": boxes,
-                        "engine": "easy",
-                    }
-
-            print("[OCR] 未识别到文字")
+        if not MS_KEY:
             return {
                 "text": "",
                 "confidence": 0,
-                "boxes": [],
-                "engine": self._engine_type,
+                "error": "未配置API Key (MS_KEY)",
             }
 
-        except Exception as e:
-            print(f"[OCR] 识别错误: {e}")
-            print(f"[OCR] 错误堆栈: {traceback.format_exc()}")
-            return self._fallback_ocr(image_data, str(e))
+        try:
+            # 处理base64图片数据
+            if image_data.startswith("data:image"):
+                image_base64 = image_data.split(",", 1)[1]
+            else:
+                image_base64 = image_data
 
-    def _fallback_ocr(self, image_data: str, error_msg: str = "") -> dict:
-        """降级处理 - 返回提示信息"""
-        return {
-            "text": f"[OCR识别失败: {error_msg}]",
-            "confidence": 0,
-            "boxes": [],
-            "error": error_msg,
-        }
+            # 验证图片数据
+            image_bytes = base64.b64decode(image_base64)
+            if len(image_bytes) < 100:
+                return {
+                    "text": "",
+                    "confidence": 0,
+                    "error": "图片数据过小",
+                }
+
+            print(f"[VLM] 使用 {VLM_MODEL} 识别图片 ({len(image_bytes)} bytes)...")
+
+            # 构建图片URL (data URI格式)
+            image_url = f"data:image/png;base64,{image_base64}"
+
+            # 调用VLM API
+            client = OpenAI(base_url=API_BASE, api_key=MS_KEY, max_retries=1)
+
+            response = client.chat.completions.create(
+                model=VLM_MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "请识别并提取图片中的所有文字内容。如果有公式，请用LaTeX格式输出。只输出识别的文字，不要添加任何解释。"
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": image_url}
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=2000,
+            )
+
+            recognized_text = response.choices[0].message.content
+            
+            if recognized_text:
+                print(f"[VLM] 识别成功: {len(recognized_text)} 字符")
+                return {
+                    "text": recognized_text,
+                    "confidence": 0.9,  # VLM通常置信度高
+                    "engine": "vlm",
+                    "model": VLM_MODEL,
+                }
+            else:
+                print("[VLM] 未识别到文字")
+                return {
+                    "text": "",
+                    "confidence": 0,
+                    "engine": "vlm",
+                }
+
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[VLM] 识别错误: {error_msg}")
+            print(f"[VLM] 错误堆栈: {traceback.format_exc()}")
+            return {
+                "text": "",
+                "confidence": 0,
+                "error": error_msg,
+            }
 
     def is_available(self) -> bool:
         """检查OCR服务是否可用"""
-        return self.engine is not None and self._engine_type in ("paddle", "easy")
+        return bool(MS_KEY)
 
 
 # 全局实例
