@@ -45,7 +45,7 @@ except ImportError as e:
 
 # v2.3: PDF.js高亮渲染器
 try:
-    from services.renderer.pdfjs_viewer import PDFJSViewer, HighlightData
+    from services.renderer.pdfjs_viewer import PDFJSViewer, HighlightData, PDFCoordinate
     from services.renderer.coordinate_mapper import get_coordinate_mapper
 
     PDFJS_VIEWER_AVAILABLE = True
@@ -395,6 +395,425 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
     )
 
 
+def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> str:
+    """Render Docling structure view showing hierarchical sections.
+
+    v2.4: Docling结构显示模式
+    - 显示章节层级结构
+    - 显示标题层级关系
+    - 辅助文本分块功能
+    """
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，Docling结构将在此显示</div>"
+
+    doc_info = lib[pid]
+
+    # 检查处理状态
+    is_indexed = doc_info.get("rag_indexed", False)
+    is_processing = doc_info.get("rag_processing", False)
+    chunk_count = doc_info.get("chunk_count", 0)
+    rag_status = doc_info.get("rag_status", "")
+
+    # 如果正在处理中
+    if is_processing:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>⏳</div>
+            <h3 style='color: #0369a1;'>Docling解析中...</h3>
+            <p style='color: #4b5563;'>状态: {rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请稍后再试，或切换到"文本模式"查看</p>
+        </div>
+        """
+
+    # 如果有状态但失败了
+    if rag_status and "失败" in rag_status:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #fef2f2; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>❌</div>
+            <h3 style='color: #dc2626;'>Docling解析失败</h3>
+            <p style='color: #4b5563;'>{rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请切换到"文本模式"查看，或重新上传</p>
+        </div>
+        """
+
+    # 尝试从RAG服务获取解析结果
+    try:
+        from services.rag_service import get_rag_service
+        from core.config import RAG_CONFIG
+        from ui.renderers import render_docling_structure
+
+        # 使用全局RAG服务实例
+        rag_service = get_rag_service(RAG_CONFIG)
+
+        # 如果文档已索引，尝试获取chunks
+        if is_indexed:
+            # 获取文档的chunks
+            chunks = []
+            if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
+                chunk_ids = rag_service.doc_chunks[pid]
+                for chunk_id in chunk_ids:
+                    if chunk_id in rag_service.chunk_store:
+                        chunks.append(rag_service.chunk_store[chunk_id])
+
+            if not chunks:
+                # 已标记为indexed但chunks不在内存中
+                return f"""
+                <div class='docling-status' style='padding: 40px; text-align: center;'>
+                    <div style='font-size: 48px; margin-bottom: 20px;'>🔄</div>
+                    <h3>索引需要重新加载</h3>
+                    <p>文档已解析（{chunk_count} chunks），但索引不在内存中</p>
+                    <p style='color: #718096; font-size: 14px;'>请重新上传PDF或切换到"文本模式"</p>
+                </div>
+                """
+
+            # 构建ParsedDocument结构
+            if chunks:
+                # 构建内容
+                parsed_data = {
+                    "title": doc_info.get("name", "未命名文档"),
+                    "content": "",
+                    "sections": [],
+                    "metadata": {
+                        "page_count": chunk_count,
+                        "parse_confidence": doc_info.get("parse_confidence", 0.8),
+                    },
+                }
+
+                # 按chunk_index排序
+                sorted_chunks = sorted(
+                    chunks,
+                    key=lambda c: (
+                        c.metadata.chunk_index
+                        if c.metadata and hasattr(c.metadata, "chunk_index")
+                        else 0
+                    ),
+                )
+
+                # 提取章节结构 - 改进的混合策略
+                # 同时使用元数据和Markdown标题提取章节
+                section_dict = {}
+                import re
+
+                # 多模式章节提取 - 增强版
+                # 模式1: 标准Markdown标题
+                heading_pattern_md = re.compile(
+                    r"(?:^|\n)\s*(#{1,6})\s+(.+?)\s*$", re.MULTILINE
+                )
+
+                # 模式2: 编号章节 (如 "1. INTRODUCTION", "Task 1: Peak Prediction")
+                heading_pattern_numbered = re.compile(
+                    r"(?:^|\n)\s*(?:(\d+)\.|Task\s+(\d+):?)\s+([A-Z][A-Za-z\s]+)",
+                    re.MULTILINE,
+                )
+
+                # 模式3: 大写章节名 (如 "INTRODUCTION", "RELATED WORK", "ACKNOWLEDGEMENT")
+                heading_pattern_caps = re.compile(
+                    r"(?:^|\n)\s{0,4}([A-Z][A-Z\s]{3,50})\s*$", re.MULTILINE
+                )
+
+                # 模式4: 特定章节关键词
+                section_keywords = [
+                    "references",
+                    "introduction",
+                    "related work",
+                    "acknowledgements",
+                    "acknowledgement",
+                    "appendix",
+                    "abstract",
+                    "methods",
+                    "method",
+                    "results",
+                    "result",
+                    "discussion",
+                    "conclusions",
+                    "conclusion",
+                    "background",
+                    "task 1",
+                    "task 2",
+                    "task 3",
+                    "web server",
+                    "experimental validation",
+                ]
+
+                # 调试：检查前几个chunk的内容
+                print(f"[DEBUG] 总共 {len(sorted_chunks)} 个chunks")
+                for i, chunk in enumerate(sorted_chunks[:5]):
+                    chunk_content = chunk.content if hasattr(chunk, "content") else ""
+                    print(f"[DEBUG] Chunk {i} 前150字符: {repr(chunk_content[:150])}")
+                    md_matches = list(heading_pattern_md.finditer(chunk_content))
+                    numbered_matches = list(
+                        heading_pattern_numbered.finditer(chunk_content)
+                    )
+                    caps_matches = list(heading_pattern_caps.finditer(chunk_content))
+                    print(
+                        f"[DEBUG] Chunk {i} Markdown标题: {len(md_matches)}, 编号章节: {len(numbered_matches)}, 大写章节: {len(caps_matches)}"
+                    )
+                    if md_matches:
+                        for j, match in enumerate(md_matches[:2]):
+                            print(
+                                f"[DEBUG]   Markdown匹配 {j}: {repr(match.group(0)[:80])}"
+                            )
+                    if numbered_matches:
+                        for j, match in enumerate(numbered_matches[:2]):
+                            print(
+                                f"[DEBUG]   编号章节匹配 {j}: {repr(match.group(0)[:80])}"
+                            )
+                    if caps_matches:
+                        for j, match in enumerate(caps_matches[:2]):
+                            print(
+                                f"[DEBUG]   大写章节匹配 {j}: {repr(match.group(0)[:80])}"
+                            )
+
+                # 用于跟踪当前章节（当chunk没有明确章节时）
+                current_section_key = None
+
+                for i, chunk in enumerate(sorted_chunks):
+                    section_name = ""
+                    level = 2  # 默认层级
+                    chunk_content = chunk.content if hasattr(chunk, "content") else ""
+
+                    # ========== 多模式章节提取 ==========
+                    # 策略1: 标准Markdown标题 (## Chapter)
+                    md_matches = list(heading_pattern_md.finditer(chunk_content))
+
+                    if md_matches:
+                        first_match = md_matches[0]
+                        level = len(first_match.group(1))
+                        heading_text = first_match.group(2).strip()
+
+                        # 跳过参考文献格式
+                        if heading_text and not re.match(
+                            r"^\d+\.\s*[A-Z][a-z]+,", heading_text
+                        ):
+                            section_name = heading_text
+                            print(
+                                f"[DEBUG] Chunk {i} Markdown章节: '{heading_text[:50]}' (level={level})"
+                            )
+
+                    # 策略2: 编号章节 (1. INTRODUCTION, Task 1: Peak)
+                    if not section_name:
+                        numbered_matches = list(
+                            heading_pattern_numbered.finditer(chunk_content)
+                        )
+
+                        if numbered_matches:
+                            match = numbered_matches[0]
+                            # 提取章节名
+                            if match.group(3):  # "1. INTRODUCTION" 格式
+                                section_name = match.group(3).strip()
+                                level = 2
+                            elif match.group(2):  # "Task 1:" 格式
+                                section_name = (
+                                    f"Task {match.group(2)}: {match.group(3).strip()}"
+                                )
+                                level = 2
+                            print(
+                                f"[DEBUG] Chunk {i} 编号章节: '{section_name[:50]}' (level={level})"
+                            )
+
+                    # 策略3: 大写章节名 (INTRODUCTION, RELATED WORK)
+                    if not section_name:
+                        caps_matches = list(
+                            heading_pattern_caps.finditer(chunk_content)
+                        )
+
+                        if caps_matches:
+                            heading_text = caps_matches[0].group(1).strip()
+                            # 过滤太短的标题
+                            if len(heading_text) >= 5:
+                                section_name = heading_text
+                                level = 2
+                                print(
+                                    f"[DEBUG] Chunk {i} 大写章节: '{heading_text[:50]}' (level={level})"
+                                )
+
+                    # 策略4: 关键词匹配 (references, introduction, etc.)
+                    if not section_name:
+                        chunk_lower = chunk_content.lower()
+                        for keyword in section_keywords:
+                            if keyword in chunk_lower[:200]:  # 只检查前200字符
+                                # 提取包含关键词的行
+                                lines = chunk_content.split("\n")[:5]  # 只检查前5行
+                                for line in lines:
+                                    line_stripped = line.strip()
+                                    if (
+                                        keyword in line_stripped.lower()
+                                        and len(line_stripped) < 80
+                                    ):
+                                        section_name = line_stripped
+                                        level = 2
+                                        print(
+                                            f"[DEBUG] Chunk {i} 关键词章节: '{section_name[:50]}' (level={level})"
+                                        )
+                                        break
+                                if section_name:
+                                    break
+
+                    # 策略5: 检查metadata（过滤参考文献格式）
+                    if not section_name:
+                        if chunk.metadata and hasattr(chunk.metadata, "section_name"):
+                            meta_section = chunk.metadata.section_name
+                            if meta_section and not re.match(
+                                r"^\d+\.\s*[A-Z][a-z]+,", meta_section
+                            ):
+                                section_name = meta_section
+                                level = 2
+                                print(
+                                    f"[DEBUG] Chunk {i} Metadata章节: '{section_name[:50]}' (level={level})"
+                                )
+
+                    # 如果找到章节，创建或更新
+                    if section_name:
+                        if section_name not in section_dict:
+                            section_dict[section_name] = {
+                                "section_id": f"sec-{hash(section_name)}",
+                                "heading": section_name,
+                                "level": level,
+                                "content": chunk_content,
+                                "page_start": chunk.page_number,
+                                "page_end": chunk.page_number,
+                            }
+                        else:
+                            # 章节已存在，追加内容
+                            section_dict[section_name]["content"] += (
+                                "\n\n" + chunk_content
+                            )
+                            # 更新页码范围
+                            if chunk.page_number:
+                                section_dict[section_name][
+                                    "page_end"
+                                ] = chunk.page_number
+
+                        current_section_key = section_name
+                    else:
+                        # 如果没有章节名，归入当前章节
+                        if current_section_key and current_section_key in section_dict:
+                            section_dict[current_section_key]["content"] += (
+                                "\n\n" + chunk_content
+                            )
+                            if chunk.page_number:
+                                section_dict[current_section_key][
+                                    "page_end"
+                                ] = chunk.page_number
+
+                # 转换为列表
+                parsed_data["sections"] = list(section_dict.values())
+
+                # 调试输出
+                print(
+                    f"[DoclingStructureView] 提取到 {len(parsed_data['sections'])} 个章节:"
+                )
+                for sec in parsed_data["sections"]:
+                    print(f"  - {sec['heading'][:50]}... (level={sec['level']})")
+
+                # 渲染结构视图
+                return render_docling_structure(
+                    parsed_data=parsed_data,
+                    chunks=chunks,
+                    doc_name=doc_info.get("name", ""),
+                )
+
+    except Exception as e:
+        print(f"[DoclingStructureView] 渲染失败: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+    # 降级提示
+    return (
+        "<div class='txt-empty'>Docling结构视图不可用，请先上传PDF并等待解析完成</div>"
+    )
+
+
+def _render_chunk_database_view(pid: str, lib: dict) -> str:
+    """Render chunk database view showing text chunks.
+
+    v2.4: 分块数据库显示模式
+    - 显示文本分块数据库
+    - 展示分块层级关系
+    - 按章节分组显示
+    """
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，分块数据库将在此显示</div>"
+
+    doc_info = lib[pid]
+
+    # 检查处理状态
+    is_indexed = doc_info.get("rag_indexed", False)
+    is_processing = doc_info.get("rag_processing", False)
+    chunk_count = doc_info.get("chunk_count", 0)
+    rag_status = doc_info.get("rag_status", "")
+
+    # 如果正在处理中
+    if is_processing:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>⏳</div>
+            <h3 style='color: #0369a1;'>文本分块处理中...</h3>
+            <p style='color: #4b5563;'>状态: {rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请稍后再试</p>
+        </div>
+        """
+
+    # 如果有状态但失败了
+    if rag_status and "失败" in rag_status:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #fef2f2; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>❌</div>
+            <h3 style='color: #dc2626;'>分块处理失败</h3>
+            <p style='color: #4b5563;'>{rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请重新上传PDF</p>
+        </div>
+        """
+
+    # 尝试从RAG服务获取chunks
+    try:
+        from services.rag_service import get_rag_service
+        from core.config import RAG_CONFIG
+        from ui.renderers import render_chunk_database_tree
+
+        # 使用全局RAG服务实例
+        rag_service = get_rag_service(RAG_CONFIG)
+
+        # 如果文档已索引，尝试获取chunks
+        if is_indexed:
+            # 获取文档的chunks
+            chunks = []
+            if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
+                chunk_ids = rag_service.doc_chunks[pid]
+                for chunk_id in chunk_ids:
+                    if chunk_id in rag_service.chunk_store:
+                        chunks.append(rag_service.chunk_store[chunk_id])
+
+            if not chunks:
+                # 已标记为indexed但chunks不在内存中
+                return f"""
+                <div class='docling-status' style='padding: 40px; text-align: center;'>
+                    <div style='font-size: 48px; margin-bottom: 20px;'>🔄</div>
+                    <h3>索引需要重新加载</h3>
+                    <p>文档已解析（{chunk_count} chunks），但索引不在内存中</p>
+                    <p style='color: #718096; font-size: 14px;'>请重新上传PDF</p>
+                </div>
+                """
+
+            # 渲染分块数据库视图
+            return render_chunk_database_tree(
+                chunks=chunks,
+                doc_name=doc_info.get("name", ""),
+            )
+
+    except Exception as e:
+        print(f"[ChunkDatabaseView] 渲染失败: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+    # 降级提示
+    return (
+        "<div class='txt-empty'>分块数据库视图不可用，请先上传PDF并等待解析完成</div>"
+    )
+
+
 # ══════════════════════════════════════════════════════════════
 # HANDLERS
 # ══════════════════════════════════════════════════════════════
@@ -550,6 +969,7 @@ def handle_mode_switch(mode, pid, lib, page_st, notes=None):
     """Switch between text, PDF, and PDF highlight view modes.
 
     v2.3: PDF高亮模式为默认，移除了Docling模式（解析功能已整合到RAG服务中）
+    v2.4: 新增Docling结构模式和分块数据库模式
     """
     if mode == "PDF原版":
         return (
@@ -562,6 +982,20 @@ def handle_mode_switch(mode, pid, lib, page_st, notes=None):
         return (
             gr.update(visible=False),
             gr.update(value=pdfjs_html, visible=True),
+        )
+    elif mode == "Docling结构":
+        # Docling结构模式：显示章节层级结构
+        docling_html = _render_docling_structure_view(pid, lib, notes or [])
+        return (
+            gr.update(visible=False),
+            gr.update(value=docling_html, visible=True),
+        )
+    elif mode == "分块数据库":
+        # 分块数据库模式：显示文本分块数据库
+        chunk_db_html = _render_chunk_database_view(pid, lib)
+        return (
+            gr.update(visible=False),
+            gr.update(value=chunk_db_html, visible=True),
         )
     else:
         # 文本模式
@@ -1145,10 +1579,10 @@ def build_read_tab():
                 show_label=False,
             )
             view_mode = gr.Radio(
-                choices=["PDF高亮", "文本模式", "PDF原版"],
+                choices=["PDF高亮", "文本模式", "PDF原版", "Docling结构", "分块数据库"],
                 value="PDF高亮",  # v2.3: PDF高亮模式为默认
                 label="查看模式",
-                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真",
+                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真 | Docling:章节结构 | 分块:数据库视图",
             )
 
         # ── Center: Reader ──

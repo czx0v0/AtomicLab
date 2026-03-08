@@ -982,3 +982,564 @@ def render_cited_notes(notes_data: list) -> str:
 
     return f"""<div class="nt-cited-header" style="font-size:.75em;color:var(--text-muted);margin-top:8px">📎 引用来源 ({len(notes_data)}) - 点击跳转</div>
 <div class='nt-cited-wrap'>{h}</div>"""
+
+
+# ══════════════════════════════════════════════════════════════
+# Docling Structure View Renderer
+# ══════════════════════════════════════════════════════════════
+
+
+def render_docling_structure(
+    parsed_data: dict,
+    chunks: list = None,
+    doc_name: str = "",
+) -> str:
+    """
+    Render Docling document structure view with hierarchical sections.
+
+    Docling显示模式:
+    - 以Markdown格式显示文档内容
+    - 显示标题层级结构（#、##、###等）
+    - 基于标题（章节）组织内容
+    - 支持折叠/展开章节
+    - 显示辅助文本分块信息
+
+    Args:
+        parsed_data: ParsedDocument dict with sections, content, metadata
+        chunks: Optional list of TextChunk objects for chunk info display
+        doc_name: Document name
+
+    Returns:
+        HTML string with hierarchical structure display
+    """
+    if not parsed_data:
+        return "<div class='nc-empty'>无文档结构数据</div>"
+
+    # 提取章节
+    sections = parsed_data.get("sections", [])
+    content = parsed_data.get("content", "")
+    title = parsed_data.get("title", doc_name)
+
+    h = f"""<div class="docling-struct-container">
+  <div class="docling-struct-header">
+    <h2 class="docling-struct-title">{esc(title)}</h2>
+    <div class="docling-struct-stats">
+      <span class="stat-item">📄 {len(sections)} 个章节</span>
+      <span class="stat-item">📊 {len(chunks) if chunks else 0} 个分块</span>
+    </div>
+  </div>
+  <div class="docling-struct-content">"""
+
+    # 如果有章节结构,按章节渲染
+    if sections:
+        h += _render_sections_hierarchy(sections, chunks)
+    else:
+        # 没有章节结构,从content中提取标题
+        h += _render_content_as_hierarchy(content, chunks)
+
+    h += "  </div>\n</div>"
+    return h
+
+
+def _render_sections_hierarchy(sections: list, chunks: list = None) -> str:
+    """
+    渲染章节层级结构
+
+    Args:
+        sections: ParsedSection列表
+        chunks: TextChunk列表(可选)
+
+    Returns:
+        HTML字符串
+    """
+    if not sections:
+        return "<div class='nc-empty'>无章节结构</div>"
+
+    # 构建章节树
+    section_tree = _build_section_tree(sections)
+
+    # 渲染章节树
+    return _render_section_tree(section_tree, chunks)
+
+
+def _build_section_tree(sections: list) -> list:
+    """
+    构建章节树结构
+
+    将扁平的章节列表转换为树状结构
+
+    Args:
+        sections: ParsedSection列表
+
+    Returns:
+        树状结构列表
+    """
+    if not sections:
+        return []
+
+    # 为每个节点添加children列表
+    nodes = []
+    for idx, sec in enumerate(sections):
+        node = {
+            "id": sec.get("section_id", f"sec-{idx}"),
+            "heading": sec.get("heading", "未命名章节"),
+            "level": sec.get("level", 1),
+            "content": sec.get("content", ""),
+            "page_start": sec.get("page_start"),
+            "page_end": sec.get("page_end"),
+            "children": [],
+            "chunks": [],  # 该章节下的分块
+        }
+        nodes.append(node)
+
+    # 构建父子关系 - 改进的树构建算法
+    root_nodes = []
+    level_stack = []  # 栈结构，存储不同层级的最近节点
+
+    for i, node in enumerate(nodes):
+        node_level = node["level"]
+
+        # 弹出栈中所有大于等于当前节点层级的节点
+        while level_stack and level_stack[-1]["level"] >= node_level:
+            level_stack.pop()
+
+        if level_stack:
+            # 栈顶节点就是父节点
+            parent = level_stack[-1]
+            parent["children"].append(node)
+        else:
+            # 没有父节点，作为根节点
+            root_nodes.append(node)
+
+        # 将当前节点压入栈
+        level_stack.append(node)
+
+    return root_nodes
+
+
+def _render_section_tree(tree_nodes: list, chunks: list = None, level: int = 0) -> str:
+    """
+    递归渲染章节树
+
+    Args:
+        tree_nodes: 章节树节点列表
+        chunks: TextChunk列表
+        level: 当前层级
+
+    Returns:
+        HTML字符串
+    """
+    if not tree_nodes:
+        return ""
+
+    h = ""
+    for node in tree_nodes:
+        heading = esc(node.get("heading", ""))
+        content = node.get("content", "")
+        sec_level = node.get("level", 1)
+        children = node.get("children", [])
+        node_id = node.get("id", "")
+
+        # 根据层级确定Markdown标题格式
+        md_prefix = "#" * sec_level
+        indent = (sec_level - 1) * 20
+
+        # 章节标题
+        h += f"""<div class="docling-section" data-level="{sec_level}" style="margin-left:{indent}px">
+  <div class="docling-section-header" onclick="toggleSection(this, '{node_id}')">
+    <span class="docling-toggle">▼</span>
+    <span class="docling-heading">{md_prefix} {heading}</span>
+    <span class="docling-page-range">p.{node.get('page_start', '?')}-{node.get('page_end', '?')}</span>
+  </div>
+  <div id="{node_id}" class="docling-section-content">"""
+
+        # 章节内容(如果有)
+        if content and content != heading:
+            # 截取内容预览
+            preview = content[:500] + ("..." if len(content) > 500 else "")
+            h += f"<div class='docling-content-preview'>{esc(preview)}</div>"
+
+        # 该章节的分块信息(如果有chunks数据)
+        section_chunks = _find_chunks_for_section(node, chunks) if chunks else []
+        if section_chunks:
+            h += f"""<div class="docling-chunks-info">
+      <div class="chunks-header">📝 {len(section_chunks)} 个文本分块</div>
+      <div class="chunks-list">"""
+            for chunk in section_chunks:
+                # TextChunk对象或字典兼容处理
+                if hasattr(chunk, "content"):
+                    chunk_content = chunk.content
+                    chunk_type = chunk.chunk_type
+                elif isinstance(chunk, dict):
+                    chunk_content = chunk.get("content", "")
+                    chunk_type = chunk.get("chunk_type", "text")
+                else:
+                    continue
+
+                chunk_preview = chunk_content[:100]
+                if len(chunk_content) > 100:
+                    chunk_preview += "..."
+                h += f"""<div class="chunk-item">
+          <span class="chunk-type">{chunk_type}</span>
+          <span class="chunk-preview">{esc(chunk_preview)}</span>
+        </div>"""
+            h += "      </div>\n    </div>"
+
+        # 递归渲染子章节
+        if children:
+            h += _render_section_tree(children, chunks, level + 1)
+
+        h += "  </div>\n</div>"
+
+    return h
+
+
+def _find_chunks_for_section(section_node: dict, chunks: list) -> list:
+    """
+    找到属于某个章节的分块
+
+    Args:
+        section_node: 章节节点
+        chunks: TextChunk列表
+
+    Returns:
+        属于该章节的分块列表
+    """
+    if not chunks:
+        return []
+
+    section_name = section_node.get("heading", "")
+    matched_chunks = []
+
+    for chunk in chunks:
+        # 检查chunk的section_name是否匹配
+        chunk_section = ""
+        if hasattr(chunk, "metadata") and chunk.metadata:
+            chunk_section = getattr(chunk.metadata, "section_name", "")
+        elif isinstance(chunk, dict):
+            chunk_section = chunk.get("section_name", "")
+
+        if chunk_section and section_name and chunk_section == section_name:
+            matched_chunks.append(chunk)
+
+    return matched_chunks
+
+
+def _render_content_as_hierarchy(content: str, chunks: list = None) -> str:
+    """
+    从content文本中提取标题并渲染为层级结构
+
+    当文档没有明确的章节结构时,从Markdown内容中提取标题
+
+    Args:
+        content: Markdown格式的文档内容
+        chunks: TextChunk列表
+
+    Returns:
+        HTML字符串
+    """
+    if not content:
+        return "<div class='nc-empty'>无内容</div>"
+
+    import re
+
+    # 提取Markdown标题
+    heading_pattern = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
+    matches = list(heading_pattern.finditer(content))
+
+    if not matches:
+        # 没有标题,显示全部内容
+        h = f"<div class='docling-plain-content'>{esc(content)}</div>"
+        if chunks:
+            h += _render_chunks_list(chunks)
+        return h
+
+    # 构建章节结构
+    h = ""
+    for i, match in enumerate(matches):
+        level = len(match.group(1))
+        heading_text = match.group(2).strip()
+        start_pos = match.end()
+        end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+
+        section_content = content[start_pos:end_pos].strip()
+        indent = (level - 1) * 20
+        node_id = f"section-{i}"
+
+        h += f"""<div class="docling-section" data-level="{level}" style="margin-left:{indent}px">
+  <div class="docling-section-header" onclick="toggleSection(this, '{node_id}')">
+    <span class="docling-toggle">▼</span>
+    <span class="docling-heading">{'#' * level} {esc(heading_text)}</span>
+  </div>
+  <div id="{node_id}" class="docling-section-content">
+    <div class='docling-content-preview'>{esc(section_content[:500])}{('...' if len(section_content) > 500 else '')}</div>
+  </div>
+</div>"""
+
+    # 如果有chunks,添加分块信息
+    if chunks:
+        h += _render_chunks_list(chunks)
+
+    return h
+
+
+def _render_chunks_list(chunks: list) -> str:
+    """
+    渲染分块列表
+
+    Args:
+        chunks: TextChunk列表
+
+    Returns:
+        HTML字符串
+    """
+    if not chunks:
+        return ""
+
+    h = f"""<div class="docling-chunks-container">
+  <div class="chunks-title">📊 文本分块数据库 ({len(chunks)} 个分块)</div>
+  <div class="chunks-tree">"""
+
+    for idx, chunk in enumerate(chunks):
+        # 提取chunk信息
+        if hasattr(chunk, "content"):
+            # TextChunk对象
+            content = chunk.content[:80]
+            chunk_type = chunk.chunk_type
+            chunk_id = chunk.chunk_id
+            section_name = chunk.metadata.section_name if chunk.metadata else ""
+        elif isinstance(chunk, dict):
+            # 字典格式
+            content = chunk.get("content", "")[:80]
+            chunk_type = chunk.get("chunk_type", "text")
+            chunk_id = chunk.get("chunk_id", f"chunk-{idx}")
+            section_name = chunk.get("section_name", "")
+        else:
+            continue
+
+        if (
+            len(chunk.get("content", "") if isinstance(chunk, dict) else chunk.content)
+            > 80
+        ):
+            content += "..."
+
+        h += f"""<div class="chunk-node" data-chunk-id="{chunk_id}">
+    <div class="chunk-header">
+      <span class="chunk-icon">📦</span>
+      <span class="chunk-type-badge">{chunk_type}</span>
+      <span class="chunk-section">{esc(section_name) if section_name else '未分类'}</span>
+    </div>
+    <div class="chunk-content">{esc(content)}</div>
+  </div>"""
+
+    h += "  </div>\n</div>"
+    return h
+
+
+# ══════════════════════════════════════════════════════════════
+# Chunk Database Tree Renderer
+# ══════════════════════════════════════════════════════════════
+
+
+def render_chunk_database_tree(chunks: list, doc_name: str = "") -> str:
+    """
+    渲染文本分块数据库树状结构
+
+    后端文本分块数据库显示模式:
+    - 使用模拟树状结构显示文本分块
+    - 展示分块之间的层级关系和组织结构
+    - 按章节或类型分组显示
+
+    Args:
+        chunks: TextChunk列表
+        doc_name: 文档名称
+
+    Returns:
+        HTML字符串
+    """
+    if not chunks:
+        return "<div class='nc-empty'>无分块数据</div>"
+
+    # 按章节分组
+    grouped_chunks = _group_chunks_by_section(chunks)
+
+    h = f"""<div class="chunk-db-container">
+  <div class="chunk-db-header">
+    <h3 class="chunk-db-title">📊 文本分块数据库</h3>
+    <div class="chunk-db-info">
+      <span class="info-item">文档: {esc(doc_name)}</span>
+      <span class="info-item">总分块数: {len(chunks)}</span>
+    </div>
+  </div>
+  <div class="chunk-db-tree">"""
+
+    # 渲染分组
+    print(f"[ChunkDatabase] 分组结果: {len(grouped_chunks)} 个章节")
+    for section_name, chunks_list in grouped_chunks.items():
+        print(f"  - '{section_name[:50]}': {len(chunks_list)} 个分块")
+
+    for section_name, section_chunks in grouped_chunks.items():
+        section_id = f"section-{hash(section_name)}"
+
+        # 解析Markdown标题层级
+        level = 1
+        display_name = section_name
+        indent = 0
+
+        # 检测Markdown标题格式
+        import re
+
+        heading_match = re.match(r"^(#{1,6})\s+(.+)$", section_name.strip())
+        if heading_match:
+            level = len(heading_match.group(1))
+            display_name = heading_match.group(2).strip()
+            indent = (level - 1) * 20  # 每层缩进20px
+
+        # 根据层级选择图标
+        if level == 1:
+            icon = "📚"
+        elif level == 2:
+            icon = "📖"
+        elif level == 3:
+            icon = "📄"
+        else:
+            icon = "📝"
+
+        h += f"""<div class="chunk-section-node" data-level="{level}" style="margin-left:{indent}px">
+    <div class="chunk-section-header" onclick="toggleSection(this, '{section_id}')">
+      <span class="docling-toggle">▼</span>
+      <span class="chunk-section-icon">{icon}</span>
+      <span class="chunk-section-name">{esc(display_name) if display_name else '未分类章节'}</span>
+      <span class="chunk-section-count">({len(section_chunks)} 个分块)</span>
+    </div>
+    <div id="{section_id}" class="chunk-section-content">"""
+
+        # 渲染该章节下的所有分块
+        for chunk in section_chunks:
+            h += _render_chunk_node(chunk)
+
+        h += "    </div>\n  </div>"
+
+    h += "  </div>\n</div>"
+    return h
+
+
+def _group_chunks_by_section(chunks: list) -> dict:
+    """
+    按章节分组chunks
+
+    改进：从内容中提取Markdown标题作为章节
+
+    Args:
+        chunks: TextChunk列表
+
+    Returns:
+        {section_name: [chunks]}字典
+    """
+    import re
+
+    grouped = {}
+    current_section = "未分类"
+    # 改进的正则：允许标题前有空格、换行符或其他字符
+    heading_pattern = re.compile(r"(?:^|\n)\s*(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
+
+    for chunk in chunks:
+        # 方法1: 先检查metadata中的section_name
+        section_name = ""
+        if hasattr(chunk, "metadata") and chunk.metadata:
+            section_name = getattr(chunk.metadata, "section_name", "")
+        elif isinstance(chunk, dict):
+            metadata = chunk.get("metadata", {})
+            section_name = metadata.get("section_name", "") if metadata else ""
+
+        # 方法2: 如果没有section_name，从内容中提取Markdown标题
+        if not section_name:
+            # 获取chunk内容
+            if hasattr(chunk, "content"):
+                chunk_content = chunk.content
+            elif isinstance(chunk, dict):
+                chunk_content = chunk.get("content", "")
+            else:
+                chunk_content = ""
+
+            # 检查是否包含Markdown标题
+            matches = list(heading_pattern.finditer(chunk_content))
+            if matches:
+                # 如果chunk包含标题，使用第一个标题作为章节名
+                first_match = matches[0]
+                level = len(first_match.group(1))
+                heading_text = first_match.group(2).strip()
+
+                # 跳过参考文献格式的条目
+                if heading_text and not re.match(
+                    r"^\d+\.\s*[A-Z][a-z]+,", heading_text
+                ):
+                    # 添加层级标记
+                    indent = "  " * (level - 1)  # 缩进表示层级
+                    section_name = f"{indent}{'#' * level} {heading_text}"
+                    current_section = section_name
+                else:
+                    # 如果是参考文献格式，归入“参考文献”章节
+                    section_name = "参考文献"
+            else:
+                # 如果chunk不包含标题，归入当前章节
+                section_name = current_section
+
+        # 分组
+        if section_name not in grouped:
+            grouped[section_name] = []
+        grouped[section_name].append(chunk)
+
+    return grouped
+
+
+def _render_chunk_node(chunk) -> str:
+    """
+    渲染单个分块节点
+
+    Args:
+        chunk: TextChunk对象或dict
+
+    Returns:
+        HTML字符串
+    """
+    # 提取chunk信息
+    if hasattr(chunk, "content"):
+        # TextChunk对象
+        content = chunk.content
+        chunk_id = chunk.chunk_id
+        chunk_type = chunk.chunk_type
+        token_count = chunk.metadata.token_count if chunk.metadata else 0
+        quality_score = chunk.quality_score if hasattr(chunk, "quality_score") else 0
+    elif isinstance(chunk, dict):
+        # 字典格式
+        content = chunk.get("content", "")
+        chunk_id = chunk.get("chunk_id", "")
+        chunk_type = chunk.get("chunk_type", "text")
+        metadata = chunk.get("metadata", {})
+        token_count = metadata.get("token_count", 0) if metadata else 0
+        quality_score = chunk.get("quality_score", 0)
+    else:
+        return ""
+
+    # 内容预览
+    preview = content[:150]
+    if len(content) > 150:
+        preview += "..."
+
+    # 质量分数颜色
+    quality_color = (
+        "#48bb78"
+        if quality_score > 0.8
+        else "#ecc94b" if quality_score > 0.6 else "#a0aec0"
+    )
+
+    return f"""<div class="chunk-node-item" data-chunk-id="{chunk_id}">
+      <div class="chunk-node-header">
+        <span class="chunk-icon">📦</span>
+        <span class="chunk-type-badge">{chunk_type}</span>
+        <span class="chunk-tokens">{token_count} tokens</span>
+        <span class="chunk-quality" style="color:{quality_color}">质量: {quality_score:.2f}</span>
+      </div>
+      <div class="chunk-node-content">{esc(preview)}</div>
+    </div>"""

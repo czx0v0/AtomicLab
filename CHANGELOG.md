@@ -1,5 +1,45 @@
 # 更新日志
 
+### 2026-03-07 v2.4.0 (chapter-extraction-enhancement)
+
+#### 🚀 新功能
+
+**1. Docling结构显示模式**
+- 多模式章节提取：支持Markdown标题、编号章节、大写章节名等多种格式
+- 章节层级可视化：正确渲染Markdown标题层级（#, ##, ###）
+- 参考文献过滤：自动识别并过滤参考文献格式的条目（如"23. Author, N., ..."）
+- 辅助文本分块：基于章节层级组织内容
+
+**2. 分块数据库显示模式**
+- 按章节组织分块：显示文本分块的章节归属关系
+- 层级结构展示：树状结构显示章节-分块关系
+- 分块类型标注：语义分块、表格分块等类型标识
+- 章节内容预览：每个章节显示内容片段
+
+#### 🔧 改进
+
+- **多模式章节提取**：
+  - 模式1：标准Markdown标题（## Chapter）
+  - 模式2：编号章节（1. INTRODUCTION, Task 1: Peak Prediction）
+  - 模式3：大写章节名（INTRODUCTION, RELATED WORK, ACKNOWLEDGEMENT）
+  - 模式4：关键词匹配（references, introduction, task, web server等）
+  - 模式5：元数据回退（过滤参考文献格式）
+
+- **调试输出优化**：详细的章节提取过程追踪，帮助定位问题
+
+- **层级显示**：使用CSS data-level属性实现视觉层级区分
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `tabs/read/__init__.py` | 多模式章节提取逻辑，增强正则表达式匹配 |
+| `ui/renderers.py` | 章节层级渲染，树状结构显示 |
+| `ui/styles.py` | CSS层级样式（data-level属性） |
+| `README.md` | 新增Docling结构和分块数据库模式说明 |
+
+---
+
 ### 2026-03-07 v2.3.2 (search-enhancements)
 
 #### 🚀 新功能
