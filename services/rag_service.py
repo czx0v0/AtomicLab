@@ -13,31 +13,29 @@ from pathlib import Path
 
 # HuggingFace镜像配置由core/config.py统一管理
 # ModelScope创空间环境检测和镜像设置在config.py中
-from core.config import IN_MODELSCOPE_SPACE
+from core.config import IN_MODELSCOPE_SPACE, MODEL_CACHE_DIR
 
 # ══════════════════════════════════════════════════════════════
-# 模型缓存目录配置 - ModelScope创空间专用
+# SentenceTransformers缓存目录配置
 # ══════════════════════════════════════════════════════════════
 
-if IN_MODELSCOPE_SPACE:
+# 关键：本地开发完全使用默认缓存，不干预HuggingFace行为
+if IN_MODELSCOPE_SPACE and MODEL_CACHE_DIR:
     # ModelScope创空间: 使用持久化存储目录
-    MODEL_CACHE_ROOT = "/mnt/workspace/.cache"
-    
-    # SentenceTransformers缓存
-    SENTENCE_TRANSFORMERS_CACHE = os.path.join(MODEL_CACHE_ROOT, "sentence_transformers")
+    SENTENCE_TRANSFORMERS_CACHE = os.path.join(MODEL_CACHE_DIR, "sentence_transformers")
     
     # 确保目录存在
     os.makedirs(SENTENCE_TRANSFORMERS_CACHE, exist_ok=True)
     
-    # 设置环境变量
+    # 设置环境变量（仅在创空间）
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = SENTENCE_TRANSFORMERS_CACHE
     
     print(f"[RAG] ModelScope创空间模式")
     print(f"[RAG] 模型缓存目录: {SENTENCE_TRANSFORMERS_CACHE}")
 else:
-    # 本地开发: 使用默认缓存位置
+    # 本地开发: 完全使用默认缓存位置，不设置任何环境变量
     SENTENCE_TRANSFORMERS_CACHE = None
-    print("[RAG] 本地开发模式，使用默认缓存位置")
+    # 不打印，避免干扰
 
 try:
     from sentence_transformers import SentenceTransformer

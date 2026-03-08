@@ -10,33 +10,56 @@ from dotenv import load_dotenv
 load_dotenv()  # 本地开发用，魔搭空间通过环境变量配置
 
 # ══════════════════════════════════════════════════════════════
+# HuggingFace镜像配置 - 中国大陆加速
+# ══════════════════════════════════════════════════════════════
+
+# HuggingFace镜像对中国大陆用户都需要（本地和创空间都慢）
+# 统一启用镜像加速
+if "HF_ENDPOINT" not in os.environ:
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+    print("[Config] 已启用HuggingFace镜像加速: hf-mirror.com")
+
+# ══════════════════════════════════════════════════════════════
 # 环境检测 - ModelScope创空间
 # ══════════════════════════════════════════════════════════════
 
 # 检测是否运行在ModelScope创空间环境
-# ModelScope创空间会设置特定环境变量
-IN_MODELSCOPE_SPACE = (
-    os.environ.get("MODELSCOPE_ENVIRONMENT", "").lower() == "studio"
-    or os.environ.get("MODELSCOPE_CACHE_HOME", "") != ""
-    or os.environ.get("MS_KEY", "") != ""  # 有API key通常是在创空间
-)
+# 关键：只有明确的创空间特征才触发，本地开发不应受影响
+# 本地设置MS_KEY只是用于API调用，不代表是创空间环境
+import sys
+
+IN_MODELSCOPE_SPACE = False  # 默认为本地环境
+
+# 检测方法1: Linux系统 + /mnt/workspace目录存在（创空间特有）
+if sys.platform.startswith("linux") and os.path.exists("/mnt/workspace"):
+    IN_MODELSCOPE_SPACE = True
+    print("[Config] 检测方式1: /mnt/workspace目录存在")
+
+# 检测方法2: 明确的创空间环境变量
+if os.environ.get("MODELSCOPE_ENVIRONMENT", "").lower() == "studio":
+    IN_MODELSCOPE_SPACE = True
+    print("[Config] 检测方式2: MODELSCOPE_ENVIRONMENT=studio")
 
 # ══════════════════════════════════════════════════════════════
-# HuggingFace镜像配置 - 仅ModelScope创空间启用
+# 模型缓存目录 - 仅ModelScope创空间需要特殊设置
 # ══════════════════════════════════════════════════════════════
 
-# ModelScope创空间需要使用HuggingFace镜像加速下载
-# 本地开发不设置，让用户自行配置代理或使用本地模型
+# 重要：本地开发不设置任何缓存目录，完全使用HuggingFace默认行为
+# 这样不会影响已有的本地缓存
 if IN_MODELSCOPE_SPACE:
-    if "HF_ENDPOINT" not in os.environ:
-        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-        print("[Config] 检测到ModelScope创空间环境，启用HuggingFace镜像")
-    
-    # ModelScope创空间专用模型缓存目录
+    # 创空间专用模型缓存目录（持久化存储）
+    MODEL_CACHE_DIR = "/mnt/workspace/.cache/huggingface"
+    # 注意：不要覆盖已有的缓存设置，只在需要时设置
     if "TRANSFORMERS_CACHE" not in os.environ:
-        os.environ["TRANSFORMERS_CACHE"] = "/mnt/workspace/.cache/huggingface"
+        os.environ["TRANSFORMERS_CACHE"] = MODEL_CACHE_DIR
     if "HF_HOME" not in os.environ:
-        os.environ["HF_HOME"] = "/mnt/workspace/.cache/huggingface"
+        os.environ["HF_HOME"] = MODEL_CACHE_DIR
+    print(f"[Config] ModelScope创空间环境")
+    print(f"[Config] 模型缓存目录: {MODEL_CACHE_DIR}")
+else:
+    MODEL_CACHE_DIR = None  # 使用默认
+    # 不打印，避免干扰
+    # print("[Config] 本地开发环境，使用默认模型缓存位置")
 
 # ══════════════════════════════════════════════════════════════
 # API Configuration
