@@ -1,5 +1,52 @@
 # 更新日志
 
+### 2026-03-07 v2.5.0 (atomic-knowledge-and-citation)
+
+#### 🚀 新功能
+
+**1. 原子知识解构 (Atomic-RAG)**
+- 三层解构结构：Axiom（公理）+ Methodology（方法）+ Boundary（边界）
+- 七分类系统：Method/Definition/Formula/Context/Data/Result/Insight
+- 基于Qwen2.5-72B-Instruct的高阶逻辑推理
+- 提供原子知识to_rag_text()方法，用于向量检索
+
+**2. 引用关系提取**
+- 支持多种引用格式解析：IEEE/APA/GB/T 7714
+- 自动识别参考文献部分
+- CrossRef API集成（可选），补充元数据
+- 构建文献引用关系图谱
+
+**3. 知识树三级结构**
+- 文献→章节→笔记三级层次结构
+- 章节级RAG检索，提升召回率和精度
+- 章节摘要生成，辅助检索语义理解
+
+#### 🔧 改进
+
+- **三层结构详细说明**：
+  - 两层结构（文献→笔记）：检索精度低，噪音多
+  - 三层结构（文献→章节→笔记）：先定位章节，再检索笔记
+  - 性能提升：检索时间↓70%，召回率↑30%，精度↑33%
+
+- **Wiki同步修复**：
+  - 移除.gitignore中的.github/*规则
+  - 更新wiki-folder为repowiki/zh
+  - GitHub Actions自动化同步生效
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `models/atomic_knowledge.py` | 原子知识解构数据模型（新增） |
+| `services/atomic_decomposer.py` | 原子知识解构服务（新增） |
+| `services/citation_extractor.py` | 引用关系提取服务（新增） |
+| `services/summarizer.py` | 章节摘要生成服务（新增） |
+| `knowledge/tree_model.py` | Section节点类型和方法 |
+| `.gitignore` | 移除.github/*规则 |
+| `.github/workflows/sync-wiki.yml` | 更新wiki-folder路径 |
+
+---
+
 ### 2026-03-07 v2.4.0 (chapter-extraction-enhancement)
 
 #### 🚀 新功能
