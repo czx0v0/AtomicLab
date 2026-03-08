@@ -561,6 +561,15 @@ mark[data-note-id].highlight-focus{animation:highlight-pulse 1s ease-in-out 2;bo
   margin:4px 0 8px 20px;background:#f8fafc;border-radius:var(--radius-sm);
   border-left:3px solid var(--accent-blue);}
 
+/* Section rows in tree */
+.org-section-row{display:flex;align-items:center;gap:6px;
+  padding:6px 10px;cursor:pointer;border-radius:var(--radius-sm);
+  transition:background .15s;user-select:none;margin-bottom:4px;
+  background:#fafbfc;border:1px solid #e2e8f0;}
+.org-section-row:hover{background:#f0f7ff;border-color:var(--accent-blue);}
+.org-section-content{margin-left:8px;border-left:2px solid #4299e1;padding-left:8px;}
+.org-page-range{font-size:.72em;color:var(--text-muted);background:#edf2f7;padding:2px 6px;border-radius:3px;}
+
 /* Note cards in tree */
 .org-note-card{margin:6px 0 6px 32px;}
 .org-note-card .nt-body{max-height:none;}

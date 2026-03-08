@@ -11,3 +11,4 @@ data/*
 docs/*
 logs/*
 storage/*
+.github/*

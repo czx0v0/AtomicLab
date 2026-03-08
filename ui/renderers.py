@@ -465,6 +465,7 @@ def render_classified_notes(
 _TYPE_ICONS = {
     "domain": "&#127760;",  # globe
     "document": "&#128196;",  # page
+    "section": "&#128209;",  # bookmark
     "note": "&#128221;",  # memo
     "tag": "&#127991;",  # label
 }
@@ -472,6 +473,7 @@ _TYPE_ICONS = {
 _TYPE_COLORS = {
     "domain": "#5b8def",
     "document": "#48bb78",
+    "section": "#4299e1",
     "note": "#ecc94b",
     "tag": "#9f7aea",
 }
@@ -818,25 +820,74 @@ def render_doc_note_tree(tree, pid: str = None) -> str:
         return h
 
     def _render_document(doc: dict, doc_id: str) -> str:
-        """Render document as collapsible text row with summary."""
+        """Render document as collapsible text row with summary and sections."""
         label = esc(doc.get("label", "未知文献"))
         summary = esc(doc.get("metadata", {}).get("summary", ""))
-        children = [c for c in doc.get("children", []) if c.get("type") == "note"]
+        children = doc.get("children", [])
         source_pid = doc.get("source_pid", "")
+        
+        # Separate sections and notes
+        sections = [c for c in children if c.get("type") == "section"]
+        notes = [c for c in children if c.get("type") == "note"]
+        
+        # If no sections, count all notes; otherwise count notes per section
+        total_notes = len(notes) + sum(
+            len([c for c in s.get("children", []) if c.get("type") == "note"])
+            for s in sections
+        )
 
-        h = f"""<div class="org-doc-row" onclick="toggleOrgTree(this, '{doc_id}-content')">
+        h = f"""<div class="org-doc-row" onclick=\"toggleOrgTree(this, '{doc_id}-content')\">
   <span class="org-toggle">▼</span>
   <span class="org-icon">📄</span>
   <span class="org-label">{label}</span>
-  <span class="org-count">({len(children)} 笔记)</span>
+  <span class="org-count">({total_notes} 笔记)</span>
 </div>
-<div id="{doc_id}-content" class="org-doc-content">"""
+<div id=\"{doc_id}-content\" class="org-doc-content">"""
 
         if summary:
             h += f'<div class="org-doc-summary">{summary}</div>'
 
-        for note_idx, note in enumerate(children):
+        # Render sections first
+        for sec_idx, section in enumerate(sections):
+            h += _render_section(section, f"{doc_id}-sec-{sec_idx}", source_pid)
+
+        # Then render notes without section (if any)
+        for note_idx, note in enumerate(notes):
             h += _render_note_card(note, f"{doc_id}-note-{note_idx}", source_pid)
+
+        h += "</div>"
+        return h
+
+    def _render_section(section: dict, section_id: str, source_pid: str) -> str:
+        """Render section as collapsible row with notes."""
+        label = esc(section.get("label", "未命名章节"))
+        children = [c for c in section.get("children", []) if c.get("type") == "note"]
+        meta = section.get("metadata", {})
+        level = meta.get("level", 2)
+        page_start = meta.get("page_start", "")
+        page_end = meta.get("page_end", "")
+        
+        # Page range display
+        page_range = ""
+        if page_start and page_end:
+            page_range = f"p.{page_start}-{page_end}"
+        elif page_start:
+            page_range = f"p.{page_start}"
+        
+        # Indent based on level
+        indent = (level - 1) * 16
+        
+        h = f"""<div class="org-section-row" onclick=\"toggleOrgTree(this, '{section_id}-content')\" style=\"margin-left:{indent}px\">
+  <span class="org-toggle">▼</span>
+  <span class="org-icon">📑</span>
+  <span class="org-label">{label}</span>
+  <span class="org-count">({len(children)} 笔记)</span>
+  <span class="org-page-range">{page_range}</span>
+</div>
+<div id=\"{section_id}-content\" class="org-section-content">"""
+
+        for note_idx, note in enumerate(children):
+            h += _render_note_card(note, f"{section_id}-note-{note_idx}", source_pid)
 
         h += "</div>"
         return h
