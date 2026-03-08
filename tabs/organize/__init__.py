@@ -299,6 +299,178 @@ def handle_synthesize(tree, lib):
     yield render_synth_result(data), tree
 
 
+def handle_atomic_decompose(pid, notes, lib, tree):
+    """Execute Atomic Decomposition: decompose notes into Axiom + Methodology + Boundary.
+    
+    原子知识解构：将笔记解构为三层结构
+    - Axiom（公理）：核心概念或事实
+    - Methodology（方法）：技术路径或方法
+    - Boundary（边界）：适用范围和限制
+    """
+    if not notes:
+        yield (
+            "<span class='agent-st'>暂无笔记可解构</span>",
+            tree,
+            "<div class='nc-empty'>暂无原子知识</div>",
+        )
+        return
+    
+    # 过滤当前文档的笔记
+    doc_notes = [n for n in notes if n.get("source_pid") == pid] if pid else notes
+    
+    if not doc_notes:
+        yield (
+            "<span class='agent-st'>当前文献暂无笔记</span>",
+            tree,
+            "<div class='nc-empty'>暂无原子知识</div>",
+        )
+        return
+    
+    yield (
+        "<span class='agent-st'>🔄 正在进行原子知识解构...</span>",
+        tree,
+        "<div class='nc-empty'>处理中...</div>",
+    )
+    
+    try:
+        from services.atomic_decomposer import AtomicDecomposer
+        
+        decomposer = AtomicDecomposer()
+        results_html = ""
+        total_atoms = 0
+        
+        for i, note in enumerate(doc_notes[:10]):  # 限制最多处理10条
+            content = note.get("content", "")
+            note_id = note.get("id", f"note_{i}")
+            doc_id = note.get("source_pid", pid or "")
+            
+            if not content or len(content) < 20:
+                continue
+            
+            # 解构笔记
+            decomposition = decomposer.decompose(content, note_id, doc_id)
+            
+            if decomposition.atoms:
+                total_atoms += len(decomposition.atoms)
+                
+                # 渲染原子知识
+                for atom in decomposition.atoms:
+                    results_html += f"""
+                    <div class='atom-card' style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin:8px 0;'>
+                        <div style='font-weight:600;color:#1e40af;margin-bottom:8px;'>{esc(atom.category)} · 置信度: {atom.confidence:.0%}</div>
+                        <div style='margin-bottom:6px;'><strong>Axiom:</strong> {esc(atom.axiom)}</div>
+                        <div style='margin-bottom:6px;'><strong>Methodology:</strong> {esc(atom.methodology)}</div>
+                        <div style='color:#6b7280;'><strong>Boundary:</strong> {esc(atom.boundary)}</div>
+                        <div style='margin-top:8px;font-size:0.85em;color:#9ca3af;'>标签: {', '.join(atom.tags) if atom.tags else '无'}</div>
+                    </div>
+                    """
+        
+        if not results_html:
+            results_html = "<div class='nc-empty'>未能提取有效原子知识</div>"
+        
+        yield (
+            f"<span class='agent-st'>✅ 解构完成: {total_atoms} 个原子知识</span>",
+            tree,
+            results_html,
+        )
+        
+    except Exception as e:
+        yield (
+            f"<span class='agent-st'>❌ 解构失败: {esc(str(e)[:50])}</span>",
+            tree,
+            "<div class='nc-empty'>解构失败</div>",
+        )
+
+
+def handle_extract_citations(pid, lib):
+    """Extract citations from the current document.
+    
+    引用关系提取：从文献中提取参考文献
+    支持 IEEE/APA/GB/T 7714 格式
+    """
+    if not pid or pid not in lib:
+        yield "<span class='agent-st'>请先选择文献</span>", "<div class='nc-empty'>暂无引用关系</div>"
+        return
+    
+    doc_info = lib[pid]
+    
+    # 获取文档文本
+    try:
+        from services.rag_service import get_rag_service
+        from core.config import RAG_CONFIG
+        
+        rag_service = get_rag_service(RAG_CONFIG)
+        
+        # 尝试获取文档内容
+        text_content = ""
+        if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
+            chunk_ids = rag_service.doc_chunks[pid]
+            chunks = [rag_service.chunk_store[cid] for cid in chunk_ids if cid in rag_service.chunk_store]
+            text_content = "\n\n".join([c.content for c in chunks])
+        
+        if not text_content:
+            # 回退到原始文本
+            text_content = doc_info.get("text", "")
+        
+        if not text_content:
+            yield "<span class='agent-st'>文档内容为空</span>", "<div class='nc-empty'>暂无引用关系</div>"
+            return
+        
+        yield "<span class='agent-st'>🔄 正在提取引用关系...</span>", "<div class='nc-empty'>处理中...</div>"
+        
+        from services.citation_extractor import CitationExtractor
+        
+        extractor = CitationExtractor(enable_crossref=True)
+        result = extractor.extract_from_text(text_content, pid)
+        
+        if not result.citations:
+            yield (
+                "<span class='agent-st'>未找到引用文献</span>",
+                "<div class='nc-empty'>未检测到参考文献部分</div>",
+            )
+            return
+        
+        # 渲染结果
+        citations_html = f"""
+        <div style='padding:12px;background:#f0f9ff;border-radius:8px;margin-bottom:12px;'>
+            <div style='font-weight:600;color:#0369a1;'>提取结果</div>
+            <div style='color:#4b5563;font-size:0.9em;'>
+                共 {result.parsed_citations} 条引用 · {result.extraction_time_ms:.0f}ms
+            </div>
+        </div>
+        """
+        
+        for i, citation in enumerate(result.citations[:20]):  # 最多显示20条
+            citations_html += f"""
+            <div class='citation-card' style='background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin:6px 0;'>
+                <div style='font-weight:500;color:#1f2937;margin-bottom:4px;'>
+                    {i+1}. {esc(citation.title or '(无标题)')}
+                </div>
+                <div style='font-size:0.85em;color:#6b7280;'>
+                    {esc(', '.join(citation.authors[:3]) if citation.authors else '(未知作者)')}
+                    {f" · {citation.year}" if citation.year else ""}
+                    {f" · {esc(citation.journal)}" if citation.journal else ""}
+                </div>
+                {f"<div style='font-size:0.8em;color:#9ca3af;margin-top:4px;'>DOI: {esc(citation.doi)}</div>" if citation.doi else ""}
+                {f"<div style='font-size:0.8em;color:#059669;margin-top:4px;'>被引: {citation.citation_count} 次</div>" if citation.citation_count else ""}
+            </div>
+            """
+        
+        if len(result.citations) > 20:
+            citations_html += f"<div style='text-align:center;color:#6b7280;padding:8px;'>... 还有 {len(result.citations) - 20} 条引用</div>"
+        
+        yield (
+            f"<span class='agent-st'>✅ 提取完成: {result.parsed_citations} 条引用</span>",
+            citations_html,
+        )
+        
+    except Exception as e:
+        yield (
+            f"<span class='agent-st'>❌ 提取失败: {esc(str(e)[:50])}</span>",
+            "<div class='nc-empty'>提取失败</div>",
+        )
+
+
 def handle_org_doc_select(selected_pid, tree, lib):
     """Handle document selection change in organize tab.
 
@@ -808,7 +980,11 @@ def build_organize_tab():
         )
         search_btn = gr.Button("搜索", scale=1, size="sm")
         refresh_btn = gr.Button("刷新显示", scale=1, size="sm")
+    
+    with gr.Row():
         summary_btn = gr.Button("生成摘要(AI)", variant="primary", scale=1, size="sm")
+        atomic_btn = gr.Button("原子解构(AI)", variant="secondary", scale=1, size="sm")
+        citation_btn = gr.Button("提取引用", variant="secondary", scale=1, size="sm")
 
     agent_status = gr.HTML("<span class='agent-st'>等待操作...</span>")
     stats_html = gr.HTML(render_stats({"docs": 0, "notes": 0, "nodes": 0}))
@@ -826,6 +1002,14 @@ def build_organize_tab():
             )
             # Node detail display area (shows when clicking graph node)
             node_detail_html = gr.HTML("<div class='node-detail-wrap'></div>")
+        with gr.Tab("原子知识"):
+            atomic_result_html = gr.HTML(
+                "<div class='nc-empty'>点击「原子解构」按钮，解构笔记为三层结构</div>"
+            )
+        with gr.Tab("引用关系"):
+            citation_result_html = gr.HTML(
+                "<div class='nc-empty'>点击「提取引用」按钮，提取文献引用关系</div>"
+            )
 
     # ── Hidden bridge textboxes ──
     selected_node_id = gr.Textbox(
@@ -846,10 +1030,14 @@ def build_organize_tab():
         "doc_tree_html": doc_tree_html,
         "global_graph_html": global_graph_html,
         "node_detail_html": node_detail_html,
+        "atomic_result_html": atomic_result_html,
+        "citation_result_html": citation_result_html,
         "selected_node_id": selected_node_id,
         "note_action_tb": note_action_tb,
         "refresh_btn": refresh_btn,
         "summary_btn": summary_btn,
+        "atomic_btn": atomic_btn,
+        "citation_btn": citation_btn,
         "agent_status": agent_status,
         "stats_html": stats_html,
     }
