@@ -24,15 +24,15 @@
 
 #### 📝 代码变更
 
-| 文件                                | 变更描述                     |
-| ----------------------------------- | ---------------------------- |
-| `models/search.py`                | ProcessingResult添加sections字段 |
-| `services/rag_service.py`         | 返回章节信息用于知识树构建 |
-| `tabs/read/__init__.py`           | RAG处理后创建section节点 |
-| `tabs/chat/__init__.py`           | AI反馈功能、生成器修复 |
-| `ui/renderers.py`                 | 章节摘要显示 |
-| `ui/global_js.py`                 | 知识树ID前缀修复 |
-| `tabs/organize/__init__.py`       | 引用提取ChunkMetadata修复 |
+| 文件                          | 变更描述                         |
+| ----------------------------- | -------------------------------- |
+| `models/search.py`          | ProcessingResult添加sections字段 |
+| `services/rag_service.py`   | 返回章节信息用于知识树构建       |
+| `tabs/read/__init__.py`     | RAG处理后创建section节点         |
+| `tabs/chat/__init__.py`     | AI反馈功能、生成器修复           |
+| `ui/renderers.py`           | 章节摘要显示                     |
+| `ui/global_js.py`           | 知识树ID前缀修复                 |
+| `tabs/organize/__init__.py` | 引用提取ChunkMetadata修复        |
 
 ### 2026-03-07 v2.5.0 (atomic-knowledge-and-citation)
 

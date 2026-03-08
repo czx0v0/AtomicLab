@@ -309,8 +309,8 @@ def build_chat_tab():
         label="AI 助手",
         height=480,
         elem_id="chat-copilot",
-        show_copy_button=True,  # 显示复制按钮
-        likeable=True,  # 启用点赞/点踩功能
+        # Gradio 6.x: 复制和点赞功能通过不同方式启用
+        # show_copy_button 在 Gradio 6 中默认启用
     )
     with gr.Row():
         msg_input = gr.Textbox(
