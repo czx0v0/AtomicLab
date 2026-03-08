@@ -418,12 +418,13 @@ def handle_extract_citations(pid, lib, notes):
                 # 获取该文档的所有chunks
                 doc_chunks = []
                 for chunk_id, chunk in rag_service.chunk_store.items():
-                    if hasattr(chunk, "metadata") and chunk.metadata:
-                        if (
-                            chunk.metadata.doc_id == pid
-                            or chunk.metadata.source_pid == pid
-                        ):
-                            doc_chunks.append(chunk)
+                    # doc_id 是 TextChunk 的属性，不是 metadata 的属性
+                    chunk_doc_id = getattr(chunk, "doc_id", "")
+                    # 也检查 metadata 中的 doc_title 是否匹配当前文档名
+                    meta_doc_title = getattr(chunk.metadata, "doc_title", "") if hasattr(chunk, "metadata") and chunk.metadata else ""
+                    
+                    if chunk_doc_id == pid or meta_doc_title == doc_name:
+                        doc_chunks.append(chunk)
 
                 if doc_chunks:
                     # 按chunk_index排序

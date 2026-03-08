@@ -226,13 +226,16 @@ def handle_chat_clear():
 def handle_ai_ask(text, chat_history, tree, lib, notes):
     """Handle 'ask-ai' from reading page popup — bridge to chat."""
     if not text or not text.strip():
-        return chat_history, ""
+        yield chat_history, ""
+        return
     # Strip timestamp prefix (format: "timestamp|text")
     if "|" in text:
         text = text.split("|", 1)[1]
     if not text or not text.strip():
-        return chat_history, ""
-    return handle_chat_send(text.strip(), chat_history, tree, lib, notes)
+        yield chat_history, ""
+        return
+    # handle_chat_send 是生成器，使用 yield from 传递
+    yield from handle_chat_send(text.strip(), chat_history, tree, lib, notes)
 
 
 # ══════════════════════════════════════════════════════════════
