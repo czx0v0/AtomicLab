@@ -9,10 +9,35 @@ import os
 import time
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
+from pathlib import Path
 
 # HuggingFace镜像配置由core/config.py统一管理
 # ModelScope创空间环境检测和镜像设置在config.py中
 from core.config import IN_MODELSCOPE_SPACE
+
+# ══════════════════════════════════════════════════════════════
+# 模型缓存目录配置 - ModelScope创空间专用
+# ══════════════════════════════════════════════════════════════
+
+if IN_MODELSCOPE_SPACE:
+    # ModelScope创空间: 使用持久化存储目录
+    MODEL_CACHE_ROOT = "/mnt/workspace/.cache"
+    
+    # SentenceTransformers缓存
+    SENTENCE_TRANSFORMERS_CACHE = os.path.join(MODEL_CACHE_ROOT, "sentence_transformers")
+    
+    # 确保目录存在
+    os.makedirs(SENTENCE_TRANSFORMERS_CACHE, exist_ok=True)
+    
+    # 设置环境变量
+    os.environ["SENTENCE_TRANSFORMERS_HOME"] = SENTENCE_TRANSFORMERS_CACHE
+    
+    print(f"[RAG] ModelScope创空间模式")
+    print(f"[RAG] 模型缓存目录: {SENTENCE_TRANSFORMERS_CACHE}")
+else:
+    # 本地开发: 使用默认缓存位置
+    SENTENCE_TRANSFORMERS_CACHE = None
+    print("[RAG] 本地开发模式，使用默认缓存位置")
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -147,10 +172,17 @@ class RAGService:
         # 3. Embedding模型
         if ST_AVAILABLE:
             try:
+                # 根据环境选择缓存目录
+                cache_folder = SENTENCE_TRANSFORMERS_CACHE if IN_MODELSCOPE_SPACE else None
+                
                 self.embedding_model = SentenceTransformer(
-                    self.config.embedding_model, device=self.config.device
+                    self.config.embedding_model, 
+                    device=self.config.device,
+                    cache_folder=cache_folder
                 )
                 print(f"✓ Embedding模型加载成功: {self.config.embedding_model}")
+                if cache_folder:
+                    print(f"  模型缓存位置: {cache_folder}")
             except Exception as e:
                 print(f"⚠️ Embedding模型加载失败: {e}")
                 print("尝试清理缓存并重新加载...")
