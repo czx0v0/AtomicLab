@@ -1148,11 +1148,20 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
                 doc_name = lib[pid].get("name", "未知文献")
                 doc_node = tree.create_document_node(doc_name, pid, domain_node.id)
 
+            # 查找对应的section节点（如果已有章节信息）
+            section_node_id = None
+            current_page = int(page) if str(page).isdigit() else 1
+            section_node = tree.get_sections_by_page(doc_node.id, current_page)
+            if section_node:
+                section_node_id = section_node.id
+
             # 创建 note 节点（category 暂时为空，等AI分类后更新）
+            # 如果找到section，则放在section下，否则放在document下
             tree.create_note_node(
                 note=note,
                 category="",  # 初始无分类
                 doc_node_id=doc_node.id,
+                section_node_id=section_node_id,  # 传递section ID
             )
 
         # 重新渲染 PDF 文本以显示持久化高亮

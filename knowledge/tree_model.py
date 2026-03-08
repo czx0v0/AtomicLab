@@ -420,6 +420,7 @@ class KnowledgeTree:
         categories = [
             {"name": "domain"},
             {"name": "document"},
+            {"name": "section"},  # 添加section类别
             {"name": "note"},
             {"name": "tag"},
         ]
@@ -438,7 +439,7 @@ class KnowledgeTree:
                 "extraCssText": "max-width:320px;white-space:pre-wrap;",
             },
             "legend": {
-                "data": ["domain", "document", "note", "tag"],
+                "data": ["domain", "document", "section", "note", "tag"],  # 添加section
                 "orient": "horizontal",
                 "top": 10,
             },
