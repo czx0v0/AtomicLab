@@ -409,6 +409,7 @@ def handle_extract_citations(pid, lib, notes):
 
         extractor = CitationExtractor(enable_crossref=True)
         result = None
+        extraction_log = []  # 记录提取过程
 
         # 策略1: 从RAG chunks提取
         try:
@@ -433,9 +434,17 @@ def handle_extract_citations(pid, lib, notes):
                             else 0
                         )
                     )
+                    extraction_log.append(f"📊 找到 {len(doc_chunks)} 个RAG chunks")
                     print(f"[Citation] 从 {len(doc_chunks)} 个chunks提取")
                     result = extractor.extract_from_chunks(doc_chunks, pid)
+                    if result and result.citations:
+                        extraction_log.append(f"✓ RAG chunks提取成功: {len(result.citations)} 条引用")
+                else:
+                    extraction_log.append("⚠️ 未找到RAG chunks")
+            else:
+                extraction_log.append("⚠️ RAG服务未初始化或无数据")
         except Exception as e:
+            extraction_log.append(f"❌ RAG chunk提取失败: {str(e)[:50]}")
             print(f"[Citation] RAG chunk提取失败: {e}")
 
         # 策略2: 从用户笔记提取（如果已高亮参考文献部分）
@@ -443,22 +452,37 @@ def handle_extract_citations(pid, lib, notes):
             if notes:
                 doc_notes = [n for n in notes if n.get("source_pid") == pid]
                 if doc_notes:
+                    extraction_log.append(f"📝 尝试从 {len(doc_notes)} 条笔记提取")
                     print(f"[Citation] 从 {len(doc_notes)} 条笔记提取")
                     result = extractor.extract_from_notes(doc_notes, pid)
+                    if result and result.citations:
+                        extraction_log.append(f"✓ 笔记提取成功: {len(result.citations)} 条引用")
+                else:
+                    extraction_log.append("⚠️ 该文献无笔记")
 
         # 策略3: 从原始文本提取
         if not result or not result.citations:
             text_content = doc_info.get("text", "")
             if text_content:
+                extraction_log.append(f"📄 尝试从原始文本提取 ({len(text_content)} 字符)")
                 print(f"[Citation] 从原始文本提取 ({len(text_content)} 字符)")
                 result = extractor.extract_from_text(text_content, pid)
+                if result and result.citations:
+                    extraction_log.append(f"✓ 原始文本提取成功: {len(result.citations)} 条引用")
+            else:
+                extraction_log.append("⚠️ 无原始文本数据")
 
         if not result or not result.citations:
+            # 显示详细日志帮助用户理解
+            log_html = "<br>".join(extraction_log)
             yield (
-                f"<span class='agent-st'>未找到引用文献 - 请尝试高亮参考文献部分后重试</span>",
-                """<div class='nc-empty'>
+                f"<span class='agent-st'>未找到引用文献</span>",
+                f"""<div class='nc-empty'>
                     <p>未检测到参考文献部分</p>
-                    <p style='font-size:0.85em;color:#6b7280;'>
+                    <div style='text-align:left;font-size:0.8em;color:#6b7280;margin-top:12px;padding:8px;background:#f8fafc;border-radius:4px;'>
+                        <b>提取过程：</b><br>{log_html}
+                    </div>
+                    <p style='font-size:0.85em;color:#6b7280;margin-top:8px;'>
                         建议：在阅读页选中参考文献内容，添加高亮笔记后再试
                     </p>
                 </div>""",

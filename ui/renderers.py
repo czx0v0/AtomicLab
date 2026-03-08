@@ -825,11 +825,11 @@ def render_doc_note_tree(tree, pid: str = None) -> str:
         summary = esc(doc.get("metadata", {}).get("summary", ""))
         children = doc.get("children", [])
         source_pid = doc.get("source_pid", "")
-        
+
         # Separate sections and notes
         sections = [c for c in children if c.get("type") == "section"]
         notes = [c for c in children if c.get("type") == "note"]
-        
+
         # If no sections, count all notes; otherwise count notes per section
         total_notes = len(notes) + sum(
             len([c for c in s.get("children", []) if c.get("type") == "note"])
@@ -866,17 +866,18 @@ def render_doc_note_tree(tree, pid: str = None) -> str:
         level = meta.get("level", 2)
         page_start = meta.get("page_start", "")
         page_end = meta.get("page_end", "")
-        
+        summary = meta.get("summary", "")  # 章节摘要
+
         # Page range display
         page_range = ""
         if page_start and page_end:
             page_range = f"p.{page_start}-{page_end}"
         elif page_start:
             page_range = f"p.{page_start}"
-        
+
         # Indent based on level
         indent = (level - 1) * 16
-        
+
         h = f"""<div class="org-section-row" onclick=\"toggleOrgTree(this, '{section_id}-content')\" style=\"margin-left:{indent}px\">
   <span class="org-toggle">▼</span>
   <span class="org-icon">📑</span>
@@ -885,6 +886,10 @@ def render_doc_note_tree(tree, pid: str = None) -> str:
   <span class="org-page-range">{page_range}</span>
 </div>
 <div id=\"{section_id}-content\" class="org-section-content">"""
+
+        # 显示章节摘要
+        if summary:
+            h += f'<div class="org-section-summary" style="font-size:0.82em;color:#6b7280;padding:6px 8px;margin:4px 0;background:#f8fafc;border-radius:4px;border-left:3px solid var(--accent-blue);">📝 {esc(summary)}</div>'
 
         for note_idx, note in enumerate(children):
             h += _render_note_card(note, f"{section_id}-note-{note_idx}", source_pid)
