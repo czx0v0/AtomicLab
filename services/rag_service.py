@@ -10,9 +10,9 @@ import time
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 
-# 设置HuggingFace镜像（中国大陆加速）
-if "HF_ENDPOINT" not in os.environ:
-    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+# HuggingFace镜像配置由core/config.py统一管理
+# ModelScope创空间环境检测和镜像设置在config.py中
+from core.config import IN_MODELSCOPE_SPACE
 
 try:
     from sentence_transformers import SentenceTransformer
