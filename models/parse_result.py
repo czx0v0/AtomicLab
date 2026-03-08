@@ -36,6 +36,8 @@ class ParsedSection:
     page_end: int = 0
     parent_id: Optional[str] = None
     children_ids: List[str] = field(default_factory=list)
+    summary: str = ""  # 章节摘要（RAG辅助信息）
+    key_points: List[str] = field(default_factory=list)  # 关键要点
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +50,8 @@ class ParsedSection:
             "page_end": self.page_end,
             "parent_id": self.parent_id,
             "children_ids": self.children_ids,
+            "summary": self.summary,
+            "key_points": self.key_points,
         }
 
 
