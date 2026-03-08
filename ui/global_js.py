@@ -204,8 +204,8 @@ GLOBAL_JS = r"""
     console.log('[Atomic] Active tab detected:', activeTab);
     
     // Use the appropriate input based on active tab or node ID prefix
-    // Node IDs starting with "KN-" are from organize tab, "NT-" are from read tab
-    var isOrganizeNode = nodeId.startsWith('KN-');
+    // Node IDs starting with "NK-" are from organize tab, "NT-" are from read tab
+    var isOrganizeNode = nodeId.startsWith('NK-');
     var useOrganizeInput = isOrganizeNode || activeTab === '整理';
     
     if (useOrganizeInput) {
@@ -244,7 +244,7 @@ GLOBAL_JS = r"""
     var payload = 'manual_tag:' + nodeId + ':' + tagText;
     
     // 根据节点ID前缀判断发送到哪个输入
-    if (nodeId.startsWith('KN-')) {
+    if (nodeId.startsWith('NK-')) {
       setGradioValue('#org-note-action-input', payload);
     } else {
       setGradioValue('#note-action-input', payload);
@@ -306,8 +306,8 @@ GLOBAL_JS = r"""
     var payload = 'annotate:' + currentAnnotateNodeId + ':' + annotation;
     
     // 根据节点ID前缀判断发送到哪个输入
-    // KN- 开头是整理Tab的节点，NT- 开头是阅读Tab的节点
-    if (currentAnnotateNodeId.startsWith('KN-')) {
+    // NK- 开头是整理Tab的节点，NT- 开头是阅读Tab的节点
+    if (currentAnnotateNodeId.startsWith('NK-')) {
       setGradioValue('#org-note-action-input', payload);
     } else {
       setGradioValue('#note-action-input', payload);
