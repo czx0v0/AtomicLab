@@ -223,6 +223,41 @@ def handle_chat_clear():
     return [], ""
 
 
+def handle_feedback(feedback_data):
+    """Handle user feedback on AI responses.
+    
+    Gradio 4.x like事件传递的参数格式:
+    - LikeData对象包含: index, value ('like'/'dislike')
+    """
+    if not feedback_data:
+        return ""
+    
+    try:
+        # Gradio 4.x使用.value属性
+        if hasattr(feedback_data, 'value'):
+            action = feedback_data.value
+            index = getattr(feedback_data, 'index', '?')
+        elif isinstance(feedback_data, dict):
+            action = feedback_data.get('value', '')
+            index = feedback_data.get('index', '?')
+        else:
+            action = str(feedback_data)
+            index = '?'
+        
+        if action == 'like':
+            print(f"[Chat] 用户对第 {index} 条回答点赞")
+            return "<span class='agent-st success'>✓ 感谢反馈！这将帮助我们改进AI回答质量。</span>"
+        elif action == 'dislike':
+            print(f"[Chat] 用户对第 {index} 条回答点踩")
+            return "<span class='agent-st error'>✓ 感谢反馈！我们会持续改进AI回答质量。</span>"
+        else:
+            print(f"[Chat] 收到反馈: {action}")
+    except Exception as e:
+        print(f"[Chat] 反馈处理异常: {e}")
+    
+    return ""
+
+
 def handle_ai_ask(text, chat_history, tree, lib, notes):
     """Handle 'ask-ai' from reading page popup — bridge to chat."""
     if not text or not text.strip():
@@ -267,6 +302,8 @@ def build_chat_tab():
         label="AI 助手",
         height=480,
         elem_id="chat-copilot",
+        show_copy_button=True,  # 显示复制按钮
+        likeable=True,  # 启用点赞/点踩功能
     )
     with gr.Row():
         msg_input = gr.Textbox(

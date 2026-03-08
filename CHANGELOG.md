@@ -1,5 +1,39 @@
 # 更新日志
 
+### 2026-03-08 v2.6.0 (knowledge-tree-sections)
+
+#### 🚀 新功能
+
+**1. 知识树章节节点自动创建**
+
+- RAG处理完成后自动创建section节点
+- 章节摘要同步到知识树metadata
+- 知识树展示三级结构：domain → document → section → note
+
+**2. AI助手反馈增强**
+
+- 添加点赞/点踩按钮
+- 添加一键复制回答按钮
+- 反馈状态显示
+
+#### 🐛 修复
+
+- **问AI功能修复**：handle_ai_ask使用yield from正确传递生成器
+- **引用提取修复**：ChunkMetadata.doc_id属性访问错误
+- **知识树ID前缀**：global_js.py中KN-改为NK-
+
+#### 📝 代码变更
+
+| 文件                                | 变更描述                     |
+| ----------------------------------- | ---------------------------- |
+| `models/search.py`                | ProcessingResult添加sections字段 |
+| `services/rag_service.py`         | 返回章节信息用于知识树构建 |
+| `tabs/read/__init__.py`           | RAG处理后创建section节点 |
+| `tabs/chat/__init__.py`           | AI反馈功能、生成器修复 |
+| `ui/renderers.py`                 | 章节摘要显示 |
+| `ui/global_js.py`                 | 知识树ID前缀修复 |
+| `tabs/organize/__init__.py`       | 引用提取ChunkMetadata修复 |
+
 ### 2026-03-07 v2.5.0 (atomic-knowledge-and-citation)
 
 #### 🚀 新功能

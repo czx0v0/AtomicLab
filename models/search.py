@@ -162,6 +162,8 @@ class ProcessingResult:
     confidence: float = 0.0
     error: Optional[str] = None
     processing_time_ms: float = 0.0
+    # 新增：章节信息（用于知识树构建）
+    sections: Optional[List[dict]] = None  # [{section_id, heading, level, summary, page_start, page_end}]
 
     def to_dict(self) -> dict:
         return {
@@ -171,4 +173,5 @@ class ProcessingResult:
             "confidence": self.confidence,
             "error": self.error,
             "processing_time_ms": self.processing_time_ms,
+            "sections": self.sections,
         }

@@ -29,7 +29,7 @@ from .write import (
     handle_write_search,
     handle_ai_suggest,
 )
-from .chat import build_chat_tab, handle_chat_send, handle_chat_clear
+from .chat import build_chat_tab, handle_chat_send, handle_chat_clear, handle_feedback
 
 __all__ = [
     "build_read_tab",
@@ -54,4 +54,5 @@ __all__ = [
     "build_chat_tab",
     "handle_chat_send",
     "handle_chat_clear",
+    "handle_feedback",
 ]
