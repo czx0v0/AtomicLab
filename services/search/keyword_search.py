@@ -225,19 +225,19 @@ class KeywordSearchService:
                     # 精确匹配加分
                     if token == field_text or f" {token} " in f" {field_text} ":
                         field_score += weight * 0.5
-                
+
                 # 2. 模糊匹配（前缀匹配）
                 elif len(token) >= 3:
                     # 检查字段中的词是否以token开头
                     words = field_text.split()
                     for word in words:
-                        if word.startswith(token[:min(4, len(token))]):
+                        if word.startswith(token[: min(4, len(token))]):
                             # 前缀匹配，降权
                             field_score += weight * 0.5
                             break
-                    
+
                     # 检查token是否是字段内容的子串（部分匹配）
-                    if token[:min(4, len(token))] in field_text:
+                    if token[: min(4, len(token))] in field_text:
                         field_score += weight * 0.3
 
             # 3. 原始查询的部分匹配（针对用户输入不完整的情况）

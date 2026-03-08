@@ -78,11 +78,13 @@ CSS = """
 .lab-title{
   font-family:var(--font-pixel)!important;font-size:1.1em;
   color:var(--text-primary);letter-spacing:3px;
+  display:inline-flex;align-items:center;justify-content:center;
 }
+.lab-title img{width:28px;height:28px;margin-right:10px;vertical-align:middle;}
 .lab-title span{color:var(--accent-blue);}
 .lab-sub{
-  font-family:var(--font-mono)!important;font-size:.65em;
-  color:var(--text-muted);letter-spacing:4px;margin-top:4px;text-transform:uppercase;
+  font-family:var(--font-pixel)!important;font-size:.55em;
+  color:var(--text-muted);letter-spacing:2px;margin-top:6px;text-transform:uppercase;
 }
 .lab-version{
   font-family:var(--font-pixel)!important;font-size:.45em;
@@ -604,7 +606,7 @@ mark[data-note-id].highlight-focus{animation:highlight-pulse 1s ease-in-out 2;bo
 # Header HTML — Pixel styled on white
 HEADER_HTML = """
 <div class='lab-hdr'>
-  <div class='lab-title'><span>Atomic</span> Lab</div>
+  <div class='lab-title'><img src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAAAXNSR0IArs4c6QAAAT5JREFUeJzt2sFNw0AQQFGDKIADJaQwDi6DI2XkQCkUkhLSA9wRlrIk1rfJe2cLLfpaaTSbaQIAAADgXjzUB7jU28fpa+T799fDLv63x/oA906AmAAxAWICxASICRATICZATICYALHN7UuOp993PvNhbLdzq7+zNjcgJkBMgJgAMQFiq08Ea7xkXTPhbO1lzQ2ICRATICZATIDYU32Av9jaPucabkBMgJgAMQFiAsT+zTTxkxcxLiJATICYADEBYrvZBR2P56GXrPnwsqlpZ4kbEBMgJkBMgJgAMQFiAsQEiAkQEyAmQGxzu6Dll6x97HZGuQExAWICxASICRBbfQq61UvW6O98lr6fPp9HjjPN87rTlxsQEyAmQEyAmACxHe2Cxqadxe8Hp7K1uQExAWICxASICQAAAAAAAMD6C5L271yLTzjdsgAAAABJRU5ErkJggg==' alt='logo'><span>Atomic</span> Lab</div>
   <div class='lab-sub'>Read &middot; Organize &middot; Write</div>
   <div class='pixel-scan-line'></div>
 </div>

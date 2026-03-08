@@ -284,7 +284,6 @@ def build_chat_tab():
             choices=[],  # 将在main.py中设置
             value="",
             label="模型",
-            show_label=True,
             scale=2,
             container=False,
             elem_id="chat-model-selector",
@@ -295,7 +294,6 @@ def build_chat_tab():
             choices=[("全部文献", "__all__")],
             value="__all__",
             label="发送文献",
-            show_label=True,
             scale=2,
             container=False,
             elem_id="chat-doc-selector",

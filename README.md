@@ -319,3 +319,23 @@ faiss-cpu>=1.7.4
 # 关键词检索
 rank-bm25>=0.2.2
 ```
+
+## 声明
+
+### 第三方模型声明
+本项目使用以下预训练模型，其版权归各自作者所有：
+
+| 模型 | 用途 | 许可证 | 来源 |
+|------|------|--------|------|
+| `paraphrase-multilingual-MiniLM-L12-v2` | 文本嵌入 | Apache 2.0 | [Sentence-Transformers](https://huggingface.co/sentence-transformers) |
+| `BAAI/bge-reranker-v2-m3` | 重排序 | Apache 2.0 | [BAAI](https://huggingface.co/BAAI) |
+
+**注意**：模型文件在首次运行时自动从 HuggingFace Hub 下载并缓存到本地持久化目录，无需手动下载。
+
+### 第三方库声明
+本项目依赖以下开源库（详见 requirements.txt）：
+- [Gradio](https://gradio.app/) - Apache 2.0
+- [Docling](https://github.com/DS4SD/docling) - MIT
+- [FAISS](https://github.com/facebookresearch/faiss) - MIT
+- [Sentence-Transformers](https://www.sbert.net/) - Apache 2.0
+

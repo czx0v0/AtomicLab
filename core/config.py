@@ -10,6 +10,36 @@ from dotenv import load_dotenv
 load_dotenv()  # 本地开发用，魔搭空间通过环境变量配置
 
 # ══════════════════════════════════════════════════════════════
+# ModelScope 持久化存储配置
+# ══════════════════════════════════════════════════════════════
+# ModelScope创空间持久化目录: /mnt/workspace/ (重启后保留)
+# 本地开发时使用用户目录下的缓存
+PERSISTENT_DIR = os.environ.get(
+    "PERSISTENT_DIR",
+    (
+        "/mnt/workspace"
+        if os.path.exists("/mnt/workspace")
+        else os.path.expanduser("~/.atomic_lab")
+    ),
+)
+
+# HuggingFace 模型缓存路径 (持久化)
+HF_CACHE_DIR = os.path.join(PERSISTENT_DIR, ".cache", "huggingface")
+SENTENCE_TRANSFORMERS_CACHE = os.path.join(
+    PERSISTENT_DIR, ".cache", "sentence-transformers"
+)
+
+# 设置环境变量以启用持久化缓存
+os.environ.setdefault("HF_HOME", HF_CACHE_DIR)
+os.environ.setdefault("HF_HUB_CACHE", os.path.join(HF_CACHE_DIR, "hub"))
+os.environ.setdefault("TRANSFORMERS_CACHE", os.path.join(HF_CACHE_DIR, "transformers"))
+os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", SENTENCE_TRANSFORMERS_CACHE)
+
+# 离线模式配置 (模型已缓存时可启用)
+# 设置 HF_HUB_OFFLINE=1 可完全离线运行
+HF_HUB_OFFLINE = os.environ.get("HF_HUB_OFFLINE", "0")
+
+# ══════════════════════════════════════════════════════════════
 # API Configuration
 # ══════════════════════════════════════════════════════════════
 MS_KEY = os.environ.get("MS_KEY", "")
