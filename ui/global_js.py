@@ -780,24 +780,33 @@ GLOBAL_JS = r"""
       })
       .then(function(res) { return res.json(); })
       .then(function(result) {
+        // 增强错误信息反馈
+        if (result.error) {
+          console.error('[Atomic] OCR识别失败:', result.error);
+          showToast('OCR识别失败: ' + result.error);
+        }
         var iframes = document.querySelectorAll('iframe');
         iframes.forEach(function(iframe) {
           try {
             iframe.contentWindow.postMessage({
               type: 'ocr_result',
-              data: { text: result.text || '' }
+              data: {
+                text: result.text || '',
+                error: result.error || ''
+              }
             }, '*');
           } catch(err) {}
         });
       })
       .catch(function(err) {
         console.error('[Atomic] OCR请求失败:', err);
+        showToast('OCR请求失败: ' + err.message);
         var iframes = document.querySelectorAll('iframe');
         iframes.forEach(function(iframe) {
           try {
             iframe.contentWindow.postMessage({
               type: 'ocr_result',
-              data: { text: '' }
+              data: { text: '', error: err.message || '请求失败' }
             }, '*');
           } catch(err2) {}
         });

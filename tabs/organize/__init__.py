@@ -954,6 +954,73 @@ def handle_note_action(action_data, tree, lib, notes):
     )
 
 
+def handle_add_reference(source_id, target_id, tree):
+    """手动添加引用关系边。
+    
+    让用户可以手动为两个节点添加表示被引用关系的边。
+    
+    Args:
+        source_id: 引用方节点ID（引用其他文献的节点）
+        target_id: 被引用方节点ID（被引用的节点）
+        tree: 知识树实例
+    
+    Returns:
+        (status_message, tree, doc_tree_html, global_graph_html)
+    """
+    if not source_id or not target_id:
+        return (
+            "<span class='agent-st error'>请选择两个节点</span>",
+            tree,
+            gr.update(),
+            gr.update(),
+        )
+    
+    if source_id == target_id:
+        return (
+            "<span class='agent-st error'>不能添加自引用</span>",
+            tree,
+            gr.update(),
+            gr.update(),
+        )
+    
+    source_node = tree.get_node(source_id)
+    target_node = tree.get_node(target_id)
+    
+    if not source_node or not target_node:
+        return (
+            f"<span class='agent-st error'>节点未找到</span>",
+            tree,
+            gr.update(),
+            gr.update(),
+        )
+    
+    # 检查是否已存在该引用关系
+    for edge in tree.edges:
+        if edge.source == source_id and edge.target == target_id and edge.relation == "references":
+            return (
+                "<span class='agent-st error'>该引用关系已存在</span>",
+                tree,
+                gr.update(),
+                gr.update(),
+            )
+    
+    # 添加引用关系边
+    tree.add_cross_reference(source_id, target_id)
+    
+    # 获取节点所属文档信息用于刷新显示
+    source_pid = source_node.source_pid
+    target_pid = target_node.source_pid
+    
+    status_msg = f"<span class='agent-st success'>✓ 已添加引用关系: {source_node.label[:20]} → {target_node.label[:20]}</span>"
+    
+    return (
+        status_msg,
+        tree,
+        render_doc_note_tree(tree, source_pid),
+        _render_graph(tree),
+    )
+
+
 def handle_node_select(node_id, tree):
     """Handle graph node click - show node detail card with actions."""
     if not node_id or not tree:
