@@ -1037,6 +1037,10 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
     - **立即创建 KnowledgeNode 到 tree**，实现笔记实时可见
     - 不依赖 AI 处理即可在知识树/图谱中显示
 
+    v3.1 更新:
+    - **检查RAG处理状态，处理中时显示警告**
+    - 处理中时仍然允许高亮，但显示提示
+
     Args:
         payload_str: JSON 格式的操作数据
         notes: 现有笔记列表
@@ -1049,6 +1053,14 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
     """
     if not payload_str or not payload_str.strip():
         return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
+
+    # 检查RAG处理状态
+    rag_warning = ""
+    if pid and pid in lib:
+        is_processing = lib[pid].get("rag_processing", False)
+        rag_status = lib[pid].get("rag_status", "")
+        if is_processing:
+            rag_warning = f"<div class='tip' style='background:#fef3c7;border-color:#fcd34d;'>⚠️ 文档正在解析中: {rag_status}<br>建议等待解析完成后再标注，否则章节信息可能不准确。</div>"
 
     try:
         data = json.loads(payload_str)
@@ -1146,7 +1158,10 @@ def handle_highlight_action(payload_str, notes, pid, tree, lib):
         # 重新渲染 PDF 文本以显示持久化高亮
         current_page = int(page) if str(page).isdigit() else 1
         pdf_html = render_pdf_text(pid, lib, current_page)
-        return notes, render_note_cards(notes, filter_pid=pid), tree, pdf_html, lib
+        notes_html = render_note_cards(notes, filter_pid=pid)
+        if rag_warning:
+            notes_html = rag_warning + notes_html
+        return notes, notes_html, tree, pdf_html, lib
 
     elif action == "translate_note" and text:
         from urllib.parse import unquote

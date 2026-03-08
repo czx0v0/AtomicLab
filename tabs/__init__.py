@@ -22,6 +22,7 @@ from .organize import (
     handle_search,
     handle_note_action,
     handle_node_select,
+    handle_add_reference,
 )
 from .write import (
     build_write_tab,
@@ -47,6 +48,7 @@ __all__ = [
     "handle_search",
     "handle_note_action",
     "handle_node_select",
+    "handle_add_reference",
     "build_write_tab",
     "handle_download",
     "handle_write_search",

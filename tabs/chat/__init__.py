@@ -214,7 +214,14 @@ def handle_chat_send(message, chat_history, tree, lib, notes):
         yield chat_history, "", _build_status("complete", status_msg, context_count)
 
     except Exception as e:
-        chat_history[-1]["content"] = f"❌ 系统异常：{e}"
+        import traceback
+        error_detail = traceback.format_exc()
+        print(f"[Chat] AI处理异常: {e}")
+        print(f"[Chat] 错误堆栈:\n{error_detail}")
+        
+        # 在回复中显示错误详情（开发模式）
+        error_msg = f"❌ 系统异常：{e}\n\n<details><summary>📝 错误详情（开发者信息）</summary>\n\n```\n{error_detail[:500]}\n```\n</details>"
+        chat_history[-1]["content"] = error_msg
         yield chat_history, "", _build_status("error", f"处理失败: {str(e)[:50]}")
 
 
