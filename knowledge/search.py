@@ -37,15 +37,15 @@ def search_nodes(
 
     query = query.lower().strip()
     query_len = len(query)
-    
+
     # 分词（支持中英文）
     tokens = _tokenize(query)
-    
+
     results = []  # [(node, score, match_type)]
 
     for node in tree.nodes.values():
         score, match_type = _calculate_node_match(node, query, tokens)
-        
+
         if score > 0:
             # 精确匹配
             if match_type == "exact":
@@ -59,13 +59,13 @@ def search_nodes(
     for node, score, match_type in results:
         if node.id not in node_scores or node_scores[node.id][1] < score:
             node_scores[node.id] = (node, score, match_type)
-    
+
     # 排序：精确匹配优先，然后按分数排序
     sorted_results = sorted(
         node_scores.values(),
-        key=lambda x: (0 if x[2] == "exact" else 1, -x[1], -x[0].weight)
+        key=lambda x: (0 if x[2] == "exact" else 1, -x[1], -x[0].weight),
     )
-    
+
     # 返回节点列表
     return [item[0] for item in sorted_results]
 
@@ -73,51 +73,49 @@ def search_nodes(
 def _tokenize(text: str) -> List[str]:
     """
     分词：支持中英文混合
-    
+
     Args:
         text: 待分词文本
-        
+
     Returns:
         分词列表
     """
     import re
-    
+
     # 英文单词
-    english_words = re.findall(r'[a-zA-Z]+', text.lower())
-    
+    english_words = re.findall(r"[a-zA-Z]+", text.lower())
+
     # 中文字符（单字和双字组合）
-    chinese_chars = re.findall(r'[\u4e00-\u9fff]+', text)
+    chinese_chars = re.findall(r"[\u4e00-\u9fff]+", text)
     chinese_ngrams = []
     for seq in chinese_chars:
         # 单字
         chinese_ngrams.extend(list(seq))
         # 双字组合
         for i in range(len(seq) - 1):
-            chinese_ngrams.append(seq[i:i+2])
-    
+            chinese_ngrams.append(seq[i : i + 2])
+
     return list(set(english_words + chinese_ngrams))
 
 
 def _calculate_node_match(
-    node: KnowledgeNode,
-    query: str,
-    tokens: List[str]
+    node: KnowledgeNode, query: str, tokens: List[str]
 ) -> Tuple[float, str]:
     """
     计算节点与查询的匹配分数
-    
+
     Args:
         node: 知识节点
         query: 查询词
         tokens: 分词列表
-        
+
     Returns:
         (分数, 匹配类型) - 匹配类型: 'exact' 或 'fuzzy'
     """
     query_len = len(query)
     best_score = 0.0
     match_type = "none"
-    
+
     # 搜索字段列表 (字段, 权重)
     fields = [
         (node.label, 2.0),
@@ -127,29 +125,29 @@ def _calculate_node_match(
         (node.metadata.get("translation", ""), 1.2),
         (node.metadata.get("category", ""), 1.3),
     ]
-    
+
     for field_text, weight in fields:
         if not field_text:
             continue
-            
+
         field_lower = field_text.lower()
-        
+
         # 1. 精确匹配（完整包含）
         if query in field_lower:
             return 1.0 * weight, "exact"
-        
+
         # 2. Token 匹配
         token_match_count = 0
         for token in tokens:
             if token in field_lower:
                 token_match_count += 1
-        
+
         if token_match_count > 0:
             token_score = token_match_count / len(tokens) * weight
             if token_score > best_score:
                 best_score = token_score
                 match_type = "fuzzy"
-        
+
         # 3. 部分匹配（前缀、后缀、子串）
         # 检查查询的前缀是否匹配
         for prefix_len in range(min(4, query_len), query_len // 2, -1):
@@ -160,7 +158,7 @@ def _calculate_node_match(
                     best_score = partial_score
                     match_type = "fuzzy"
                 break
-        
+
         # 检查字段中是否有词以查询开头
         words = field_lower.split()
         for word in words:
@@ -170,14 +168,14 @@ def _calculate_node_match(
                     best_score = prefix_score
                     match_type = "fuzzy"
                 break
-            
+
             # 检查查询是否是词的前缀
-            if query_len >= 3 and word.startswith(query[:min(4, query_len)]):
+            if query_len >= 3 and word.startswith(query[: min(4, query_len)]):
                 prefix_score = min(4, query_len) / query_len * weight * 0.7
                 if prefix_score > best_score:
                     best_score = prefix_score
                     match_type = "fuzzy"
-    
+
     return best_score, match_type
 
 

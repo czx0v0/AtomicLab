@@ -517,6 +517,7 @@ if __name__ == "__main__":
         "css": CSS,
         "js": GLOBAL_JS,
         "head": ECHARTS_HEAD,
+        "allowed_paths": ["image"],
     }
     if ENABLE_AUTH:
         launch_kwargs["auth"] = ("admin", AUTH_PASSWORD)
