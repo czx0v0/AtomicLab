@@ -123,13 +123,27 @@ class CitationExtractor:
         r"\[(\d+)\]\s+([^\.]+)\.\s+([^\[]+)\[J\]\.\s+([^,]+),\s+(\d{4})"
     )
 
-    # 参考文献章节标识
+    # 参考文献章节标识（增强版）
     REFERENCE_HEADERS = [
         "references",
         "bibliography",
         "参考文献",
         "引用文献",
         "reference",
+        "cited literature",
+        "literature cited",
+        "references and notes",
+        "参考文献目录",
+        "主要参考文献",
+    ]
+
+    # 参考文献标题模式（更宽松）
+    REFERENCE_TITLE_PATTERNS = [
+        re.compile(r"^#{1,3}\s*references?\s*$", re.IGNORECASE | re.MULTILINE),
+        re.compile(r"^references?\s*$", re.IGNORECASE | re.MULTILINE),
+        re.compile(r"^\d*\.?\s*references?\s*$", re.IGNORECASE | re.MULTILINE),
+        re.compile(r"^参考文献\s*$", re.MULTILINE),
+        re.compile(r"^bibliography\s*$", re.IGNORECASE | re.MULTILINE),
     ]
 
     def __init__(
@@ -181,17 +195,21 @@ class CitationExtractor:
         # 1. 定位参考文献部分
         ref_section, ref_found = self._find_reference_section(text)
 
-        # 2. 提取引用条目
+        # 2. 如果没找到，尝试从全文末尾提取（学术论文常见）
+        if not ref_found:
+            ref_section, ref_found = self._extract_from_end(text)
+
+        # 3. 提取引用条目
         raw_citations = self._extract_raw_citations(ref_section)
 
-        # 3. 解析每个引用
+        # 4. 解析每个引用
         citations = []
         for i, raw in enumerate(raw_citations):
             citation = self._parse_citation(raw, f"{doc_id}_cite_{i}")
             if citation and citation.title:
                 citations.append(citation)
 
-        # 4. 通过API补充元数据（可选）
+        # 5. 通过API补充元数据（可选）
         if self.enable_crossref or self.enable_semantic_scholar:
             citations = self._enrich_citations(citations)
 
@@ -201,6 +219,173 @@ class CitationExtractor:
             doc_id=doc_id,
             citations=citations,
             reference_section_found=ref_found,
+            extraction_time_ms=extraction_time,
+            total_citations=len(raw_citations),
+            parsed_citations=len(citations),
+        )
+
+    def extract_from_notes(
+        self,
+        notes: list,
+        doc_id: str = "",
+    ) -> CitationExtractionResult:
+        """从用户笔记中提取引用（支持高亮的参考文献部分）
+
+        Args:
+            notes: 用户笔记列表，每条包含 content, page 等字段
+            doc_id: 文档ID
+
+        Returns:
+            CitationExtractionResult: 提取结果
+        """
+        start_time = time.time()
+
+        # 筛选可能是参考文献的笔记
+        ref_notes = []
+        for note in notes:
+            content = note.get("content", "")
+            if not content:
+                continue
+
+            # 检查是否包含引用格式特征
+            content_lower = content.lower()
+            is_citation_like = (
+                # IEEE格式特征
+                bool(re.search(r"\[\d+\]", content))
+                or
+                # APA格式特征
+                bool(re.search(r"\([12]\d{3}\)", content))
+                or
+                # 包含期刊名特征
+                bool(
+                    re.search(
+                        r"\b(journal|conference|proceedings|trans\.)\b", content_lower
+                    )
+                )
+                or
+                # 包含DOI
+                "doi" in content_lower
+                or
+                # 包含页码范围
+                bool(re.search(r"\d+[-–]\d+", content))
+            )
+
+            if is_citation_like:
+                ref_notes.append(content)
+
+        if not ref_notes:
+            return CitationExtractionResult(
+                doc_id=doc_id,
+                citations=[],
+                reference_section_found=False,
+                extraction_time_ms=(time.time() - start_time) * 1000,
+                total_citations=0,
+                parsed_citations=0,
+            )
+
+        # 合并笔记内容
+        combined_text = "\n".join(ref_notes)
+
+        # 提取引用条目
+        raw_citations = self._extract_raw_citations(combined_text)
+
+        # 解析每个引用
+        citations = []
+        for i, raw in enumerate(raw_citations):
+            citation = self._parse_citation(raw, f"{doc_id}_cite_{i}")
+            if citation and citation.title:
+                citations.append(citation)
+
+        # 通过API补充元数据
+        if self.enable_crossref or self.enable_semantic_scholar:
+            citations = self._enrich_citations(citations)
+
+        extraction_time = (time.time() - start_time) * 1000
+
+        return CitationExtractionResult(
+            doc_id=doc_id,
+            citations=citations,
+            reference_section_found=True,
+            extraction_time_ms=extraction_time,
+            total_citations=len(raw_citations),
+            parsed_citations=len(citations),
+        )
+
+    def extract_from_chunks(
+        self,
+        chunks: list,
+        doc_id: str = "",
+    ) -> CitationExtractionResult:
+        """从RAG chunks中提取引用（处理chunk拆分问题）
+
+        Args:
+            chunks: RAG chunk列表
+            doc_id: 文档ID
+
+        Returns:
+            CitationExtractionResult: 提取结果
+        """
+        start_time = time.time()
+
+        # 1. 找到参考文献相关的chunks
+        ref_chunks = []
+        ref_start_idx = -1
+
+        for i, chunk in enumerate(chunks):
+            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+            content_lower = content.lower()
+
+            # 检查是否包含参考文献标题
+            for pattern in self.REFERENCE_TITLE_PATTERNS:
+                if pattern.search(content):
+                    ref_start_idx = i
+                    break
+
+            # 检查是否包含引用格式特征
+            if ref_start_idx >= 0 or i > len(chunks) - 5:  # 最后20%的chunks
+                is_citation_content = (
+                    bool(re.search(r"\[\d+\]", content))
+                    or bool(re.search(r"\([12]\d{3}\)", content))
+                    or "doi" in content_lower
+                    or bool(
+                        re.search(
+                            r"\b(journal|conference|proceedings)\b", content_lower
+                        )
+                    )
+                )
+                if is_citation_content:
+                    ref_chunks.append(content)
+
+        if not ref_chunks:
+            # 回退：尝试从最后几个chunks提取
+            last_chunks = chunks[-5:] if len(chunks) > 5 else chunks
+            ref_chunks = [
+                c.content if hasattr(c, "content") else str(c) for c in last_chunks
+            ]
+
+        # 2. 合并内容
+        combined_text = "\n\n".join(ref_chunks)
+
+        # 3. 提取引用
+        raw_citations = self._extract_raw_citations(combined_text)
+
+        # 4. 解析每个引用
+        citations = []
+        for i, raw in enumerate(raw_citations):
+            citation = self._parse_citation(raw, f"{doc_id}_cite_{i}")
+            if citation and citation.title:
+                citations.append(citation)
+
+        # 5. 通过API补充元数据
+        if self.enable_crossref or self.enable_semantic_scholar:
+            citations = self._enrich_citations(citations)
+
+        extraction_time = (time.time() - start_time) * 1000
+
+        return CitationExtractionResult(
+            doc_id=doc_id,
+            citations=citations,
+            reference_section_found=len(ref_chunks) > 0,
             extraction_time_ms=extraction_time,
             total_citations=len(raw_citations),
             parsed_citations=len(citations),
@@ -235,6 +420,61 @@ class CitationExtractor:
 
         ref_text = "\n".join(lines[ref_start:ref_end])
         return ref_text, True
+
+    def _extract_from_end(self, text: str) -> Tuple[str, bool]:
+        """从文档末尾提取参考文献（学术论文常见结构）
+
+        学术论文通常在文档最后部分包含参考文献，
+        此方法从文档末尾向前搜索参考文献内容。
+        """
+        lines = text.split("\n")
+
+        # 从末尾开始，找到包含引用特征的行
+        ref_lines = []
+        found_start = False
+
+        for i in range(len(lines) - 1, max(0, len(lines) - 200), -1):
+            line = lines[i].strip()
+            if not line:
+                continue
+
+            # 检查是否包含引用格式特征
+            is_citation_line = (
+                # IEEE格式
+                bool(re.match(r"^\[\d+\]", line))
+                or
+                # 数字编号格式
+                bool(re.match(r"^\d+\.", line))
+                or
+                # APA格式（作者+年份）
+                bool(re.search(r"\([12]\d{3}\)", line))
+                or
+                # 包含DOI
+                "doi" in line.lower()
+                or
+                # 包含期刊/会议特征
+                bool(
+                    re.search(
+                        r"\b(journal|conference|proceedings|vol\.|pp\.)\b", line.lower()
+                    )
+                )
+            )
+
+            if is_citation_line:
+                ref_lines.insert(0, line)
+                found_start = True
+            elif found_start:
+                # 已经找到引用内容，遇到非引用行时检查是否是标题
+                if re.match(r"^#{1,3}\s*\w+", line) or len(line) < 5:
+                    # 可能是章节标题或空行，停止
+                    break
+                else:
+                    ref_lines.insert(0, line)
+
+        if not ref_lines:
+            return "", False
+
+        return "\n".join(ref_lines), True
 
     def _extract_raw_citations(self, ref_section: str) -> List[str]:
         """提取原始引用条目"""
