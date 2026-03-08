@@ -10,6 +10,35 @@ from dotenv import load_dotenv
 load_dotenv()  # 本地开发用，魔搭空间通过环境变量配置
 
 # ══════════════════════════════════════════════════════════════
+# 环境检测 - ModelScope创空间
+# ══════════════════════════════════════════════════════════════
+
+# 检测是否运行在ModelScope创空间环境
+# ModelScope创空间会设置特定环境变量
+IN_MODELSCOPE_SPACE = (
+    os.environ.get("MODELSCOPE_ENVIRONMENT", "").lower() == "studio"
+    or os.environ.get("MODELSCOPE_CACHE_HOME", "") != ""
+    or os.environ.get("MS_KEY", "") != ""  # 有API key通常是在创空间
+)
+
+# ══════════════════════════════════════════════════════════════
+# HuggingFace镜像配置 - 仅ModelScope创空间启用
+# ══════════════════════════════════════════════════════════════
+
+# ModelScope创空间需要使用HuggingFace镜像加速下载
+# 本地开发不设置，让用户自行配置代理或使用本地模型
+if IN_MODELSCOPE_SPACE:
+    if "HF_ENDPOINT" not in os.environ:
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        print("[Config] 检测到ModelScope创空间环境，启用HuggingFace镜像")
+    
+    # ModelScope创空间专用模型缓存目录
+    if "TRANSFORMERS_CACHE" not in os.environ:
+        os.environ["TRANSFORMERS_CACHE"] = "/mnt/workspace/.cache/huggingface"
+    if "HF_HOME" not in os.environ:
+        os.environ["HF_HOME"] = "/mnt/workspace/.cache/huggingface"
+
+# ══════════════════════════════════════════════════════════════
 # API Configuration
 # ══════════════════════════════════════════════════════════════
 MS_KEY = os.environ.get("MS_KEY", "")
