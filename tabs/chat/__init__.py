@@ -279,15 +279,22 @@ def build_chat_tab():
 
     # ── 左下角工具栏：模型选择 + 文献选择 ──
     with gr.Row(elem_classes=["chat-toolbar"]):
-        # 模型选择器
+        # 模型选择器 - 初始化默认值
+        from core.model_state import cooldown_manager
+        from core.config import MODEL_DISPLAY_NAMES
+        
+        _models = cooldown_manager.get_all_models()
+        _model_choices = [(MODEL_DISPLAY_NAMES.get(m, m), m) for m in _models]
+        _preferred = cooldown_manager.get_preferred() or (_models[0] if _models else "")
+        
         model_selector = gr.Dropdown(
-            choices=[],  # 将在main.py中设置
-            value="",
+            choices=_model_choices,
+            value=_preferred,
             label="模型",
             scale=2,
             container=False,
             elem_id="chat-model-selector",
-            allow_custom_value=True,  # 允许初始值为空
+            allow_custom_value=True,
         )
         # 当前文献选择器
         doc_selector = gr.Dropdown(

@@ -242,7 +242,13 @@ GLOBAL_JS = r"""
     
     // Send manual_tag:node_id:tag_text
     var payload = 'manual_tag:' + nodeId + ':' + tagText;
-    setGradioValue('#note-action-input', payload);
+    
+    // 根据节点ID前缀判断发送到哪个输入
+    if (nodeId.startsWith('KN-')) {
+      setGradioValue('#org-note-action-input', payload);
+    } else {
+      setGradioValue('#note-action-input', payload);
+    }
     input.value = '';
     showToast('正在添加标签: ' + tagText);
   };
@@ -298,7 +304,14 @@ GLOBAL_JS = r"""
       return;
     }
     var payload = 'annotate:' + currentAnnotateNodeId + ':' + annotation;
-    setGradioValue('#note-action-input', payload);
+    
+    // 根据节点ID前缀判断发送到哪个输入
+    // KN- 开头是整理Tab的节点，NT- 开头是阅读Tab的节点
+    if (currentAnnotateNodeId.startsWith('KN-')) {
+      setGradioValue('#org-note-action-input', payload);
+    } else {
+      setGradioValue('#note-action-input', payload);
+    }
     closeAnnotateModal();
     showToast('正在添加批注...', 2000);
   };
