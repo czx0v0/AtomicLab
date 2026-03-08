@@ -22,6 +22,7 @@ try:
     PADDLEOCR_AVAILABLE = True
 except ImportError:
     PADDLEOCR_AVAILABLE = False
+    print("[OCR] ⚠️ PaddleOCR未安装，请运行: pip install paddleocr>=2.7.0")
 
 # 尝试导入EasyOCR
 try:
@@ -30,6 +31,11 @@ try:
     EASYOCR_AVAILABLE = True
 except ImportError:
     EASYOCR_AVAILABLE = False
+    print("[OCR] ⚠️ EasyOCR未安装，请运行: pip install easyocr>=1.7.0")
+
+if not PADDLEOCR_AVAILABLE and not EASYOCR_AVAILABLE:
+    print("[OCR] ❌ 未安装任何OCR引擎！截图识别功能将不可用")
+    print("[OCR] 请安装其中一个: pip install paddleocr>=2.7.0 或 pip install easyocr>=1.7.0")
 
 
 class OCRService:
