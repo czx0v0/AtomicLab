@@ -195,3 +195,22 @@ CHUNK_TYPES = [
     "figure",  # 图片描述
     "formula",  # 公式
 ]
+
+# ══════════════════════════════════════════════════════════════
+# Parser Configuration
+# ══════════════════════════════════════════════════════════════
+
+# PDF解析后端选择
+# - "docling": IBM开源，轻量级，CPU友好 (默认)
+# - "mineru": 高精度，支持OCR，GPU加速
+PARSER_BACKEND = os.environ.get("PARSER_BACKEND", "docling")
+
+# ══════════════════════════════════════════════════════════════
+# Feedback Configuration
+# ══════════════════════════════════════════════════════════════
+
+# 反馈数据存储路径 (用于RAG模型微调)
+FEEDBACK_STORAGE_PATH = os.environ.get(
+    "FEEDBACK_STORAGE_PATH",
+    "/mnt/workspace/storage/feedback" if IN_MODELSCOPE_SPACE else "storage/feedback"
+)
