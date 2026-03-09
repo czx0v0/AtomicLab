@@ -88,6 +88,9 @@ class RAGConfig:
     # 存储配置
     storage_path: str = "storage"
 
+    # 解析器配置
+    parser_backend: str = "docling"  # "docling" 或 "mineru"
+
 
 class RAGService:
     """
@@ -143,13 +146,30 @@ class RAGService:
         print("初始化RAG服务...")
         print("=" * 50)
 
-        # 1. 文档解析器
-        try:
-            self.parser = DoclingParser()
-            print("✓ Docling解析器初始化成功")
-        except ImportError as e:
-            print(f"✗ Docling解析器初始化失败: {e}")
-            self.parser = None
+        # 1. 文档解析器 - 支持MinerU和Docling
+        parser_backend = getattr(self.config, 'parser_backend', 'docling')
+        self.parser = None
+        
+        if parser_backend == "mineru":
+            try:
+                from services.parser import MinerUParser, MINERU_AVAILABLE
+                if MINERU_AVAILABLE:
+                    self.parser = MinerUParser()
+                    print("✓ MinerU解析器初始化成功 (高精度模式)")
+                else:
+                    raise ImportError("MinerU不可用")
+            except ImportError as e:
+                print(f"⚠️ MinerU解析器不可用: {e}")
+                print("  回退到Docling解析器...")
+                parser_backend = "docling"
+        
+        if parser_backend == "docling" or self.parser is None:
+            try:
+                self.parser = DoclingParser()
+                print("✓ Docling解析器初始化成功")
+            except ImportError as e:
+                print(f"✗ Docling解析器初始化失败: {e}")
+                self.parser = None
 
         # 2. 分块器
         if ST_AVAILABLE:

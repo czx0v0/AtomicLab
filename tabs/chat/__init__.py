@@ -230,11 +230,13 @@ def handle_chat_clear():
     return [], ""
 
 
-def handle_feedback(feedback_data):
+def handle_feedback(feedback_data, chat_history=None):
     """Handle user feedback on AI responses.
     
     Gradio 4.x like事件传递的参数格式:
     - LikeData对象包含: index, value ('like'/'dislike')
+    
+    同时保存反馈数据用于RAG模型微调。
     """
     if not feedback_data:
         return ""
@@ -251,6 +253,9 @@ def handle_feedback(feedback_data):
             action = str(feedback_data)
             index = '?'
         
+        # 保存反馈数据用于模型微调
+        _save_feedback_for_training(action, index, chat_history)
+        
         if action == 'like':
             print(f"[Chat] 用户对第 {index} 条回答点赞")
             return "<span class='agent-st success'>✓ 感谢反馈！这将帮助我们改进AI回答质量。</span>"
@@ -263,6 +268,48 @@ def handle_feedback(feedback_data):
         print(f"[Chat] 反馈处理异常: {e}")
     
     return ""
+
+
+def _save_feedback_for_training(action: str, index: int, chat_history):
+    """保存反馈数据用于RAG模型微调"""
+    if not chat_history or len(chat_history) < 2:
+        return
+    
+    try:
+        from models.feedback import RetrievalFeedback
+        from services.feedback_service import save_feedback
+        
+        # 找到对应的用户问题和AI回答
+        # chat_history格式: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+        target_idx = int(index) * 2 if str(index).isdigit() else -2
+        
+        if target_idx >= 0 and target_idx < len(chat_history):
+            user_msg = chat_history[target_idx]
+            ai_msg = chat_history[target_idx + 1] if target_idx + 1 < len(chat_history) else None
+        else:
+            # 默认取最后一条
+            user_msg = chat_history[-2] if len(chat_history) >= 2 else None
+            ai_msg = chat_history[-1] if chat_history else None
+        
+        if not user_msg or not ai_msg:
+            return
+        
+        query = user_msg.get("content", "") if isinstance(user_msg, dict) else str(user_msg)
+        
+        # 创建反馈对象
+        feedback = RetrievalFeedback(
+            query=query,
+            retrieved_chunk_ids=[],  # TODO: 从上下文中提取chunk IDs
+            retrieved_contents=[],
+            user_rating=action,
+        )
+        
+        # 保存反馈
+        save_feedback(feedback)
+        print(f"[Chat] 反馈已保存: {action}")
+        
+    except Exception as e:
+        print(f"[Chat] 保存反馈失败: {e}")
 
 
 def handle_ai_ask(text, chat_history, tree, lib, notes):
