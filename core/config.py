@@ -68,12 +68,10 @@ MS_KEY = os.environ.get("MS_KEY", "")
 API_BASE = os.environ.get("API_BASE", "https://api-inference.modelscope.cn/v1")
 
 # Primary model (user-configurable via env)
-MODEL_NAME = os.environ.get("MODEL_NAME", "deepseek-ai/DeepSeek-V3.2")
+MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen3.5-35B-A3B")
 
 # Fallback models (user-configurable via env, comma-separated)
-_default_fallbacks = (
-    "Qwen/Qwen3-235B-A22B,Qwen/Qwen3-32B,MiniMax/MiniMax-M2.5,ZhipuAI/GLM-4.7-Flash"
-)
+_default_fallbacks = "deepseek-ai/DeepSeek-V3.2,Qwen/Qwen3-235B-A22B,Qwen/Qwen3-32B,MiniMax/MiniMax-M2.5,ZhipuAI/GLM-4.7-Flash"
 FALLBACK_MODELS = [
     m.strip()
     for m in os.environ.get("FALLBACK_MODELS", _default_fallbacks).split(",")
@@ -212,5 +210,5 @@ PARSER_BACKEND = os.environ.get("PARSER_BACKEND", "docling")
 # 反馈数据存储路径 (用于RAG模型微调)
 FEEDBACK_STORAGE_PATH = os.environ.get(
     "FEEDBACK_STORAGE_PATH",
-    "/mnt/workspace/storage/feedback" if IN_MODELSCOPE_SPACE else "storage/feedback"
+    "/mnt/workspace/storage/feedback" if IN_MODELSCOPE_SPACE else "storage/feedback",
 )

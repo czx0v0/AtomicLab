@@ -1,5 +1,8 @@
 gradio>=6.0.0
 openai>=1.30.0
+arxiv>=2.1.0
+requests>=2.31.0
+tenacity>=8.2.3
 PyPDF2>=3.0.0
 python-dotenv>=1.0.0
 
