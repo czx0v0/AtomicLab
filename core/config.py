@@ -201,7 +201,7 @@ RAG_CONFIG = {
     "chunk_overlap": int(os.environ.get("RAG_CHUNK_OVERLAP", "120")),
     "similarity_threshold": float(os.environ.get("RAG_SIMILARITY_THRESHOLD", "0.58")),
     # 分块模式: semantic(语义分块) | paragraph(段落分块)
-    "chunk_mode": os.environ.get("CHUNK_MODE", "semantic"),
+    "chunk_mode": os.environ.get("CHUNK_MODE", "paragraph"),
     # 检索配置
     "vector_index_type": "HNSW",  # Flat, IVF, HNSW
     "rrf_k": 60,
