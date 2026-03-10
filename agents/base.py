@@ -9,7 +9,15 @@ from typing import Literal, Any
 from datetime import datetime
 from openai import OpenAI
 
-from core.config import API_BASE, MS_KEY, MODEL_NAME, FALLBACK_MODELS, THINKING_MODELS, DEEPSEEK_API_KEY, DEEPSEEK_API_BASE
+from core.config import (
+    API_BASE,
+    MS_KEY,
+    MODEL_NAME,
+    FALLBACK_MODELS,
+    THINKING_MODELS,
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_API_BASE,
+)
 from core.model_state import cooldown_manager
 
 
@@ -143,9 +151,13 @@ def call_llm(
 
     # --- Phase 2: DeepSeek direct API fallback ---
     if DEEPSEEK_API_KEY:
-        print("[call_llm] All ModelScope models exhausted, trying DeepSeek direct API...")
+        print(
+            "[call_llm] All ModelScope models exhausted, trying DeepSeek direct API..."
+        )
         try:
-            ds_client = OpenAI(base_url=DEEPSEEK_API_BASE, api_key=DEEPSEEK_API_KEY, max_retries=0)
+            ds_client = OpenAI(
+                base_url=DEEPSEEK_API_BASE, api_key=DEEPSEEK_API_KEY, max_retries=0
+            )
             response = ds_client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[
