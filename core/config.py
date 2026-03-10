@@ -122,12 +122,6 @@ MODEL_DISPLAY_NAMES = {m: _make_display_name(m) for m in [MODEL_NAME] + FALLBACK
 THINKING_MODELS = {m for m in [MODEL_NAME] + FALLBACK_MODELS if _is_thinking_model(m)}
 
 # ══════════════════════════════════════════════════════════════
-# Access Control
-# ══════════════════════════════════════════════════════════════
-ENABLE_AUTH = os.environ.get("ENABLE_AUTH", "true").lower() == "true"
-AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "")  # Set in .env, never hardcode
-
-# ══════════════════════════════════════════════════════════════
 # Application Constants
 # ══════════════════════════════════════════════════════════════
 APP_TITLE = "Atomic Lab"
