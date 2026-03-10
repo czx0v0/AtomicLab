@@ -67,12 +67,25 @@ class ParagraphChunker:
             else:
                 final_texts.append(para)
 
-        # 3. 转成 TextChunk
+        # 3. 转成 TextChunk（追踪当前 Markdown 标题，为每个 chunk 填充 section_name）
+        heading_pattern = re.compile(r"^(#{1,6})\s+(.+)")
+        current_section = ""
         total = len(final_texts)
         chunks: List[TextChunk] = []
+        # 去掉 kwargs 中可能已有的 section_name，统一由下面的逻辑管理
+        base_kwargs = {k: v for k, v in kwargs.items() if k != "section_name"}
         for i, content in enumerate(final_texts):
+            # 取段落首行检测标题（合并段落可能包含多行）
+            first_line = content.splitlines()[0].strip()
+            m = heading_pattern.match(first_line)
+            if m:
+                current_section = m.group(2).strip()
             chunks.append(
-                self._make_chunk(content, doc_id, doc_title, i, total, **kwargs)
+                self._make_chunk(
+                    content, doc_id, doc_title, i, total,
+                    section_name=current_section,
+                    **base_kwargs,
+                )
             )
 
         print(f"段落分块完成: {len(raw_paras)} 原始段落 -> {total} 个chunks")

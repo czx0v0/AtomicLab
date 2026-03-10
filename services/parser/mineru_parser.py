@@ -250,32 +250,56 @@ class MinerUParser:
         return "DOC-" + hashlib.md5(filepath.encode()).hexdigest()[:8].upper()
 
     def _extract_sections(self, content_list: list, doc_id: str) -> List[ParsedSection]:
-        """从MinerU内容列表提取章节"""
+        """从MinerU内容列表提取章节。
+
+        只以 type=='title' 的条目作为章节边界；正文 type=='text' 的段落
+        归属到当前章节的 content。这样一篇论文只会产生与标题数量相当的
+        ParsedSection，而不是为每一段正文都创建一个章节节点。
+        """
         sections = []
+        current_heading = ""
+        current_level = 1
+        current_content_parts: list = []
+        current_page_start = 0
+        section_index = 0
 
-        for i, item in enumerate(content_list):
-            if item.get("type") in ("text", "title", "header"):
-                text = item.get("text", "")
-                if not text.strip():
-                    continue
-
-                # 判断标题级别
-                level = 2  # 默认H2
-                if item.get("type") == "title":
-                    level = 1
-                elif item.get("type") == "header":
-                    level = item.get("level", 2)
-
-                section = ParsedSection(
-                    section_id=f"{doc_id}-SEC-{i:03d}",
-                    heading=text[:100] if level <= 2 else text[:50],
-                    level=level,
-                    content=text,
-                    word_count=len(text.split()),
-                    page_start=item.get("page", 0),
-                    page_end=item.get("page", 0),
+        def _flush():
+            nonlocal section_index
+            if not current_heading:
+                return
+            content = "\n\n".join(current_content_parts)
+            sections.append(
+                ParsedSection(
+                    section_id=f"{doc_id}-SEC-{section_index:03d}",
+                    heading=current_heading[:100],
+                    level=current_level,
+                    content=content,
+                    word_count=len(content.split()),
+                    page_start=current_page_start,
+                    page_end=current_page_start,
                 )
-                sections.append(section)
+            )
+            section_index += 1
+
+        for item in content_list:
+            item_type = item.get("type", "")
+            text = item.get("text", "").strip()
+            if not text:
+                continue
+
+            if item_type in ("title", "header"):
+                # 遇到新标题 -> 先保存上一个章节
+                _flush()
+                current_heading = text
+                current_level = item.get("level", 1)
+                current_content_parts = []
+                current_page_start = item.get("page", 0)
+            elif item_type == "text":
+                # 正文段落归属到当前章节
+                current_content_parts.append(text)
+
+        # 保存最后一个章节
+        _flush()
 
         return sections
 

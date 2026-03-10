@@ -44,7 +44,7 @@ try:
 except ImportError:
     ST_AVAILABLE = False
 
-from models.chunk import TextChunk, ChunkCollection
+from models.chunk import TextChunk, ChunkCollection, ChunkMetadata
 from models.search import RetrievalResult, ProcessingResult, SearchResult
 from models.parse_result import ParsedDocument, ParsedSection, DocumentMetadata
 
@@ -360,33 +360,59 @@ class RAGService:
             # 3. 分块
             chunks = self._chunk_document(parsed)
 
-            # 4. 生成embeddings
+            # 4. 生成章节摘要（可选），只处理 level==1 的一级标题章节
+            if self.summarizer and parsed.sections:
+                print("\n生成章节摘要 (仅一级标题)...")
+                level1_sections = [
+                    s for s in parsed.sections if s.level == 1 and s.content.strip()
+                ]
+                if level1_sections:
+                    sections_data = [
+                        {
+                            "section_id": s.section_id,
+                            "heading": s.heading,
+                            "content": s.content,
+                        }
+                        for s in level1_sections
+                    ]
+                    summaries = self.summarizer.batch_summarize(sections_data)
+
+                    # 更新ParsedSection的summary字段，并创建摘要chunk加入索引
+                    summary_chunks = []
+                    for section in level1_sections:
+                        if section.section_id in summaries:
+                            summary_obj = summaries[section.section_id]
+                            section.summary = summary_obj.summary
+                            section.key_points = summary_obj.key_points
+                            # 将摘要文本作为可检索chunk加入RAG索引
+                            summary_text = f"[章节摘要] {section.heading}: {summary_obj.summary}"
+                            summary_chunk = TextChunk(
+                                chunk_id=f"{section.section_id}-SUMMARY",
+                                doc_id=parsed.doc_id,
+                                content=summary_text,
+                                chunk_type="section",
+                                metadata=ChunkMetadata(
+                                    doc_title=parsed.title,
+                                    section_name=section.heading,
+                                    extra={
+                                        "is_summary": True,
+                                        "section_id": section.section_id,
+                                    },
+                                ),
+                            )
+                            summary_chunks.append(summary_chunk)
+
+                    chunks.extend(summary_chunks)
+                    print(
+                        f"章节摘要生成完成: {len(summaries)} 个章节, "
+                        f"新增 {len(summary_chunks)} 个摘要chunks"
+                    )
+
+            # 5. 生成embeddings（含摘要chunk）
             self._generate_embeddings(chunks)
 
-            # 5. 索引
+            # 6. 索引
             self._index_chunks(parsed.doc_id, chunks)
-
-            # 6. 生成章节摘要（可选）
-            if self.summarizer and parsed.sections:
-                print("\n生成章节摘要...")
-                sections_data = [
-                    {
-                        "section_id": s.section_id,
-                        "heading": s.heading,
-                        "content": s.content,
-                    }
-                    for s in parsed.sections
-                ]
-                summaries = self.summarizer.batch_summarize(sections_data)
-
-                # 更新ParsedSection的summary字段
-                for section in parsed.sections:
-                    if section.section_id in summaries:
-                        summary_obj = summaries[section.section_id]
-                        section.summary = summary_obj.summary
-                        section.key_points = summary_obj.key_points
-
-                print(f"章节摘要生成完成: {len(summaries)} 个章节")
 
             elapsed = (time.time() - start_time) * 1000
 
