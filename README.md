@@ -30,24 +30,30 @@ Atomic Lab 是一款面向研究者的 AI 辅助科研工作站。围绕「阅�
 
 ### RAG系统 (v2.3)
 
-**四种阅读模式**：
+**六种阅读模式**：
 
-| 模式                  | 保真渲染 | 高亮交互 | RAG分块   | 适用场景                     |
-| --------------------- | -------- | -------- | --------- | ---------------------------- |
-| **PDF高亮**     | ✅ 高    | ✅ 完整  | ✅ 支持   | **推荐：主要阅读模式** |
-| **Docling结构** | ✅ 中    | ❌ 无    | ✅ 高级   | 章节层级可视化，RAG调试      |
-| **分块数据库**  | ❌ 低    | ❌ 无    | ✅ 高级   | 文本分块查看，章节组织       |
-| 文本模式              | ❌ 低    | ✅ 完整  | ⚠️ 简单 | 快速阅读、全文搜索           |
-| PDF原版               | ✅ 高    | ❌ 无    | ❌ 无     | 打印预览、格式确认           |
+| 模式                    | 保真渲染 | 高亮交互 | RAG分块   | 适用场景                            |
+| ----------------------- | -------- | -------- | --------- | ----------------------------------- |
+| **PDF高亮**       | ✅ 高    | ✅ 完整  | ✅ 支持   | **推荐：主要阅读模式**        |
+| **MinerU Markdown** | ✅ 中   | ❌ 无    | ✅ 高级   | 查看MinerU解析原文与章节结构        |
+| **Docling结构**   | ✅ 中    | ❌ 无    | ✅ 高级   | 章节层级可视化，RAG调试             |
+| **分块数据库**    | ❌ 低    | ❌ 无    | ✅ 高级   | 文本分块查看，章节组织              |
+| 文本模式                | ❌ 低    | ✅ 完整  | ⚠️ 简单 | 快速阅读、全文搜索                  |
+| PDF原版                 | ✅ 高    | ❌ 无    | ❌ 无     | 打印预览、格式确认                  |
 
-**Docling结构显示模式** (v2.4新增)：
+**MinerU Markdown 模式** (v2.3新增)：
 
-- 多模式章节提取：支持Markdown标题、编号章节、大写章节名等多种格式
-- 章节层级可视化：正确渲染Markdown标题层级（#, ##, ###）
-- 参考文献过滤：自动识别并过滤参考文献格式的条目
-- 辅助文本分块：基于章节层级组织内容
+- 直接展示 MinerU 解析生成的原始 Markdown，不再经过二次推断
+- 展示解析器名称与置信度评分
+- 标题层级（h1–h6）轻量渲染，保留完整内容结构
 
-**分块数据库显示模式** (v2.4新增)：
+**Docling结构显示模式**：
+
+- 优先读取缓存的 `ParsedDocument.sections`，直接映射原始章节，**不再进行模糊关键词匹配**
+- 章节层级可视化：正确渲染 Markdown 标题层级（#, ##, ###）
+- 参考文献过滤：自动识别并过滤参考文献条目
+
+**分块数据库显示模式**：
 
 - 按章节组织分块：显示文本分块的章节归属关系
 - 层级结构展示：树状结构显示章节-分块关系
@@ -63,14 +69,17 @@ Atomic Lab 是一款面向研究者的 AI 辅助科研工作站。围绕「阅�
 **高级PDF解析**：
 
 - **Docling解析器**：IBM开源高保真PDF解析，支持表格结构化提取、公式识别、图表描述
-- **MinerU可选**：更高精度VLM后端，支持扫描PDF OCR（可通过后端切换）
+- **MinerU解析器**：高精度VLM后端，支持扫描PDF OCR；解析结果缓存至 `parsed_docs`，供结构视图直接读取，消除二次推断误差
+- **多版本兼容**：自动检测 MinerU Python API（UNIPipe）或 CLI（`magic-pdf`）并择优使用
 - **解析质量评估**：自动计算文档解析置信度，低质量文档预警
 
 **智能文本分块**：
 
-- **语义分块**：基于sentence-transformers计算句子相似度动态分割，保持语义完整性
-- **表格专用分块**：双重embedding策略（结构hash + 语义文本）
+- **语义分块**（默认）：基于 sentence-transformers 计算句子相似度动态分割，保持语义完整性；最小句子数 4、最小 token 阈值限制过碎分块
+- **段落分块**（新增）：按空行直接切割，无需加载 embedding 模型，启动快、适合结构完整的解析结果；自动合并过短段落、拆分超长段落
+- **表格专用分块**：双重 embedding 策略（结构hash + 语义文本）
 - **坐标映射服务**：`services/renderer/coordinate_mapper.py` - PDF位置 ↔ Chunk ID双向映射
+- **运行时热切换**：阅读页「分块模式」Radio（语义/段落）+ 「分块粒度」Radio（细/中/粗），切换后即时生效
 
 **三路混合检索**：
 
@@ -106,6 +115,16 @@ Atomic Lab 是一款面向研究者的 AI 辅助科研工作站。围绕「阅�
 | **Synthesizer**  | 跨文献合成      | 主题发现 + 关联分析 + 重要性排序 + 洞察      |
 | **Translator**   | 翻译引擎        | 中英自动检测 + 互译                          |
 | **Conversation** | RAG 问答        | 检索知识树 → 提取片段 → LLM 生成带引用回答 |
+
+### LLM 多模型容错
+
+`call_llm()` 采用三级降级策略，保障服务高可用：
+
+1. **ModelScope 主模型**（`MODEL_NAME`，默认 Qwen3.5-35B-A3B）
+2. **ModelScope 备用模型**（`FALLBACK_MODELS` 列表，依次尝试）
+3. **DeepSeek 官方 API**（当所有 ModelScope 模型限额时，使用 `DEEPSEEK_API_KEY`）
+
+触发限额（HTTP 429）后模型进入 1 小时冷却，次日午夜自动重置。
 
 ### Atomic-RAG
 
@@ -149,18 +168,18 @@ Atomic Lab 是一款面向研究者的 AI 辅助科研工作站。围绕「阅�
 
 ## 技术栈
 
-| 层         | 技术                                     |
-| ---------- | ---------------------------------------- |
-| 前端框架   | Gradio 6.5+（Python 原生 Web UI）        |
-| 主题       | Gradio Soft 浅色主题 + 自定义 CSS        |
-| 大语言模型 | DeepSeek-V3.2 (ModelScope Inference API) |
-| 可视化     | ECharts 5（MutationObserver 自动初始化） |
-| PDF 解析   | PyPDF2（基础）+ Docling（高级解析）      |
-| 向量存储   | FAISS (HNSW索引)                         |
-| 语义模型   | sentence-transformers (MiniLM)           |
-| 重排序模型 | bge-reranker-v2-m3                       |
-| 关键词检索 | rank-bm25 + jieba                        |
-| 语言       | Python 3.10+                             |
+| 层         | 技术                                                              |
+| ---------- | ----------------------------------------------------------------- |
+| 前端框架   | Gradio 6.5+（Python 原生 Web UI）                                 |
+| 主题       | Gradio Soft 浅色主题 + 自定义 CSS                                 |
+| 大语言模型 | ModelScope Inference API（主）→ DeepSeek 官方 API（降级）        |
+| 可视化     | ECharts 5（MutationObserver 自动初始化）                          |
+| PDF 解析   | PyPDF2（基础）+ Docling / MinerU（高级解析，可切换）              |
+| 向量存储   | FAISS (HNSW索引)                                                  |
+| 语义模型   | sentence-transformers (MiniLM)                                    |
+| 重排序模型 | bge-reranker-v2-m3                                                |
+| 关键词检索 | rank-bm25 + jieba                                                 |
+| 语言       | Python 3.10+                                                      |
 
 ## 项目结构
 
@@ -183,11 +202,13 @@ atomic-lab/
 │   ├── translator.py    # Translator 中英互译
 │   └── conversation.py  # Conversation RAG 问答
 ├── services/            # 🆕 v2.1 RAG服务
-│   ├── rag_service.py   # RAG统一服务入口
+│   ├── rag_service.py   # RAG统一服务入口（含 parsed_docs 缓存 + 热切换分块器）
 │   ├── parser/          # 文档解析
-│   │   └── docling_parser.py
+│   │   ├── docling_parser.py
+│   │   └── mineru_parser.py  # MinerU 多版本兼容解析器
 │   ├── chunking/        # 智能分块
-│   │   ├── semantic_chunker.py
+│   │   ├── semantic_chunker.py   # 语义分块（embedding相似度）
+│   │   ├── paragraph_chunker.py  # 段落分块（空行切割，无需embedding）
 │   │   └── table_chunker.py
 │   └── search/          # 检索服务
 │       ├── faiss_store.py
@@ -273,11 +294,19 @@ export ENABLE_AUTH=false
 
 ### 环境变量
 
-| 变量              | 默认值   | 说明                             |
-| ----------------- | -------- | -------------------------------- |
-| `MS_KEY`        | (无)     | ModelScope API Key               |
-| `ENABLE_AUTH`   | `true` | 是否开启密码认证                 |
-| `AUTH_PASSWORD` | (无)     | 登录密码（必须通过环境变量设置） |
+| 变量                    | 默认值                           | 说明                                           |
+| ----------------------- | -------------------------------- | ---------------------------------------------- |
+| `MS_KEY`              | (无)                             | ModelScope API Key（主要 LLM 来源）            |
+| `DEEPSEEK_API_KEY`    | (无)                             | DeepSeek 官方 API Key（ModelScope 限额后降级） |
+| `DEEPSEEK_API_BASE`   | `https://api.deepseek.com/v1`  | DeepSeek API 端点                              |
+| `ENABLE_AUTH`         | `true`                         | 是否开启密码认证                               |
+| `AUTH_PASSWORD`       | (无)                             | 登录密码（必须通过环境变量设置）               |
+| `PARSER_BACKEND`      | `docling`                      | 解析后端：`docling` 或 `mineru`              |
+| `CHUNK_MODE`          | `semantic`                     | 分块模式：`semantic` 或 `paragraph`          |
+| `RAG_CHUNK_SIZE`      | `900`                          | 分块最大 token 数                              |
+| `RAG_CHUNK_OVERLAP`   | `120`                          | 相邻分块重叠 token 数                          |
+| `RAG_SIMILARITY_THRESHOLD` | `0.58`                    | 语义分割相似度阈值（越低=块越大）              |
+| `HF_HOME`             | (系统默认)                       | HuggingFace 模型缓存目录                       |
 
 ## 技术要点
 
