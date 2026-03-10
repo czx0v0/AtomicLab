@@ -59,10 +59,33 @@ if IN_MODELSCOPE_SPACE:
         os.environ["HF_HOME"] = MODEL_CACHE_DIR
     print(f"[Config] ModelScope创空间环境")
     print(f"[Config] 模型缓存目录: {MODEL_CACHE_DIR}")
+    
+    # ══════════════════════════════════════════════════════════════
+    # MinerU 自动初始化（创空间无终端访问权限时）
+    # ══════════════════════════════════════════════════════════════
+    MINERU_MODELS_DIR = "/mnt/workspace/models/MinerU"
+    MINERU_CONFIG_FILE = "/mnt/workspace/.magic-pdf.json"
+    
+    # 自动创建 MinerU 配置文件
+    if not os.path.exists(MINERU_CONFIG_FILE):
+        try:
+            os.makedirs(MINERU_MODELS_DIR, exist_ok=True)
+            import json
+            config_content = {
+                "models-dir": MINERU_MODELS_DIR,
+                "device-mode": "cpu"
+            }
+            with open(MINERU_CONFIG_FILE, "w") as f:
+                json.dump(config_content, f, indent=2)
+            print(f"[Config] 已自动创建 MinerU 配置文件: {MINERU_CONFIG_FILE}")
+        except Exception as e:
+            print(f"[Config] 创建 MinerU 配置文件失败: {e}")
+    
+    # 设置 MinerU 环境变量
+    os.environ.setdefault("MINERU_TOOLS_CONFIG_JSON", MINERU_CONFIG_FILE)
+    os.environ.setdefault("MODELSCOPE_CACHE", "/mnt/workspace/.cache/modelscope")
 else:
     MODEL_CACHE_DIR = None  # 使用默认
-    # 不打印，避免干扰
-    # print("[Config] 本地开发环境，使用默认模型缓存位置")
 
 # 本地环境如果显式设置了HF_HOME，同步到hub/cache相关变量
 # 避免部分依赖仍回落到C盘默认缓存路径。
