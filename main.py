@@ -161,6 +161,19 @@ def _handle_chunk_granularity_change(profile: str):
         return f"<span class='agent-st'>切换分块粒度失败: {str(e)[:80]}</span>"
 
 
+def _handle_chunk_mode_change(mode_label: str):
+    """切换分块模式：语义 / 段落。"""
+    mode = "paragraph" if mode_label == "段落" else "semantic"
+    try:
+        result = rag_service.update_chunk_mode(mode)
+        return (
+            f"<span class='agent-st'>分块模式已切换为【{result['label']}】；"
+            "对后续上传/重建索引生效</span>"
+        )
+    except Exception as e:
+        return f"<span class='agent-st'>切换分块模式失败: {str(e)[:80]}</span>"
+
+
 # ══════════════════════════════════════════════════════════════
 # GRADIO APP
 # ══════════════════════════════════════════════════════════════
@@ -319,6 +332,11 @@ with gr.Blocks(title=APP_TITLE) as demo:
     read["chunk_granularity"].change(
         fn=_handle_chunk_granularity_change,
         inputs=[read["chunk_granularity"]],
+        outputs=[org["agent_status"]],
+    )
+    read["chunk_mode"].change(
+        fn=_handle_chunk_mode_change,
+        inputs=[read["chunk_mode"]],
         outputs=[org["agent_status"]],
     )
     # Popup: highlight action → auto-save note (v2.0: also creates annotation node + refresh PDF view)
