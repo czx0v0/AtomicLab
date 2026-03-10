@@ -552,28 +552,48 @@ def _render_mineru_markdown_view(pid: str, lib: dict) -> str:
             return "<div class='txt-empty'>MinerU未返回Markdown内容</div>"
 
         # 轻量Markdown显示：保留换行与标题语义，避免依赖额外库
-        md_lines = []
-        for raw_line in markdown_text.splitlines():
-            line = esc(raw_line)
-            stripped = raw_line.lstrip()
-            if stripped.startswith("###### "):
-                md_lines.append(f"<h6>{esc(stripped[7:])}</h6>")
-            elif stripped.startswith("##### "):
-                md_lines.append(f"<h5>{esc(stripped[6:])}</h5>")
-            elif stripped.startswith("#### "):
-                md_lines.append(f"<h4>{esc(stripped[5:])}</h4>")
-            elif stripped.startswith("### "):
-                md_lines.append(f"<h3>{esc(stripped[4:])}</h3>")
-            elif stripped.startswith("## "):
-                md_lines.append(f"<h2>{esc(stripped[3:])}</h2>")
-            elif stripped.startswith("# "):
-                md_lines.append(f"<h1>{esc(stripped[2:])}</h1>")
-            elif stripped == "":
-                md_lines.append("<div style='height:10px;'></div>")
-            else:
-                md_lines.append(f"<p>{line}</p>")
+        import re as _re
+        _img_re = _re.compile(r"!\[([^\]]*)\]\([^\)]*\)")
 
-        body_html = "\n".join(md_lines)
+        def _render_line(raw_line: str) -> str:
+            """将单行Markdown渲染为HTML片段（含图片占位符）。"""
+            stripped = raw_line.lstrip()
+            # 图片语法 ![alt](path) — 渲染为行内占位符（本地路径浏览器无法访问）
+            if _img_re.search(stripped):
+                parts = []
+                last = 0
+                for m in _img_re.finditer(stripped):
+                    if m.start() > last:
+                        parts.append(esc(stripped[last:m.start()]))
+                    alt = esc(m.group(1)) if m.group(1) else "图片"
+                    parts.append(
+                        f'<span style="display:inline-block;background:#f3f4f6;'
+                        f'border:1px solid #d1d5db;border-radius:6px;padding:2px 10px;'
+                        f'color:#6b7280;font-size:13px;">🖼 {alt}</span>'
+                    )
+                    last = m.end()
+                if last < len(stripped):
+                    parts.append(esc(stripped[last:]))
+                return f"<p>{''.join(parts)}</p>"
+            line = esc(raw_line)
+            if stripped.startswith("###### "):
+                return f"<h6>{esc(stripped[7:])}</h6>"
+            elif stripped.startswith("##### "):
+                return f"<h5>{esc(stripped[6:])}</h5>"
+            elif stripped.startswith("#### "):
+                return f"<h4>{esc(stripped[5:])}</h4>"
+            elif stripped.startswith("### "):
+                return f"<h3>{esc(stripped[4:])}</h3>"
+            elif stripped.startswith("## "):
+                return f"<h2>{esc(stripped[3:])}</h2>"
+            elif stripped.startswith("# "):
+                return f"<h1>{esc(stripped[2:])}</h1>"
+            elif stripped == "":
+                return "<div style='height:10px;'></div>"
+            else:
+                return f"<p>{line}</p>"
+
+        body_html = "\n".join(_render_line(ln) for ln in markdown_text.splitlines())
         return f"""
         <div class='mineru-md-wrap' style='padding:16px 20px;'>
             <div style='margin-bottom:12px;color:#4b5563;font-size:13px;'>
