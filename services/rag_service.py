@@ -31,10 +31,11 @@ def _download_embedding_model_from_modelscope(model_name: str) -> Optional[str]:
 
         # ModelScope上的sentence-transformers镜像模型
         # 映射 HuggingFace 模型名到 ModelScope 模型名
+        # 注意：ModelScope上直接使用相同的模型名
         modelscope_mapping = {
-            "paraphrase-multilingual-MiniLM-L12-v2": "AI-ModelScope/paraphrase-multilingual-MiniLM-L12-v2",
-            "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": "AI-ModelScope/paraphrase-multilingual-MiniLM-L12-v2",
-            "BAAI/bge-reranker-v2-m3": "Xorbits/bge-reranker-v2-m3",
+            "paraphrase-multilingual-MiniLM-L12-v2": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            "BAAI/bge-reranker-v2-m3": "BAAI/bge-reranker-v2-m3",
         }
 
         ms_model_name = modelscope_mapping.get(model_name)
