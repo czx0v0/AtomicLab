@@ -21,10 +21,10 @@ modelscope>=1.10.0
 # 高级PDF解析（ModelScope创空间注释，PyYAML冲突）
 # docling>=2.0.0
 
-# MinerU高精度解析（约3GB模型，首次使用自动下载）
-# 注意：mineru[all]包含所有依赖，可能与系统PyYAML冲突
-# 如果安装失败，将使用PyPDF2基础解析
-mineru[all]>=0.6.0
+# MinerU高精度解析（v2.0.0+无PyYAML依赖）
+# 注意：使用mineru而不是mineru[all]或magic-pdf
+# mineru v2.0.0+ 已移除PyYAML依赖，避免与系统PyYAML冲突
+mineru>=2.0.0
 
 # 向量数据库
 faiss-cpu>=1.7.4

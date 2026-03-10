@@ -1,7 +1,7 @@
 """
 MinerU Parser
 =============
-基于MinerU (magic-pdf) 的高精度PDF解析器
+基于MinerU (mineru/magic-pdf) 的高精度PDF解析器
 
 特性:
 - 90%+ 解析精度
@@ -9,6 +9,10 @@ MinerU Parser
 - LaTeX公式输出
 - 跨页表格合并
 - 支持扫描PDF
+
+支持版本:
+- mineru >= 2.0.0 (推荐，无PyYAML依赖)
+- magic-pdf (旧版)
 """
 
 import hashlib
@@ -25,22 +29,38 @@ MINERU_IMPORT_ERROR: Optional[str] = None
 _MINERU_API = None
 UNIPipe: Any = None
 
+# 尝试导入新版 mineru (v2.0.0+)
 try:
-    # 兼容旧版magic-pdf API
-    _uni_pipe_mod = importlib.import_module("magic_pdf.pipe.UNIPipe")
-    UNIPipe = getattr(_uni_pipe_mod, "UNIPipe", None)
+    _mineru_mod = importlib.import_module("mineru")
+    # 新版 API
+    if hasattr(_mineru_mod, "PDFParser"):
+        _MINERU_API = "mineru_v2"
+        print("[MinerU] 检测到新版 mineru v2.0.0+")
+except ImportError:
+    pass
 
-    if UNIPipe is not None:
-        _MINERU_API = "UNIPipe"
-    else:
-        MINERU_IMPORT_ERROR = "magic_pdf.pipe.UNIPipe exists but UNIPipe not found"
-except ImportError as e:
-    MINERU_IMPORT_ERROR = str(e)
+# 尝试导入旧版 magic-pdf API
+if _MINERU_API is None:
+    try:
+        _uni_pipe_mod = importlib.import_module("magic_pdf.pipe.UNIPipe")
+        UNIPipe = getattr(_uni_pipe_mod, "UNIPipe", None)
+
+        if UNIPipe is not None:
+            _MINERU_API = "UNIPipe"
+            print("[MinerU] 检测到旧版 magic-pdf API")
+        else:
+            MINERU_IMPORT_ERROR = "magic_pdf.pipe.UNIPipe exists but UNIPipe not found"
+    except ImportError as e:
+        MINERU_IMPORT_ERROR = str(e)
 
 
-def _find_magic_pdf_bin() -> Optional[str]:
-    """查找magic-pdf可执行文件，兼容未加入PATH的conda环境。"""
+def _find_mineru_bin() -> Optional[str]:
+    """查找mineru/magic-pdf可执行文件，兼容未加入PATH的conda环境。"""
     candidates = [
+        # 新版 mineru 命令
+        shutil.which("mineru"),
+        shutil.which("mineru.exe"),
+        # 旧版 magic-pdf 命令
         shutil.which("magic-pdf"),
         shutil.which("magic-pdf.exe"),
     ]
@@ -48,6 +68,12 @@ def _find_magic_pdf_bin() -> Optional[str]:
     py_dir = Path(sys.executable).resolve().parent
     candidates.extend(
         [
+            # 新版
+            str(py_dir / "Scripts" / "mineru.exe"),
+            str(py_dir / "Scripts" / "mineru"),
+            str(py_dir / "mineru"),
+            str(py_dir / "mineru.exe"),
+            # 旧版
             str(py_dir / "Scripts" / "magic-pdf.exe"),
             str(py_dir / "Scripts" / "magic-pdf"),
             str(py_dir / "magic-pdf"),
@@ -61,8 +87,8 @@ def _find_magic_pdf_bin() -> Optional[str]:
     return None
 
 
-_MAGIC_PDF_BIN = _find_magic_pdf_bin()
-MINERU_AVAILABLE = _MINERU_API is not None or _MAGIC_PDF_BIN is not None
+_MINERU_BIN = _find_mineru_bin()
+MINERU_AVAILABLE = _MINERU_API is not None or _MINERU_BIN is not None
 
 from models.parse_result import (
     ParsedDocument,
@@ -178,12 +204,12 @@ class MinerUParser:
 
     def _parse_with_cli(self, filepath: str) -> str:
         """调用magic-pdf命令行解析，并返回Markdown文本。"""
-        if not _MAGIC_PDF_BIN:
+        if not _MINERU_BIN:
             raise RuntimeError("magic-pdf 命令不存在，请检查MinerU安装")
 
         with tempfile.TemporaryDirectory(prefix="mineru_parse_") as output_dir:
             cmd = [
-                _MAGIC_PDF_BIN,
+                _MINERU_BIN,
                 "-p",
                 filepath,
                 "-o",

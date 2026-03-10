@@ -93,27 +93,20 @@ if IN_MODELSCOPE_SPACE:
     # 设置 MinerU 环境变量
     os.environ.setdefault("MINERU_TOOLS_CONFIG_JSON", MINERU_CONFIG_FILE)
     os.environ.setdefault("MODELSCOPE_CACHE", "/mnt/workspace/.cache/modelscope")
-    
+
     # 自动下载 MinerU 模型（首次使用时）
-    # 检查模型目录是否为空，如果为空则下载
+    # mineru v2.0.0+ 支持自动模型管理，无需手动下载
+    # 这里保留旧版兼容逻辑
     try:
-        model_files = os.listdir(MINERU_MODELS_DIR) if os.path.exists(MINERU_MODELS_DIR) else []
+        model_files = (
+            os.listdir(MINERU_MODELS_DIR) if os.path.exists(MINERU_MODELS_DIR) else []
+        )
         if len(model_files) == 0:
-            print("[Config] MinerU 模型目录为空，尝试自动下载模型...")
-            print("[Config] 这可能需要几分钟时间（约3GB）...")
-            import subprocess
-            result = subprocess.run(
-                ["python", "-m", "magic_pdf.cli.model_download"],
-                capture_output=True,
-                text=True,
-                timeout=600  # 10分钟超时
-            )
-            if result.returncode == 0:
-                print("[Config] ✓ MinerU 模型下载完成")
-            else:
-                print(f"[Config] ⚠️ MinerU 模型下载失败: {result.stderr}")
+            print("[Config] MinerU 模型目录为空")
+            print("[Config] mineru v2.0.0+ 将在首次使用时自动下载模型")
+            print("[Config] 模型约 3GB，首次解析可能需要几分钟")
     except Exception as e:
-        print(f"[Config] MinerU 模型下载检查失败: {e}")
+        print(f"[Config] MinerU 模型目录检查失败: {e}")
 else:
     MODEL_CACHE_DIR = None  # 使用默认
 
