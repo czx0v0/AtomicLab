@@ -15,7 +15,7 @@ import os
 import shutil
 import gradio as gr
 
-from core.config import APP_TITLE, ENABLE_AUTH, AUTH_PASSWORD, MODEL_DISPLAY_NAMES
+from core.config import APP_TITLE, MODEL_DISPLAY_NAMES
 
 
 # ══════════════════════════════════════════════════════════════
@@ -77,13 +77,7 @@ from tabs.write import (
     get_doc_choices,
     _render_write_graph,
 )
-from tabs.chat import (
-    build_chat_tab,
-    handle_chat_send,
-    handle_chat_clear,
-    handle_ai_ask,
-    handle_feedback,
-)
+from tabs.chat import build_chat_tab, handle_chat_send, handle_chat_clear, handle_ai_ask, handle_feedback
 
 # RAG服务集成
 from services.rag_service import get_rag_service
@@ -224,15 +218,9 @@ with gr.Blocks(title=APP_TITLE) as demo:
     ).then(
         fn=lambda: (
             gr.update(value=""),  # pdf_selector
-            gr.update(
-                value="<div class='nc-empty'>上传文献后显示</div>"
-            ),  # file_list_html
-            gr.update(
-                value="<div class='txt-empty'>选择文献后，文本将在此显示</div>"
-            ),  # pdf_text_html
-            gr.update(
-                value="<div class='txt-empty'>选择文献后，PDF 将在此显示</div>"
-            ),  # pdf_embed_html
+            gr.update(value="<div class='nc-empty'>上传文献后显示</div>"),  # file_list_html
+            gr.update(value="<div class='txt-empty'>选择文献后，文本将在此显示</div>"),  # pdf_text_html
+            gr.update(value="<div class='txt-empty'>选择文献后，PDF 将在此显示</div>"),  # pdf_embed_html
             render_note_cards([]),  # notes_html
             render_stats({"docs": 0, "notes": 0, "nodes": 0}),  # stats_html
             _render_graph(KnowledgeTree()),  # global_graph_html
@@ -640,6 +628,4 @@ if __name__ == "__main__":
         "head": ECHARTS_HEAD,
         "allowed_paths": ["image"],
     }
-    if ENABLE_AUTH:
-        launch_kwargs["auth"] = ("admin", AUTH_PASSWORD)
     demo.launch(**launch_kwargs)

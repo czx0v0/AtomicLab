@@ -1,5 +1,51 @@
 # 更新日志
 
+### 2026-03-10 (mineru-deepseek-chunk)
+
+#### 🚀 新功能
+
+**1. MinerU 解析优化**
+
+- 结构视图直接读取 `parsed_docs` 缓存中的原始章节，彻底去除模糊关键词匹配
+- 新增 **MinerU Markdown** 查看模式：直接展示 MinerU 解析生成的原始 Markdown，含标题层级、置信度评分
+- MinerU 多版本兼容：自动检测 UNIPipe Python API 或 `magic-pdf` CLI 并择优使用
+
+**2. DeepSeek 官方 API 直连降级**
+
+- ModelScope 所有模型全部触发限额（HTTP 429）后，自动切换至 DeepSeek 官方 API（`deepseek-chat`）
+- 通过 `.env` 中的 `DEEPSEEK_API_KEY` / `DEEPSEEK_API_BASE` 配置，无需改代码
+- 三级容错链：ModelScope 主模型 → ModelScope 备用模型池 → DeepSeek 官方 API
+
+**3. 段落分块模式**
+
+- 新增 `ParagraphChunker`：按 `\n\n` 空行直接切割，无需加载 embedding 模型，启动快
+- 自动合并过短段落（< 80 token），拆分超长段落（> max_chunk_size）
+- 适合 MinerU / Docling 等已保留段落结构的解析结果
+
+**4. 分块 UI 控件**
+
+- 阅读页左栏新增「**分块模式**」Radio（语义 / 段落），切换后热替换 chunker，对后续上传立即生效
+- 新增「**RAG 分块粒度**」Radio（细 / 中 / 粗），对应三组参数预设
+
+#### 🔧 改进
+
+- 分块默认参数调优：`chunk_size` 512→900，`overlap` 50→120，`similarity_threshold` 0.7→0.58
+- `SemanticChunker` 最小句子数 2→4，新增最小 token 阈值门槛，减少碎片分块
+- 所有分块参数支持环境变量覆盖：`CHUNK_MODE` / `RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` / `RAG_SIMILARITY_THRESHOLD`
+
+#### 📝 代码变更
+
+| 文件                                          | 变更描述                                           |
+| --------------------------------------------- | -------------------------------------------------- |
+| `agents/base.py`                            | `call_llm()` 新增 DeepSeek 直连降级逻辑            |
+| `core/config.py`                            | 新增 `DEEPSEEK_API_KEY/BASE`，`chunk_mode` 配置    |
+| `services/chunking/paragraph_chunker.py`    | 新增段落分块器（新文件）                           |
+| `services/chunking/__init__.py`             | 导出 `ParagraphChunker`                            |
+| `services/rag_service.py`                   | 新增 `parsed_docs` 缓存、`update_chunk_mode()`、`update_chunking_profile()` |
+| `tabs/read/__init__.py`                     | 新增 MinerU Markdown 视图、重写结构视图、分块 UI 控件 |
+
+---
+
 ### 2026-03-08 v2.6.0 (knowledge-tree-sections)
 
 #### 🚀 新功能
