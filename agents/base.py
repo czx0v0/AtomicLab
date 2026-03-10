@@ -9,7 +9,7 @@ from typing import Literal, Any
 from datetime import datetime
 from openai import OpenAI
 
-from core.config import API_BASE, MS_KEY, MODEL_NAME, FALLBACK_MODELS, THINKING_MODELS
+from core.config import API_BASE, MS_KEY, MODEL_NAME, FALLBACK_MODELS, THINKING_MODELS, DEEPSEEK_API_KEY, DEEPSEEK_API_BASE
 from core.model_state import cooldown_manager
 
 
@@ -108,36 +108,21 @@ def call_llm(
     """Call the LLM API with automatic fallback on rate limit (429).
 
     Uses cooldown_manager to track model availability and select models.
-    Models that hit rate limits are put on cooldown automatically.
-
-    Args:
-        system_prompt: System message
-        user_prompt: User message
-        temperature: Sampling temperature
-        max_tokens: Maximum tokens in response
-
-    Returns:
-        Generated text response
-
-    Raises:
-        AllModelsExhaustedError: If all models are on cooldown
-        Exception: If all available models fail with non-rate-limit errors
+    If all ModelScope models are rate-limited and DEEPSEEK_API_KEY is set,
+    falls back to DeepSeek's own API (deepseek-chat model).
     """
-    client = OpenAI(base_url=API_BASE, api_key=MS_KEY, max_retries=0)
+    ms_client = OpenAI(base_url=API_BASE, api_key=MS_KEY, max_retries=0)
     models = cooldown_manager.get_model_order()
-
-    if not models:
-        raise AllModelsExhaustedError(cooldown_manager.get_all_models())
 
     last_error = None
     tried_models = []
 
+    # --- Phase 1: try ModelScope models ---
     for model in models:
         tried_models.append(model)
         try:
-            # Qwen3 models require thinking mode disabled for non-streaming
             extra = {"enable_thinking": False} if model in THINKING_MODELS else {}
-            response = client.chat.completions.create(
+            response = ms_client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -147,17 +132,42 @@ def call_llm(
                 max_tokens=max_tokens,
                 extra_body=extra if extra else None,
             )
-            return response.choices[0].message.content
+            return response.choices[0].message.content or ""
         except Exception as e:
             last_error = e
             if _is_rate_limit_error(e):
                 print(f"[call_llm] {model} rate-limited, entering cooldown...")
                 cooldown_manager.set_cooldown(model)
                 continue
-            # Other errors: raise immediately
             raise
 
-    # All models exhausted
-    if _is_rate_limit_error(last_error):
+    # --- Phase 2: DeepSeek direct API fallback ---
+    if DEEPSEEK_API_KEY:
+        print("[call_llm] All ModelScope models exhausted, trying DeepSeek direct API...")
+        try:
+            ds_client = OpenAI(base_url=DEEPSEEK_API_BASE, api_key=DEEPSEEK_API_KEY, max_retries=0)
+            response = ds_client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            if _is_rate_limit_error(e):
+                print("[call_llm] DeepSeek direct API also rate-limited")
+            else:
+                print(f"[call_llm] DeepSeek direct API error: {e}")
+            last_error = e
+
+    # All exhausted
+    if not tried_models:
+        raise AllModelsExhaustedError(cooldown_manager.get_all_models())
+    if last_error is not None and _is_rate_limit_error(last_error):
         raise AllModelsExhaustedError(tried_models)
-    raise last_error
+    if last_error is not None:
+        raise last_error
+    raise AllModelsExhaustedError(tried_models)

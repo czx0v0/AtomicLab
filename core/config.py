@@ -85,6 +85,10 @@ if not IN_MODELSCOPE_SPACE:
 MS_KEY = os.environ.get("MS_KEY", "")
 API_BASE = os.environ.get("API_BASE", "https://api-inference.modelscope.cn/v1")
 
+# DeepSeek direct API (fallback when ModelScope is rate-limited)
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_API_BASE = os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
+
 # Primary model (user-configurable via env)
 MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen3.5-35B-A3B")
 
@@ -179,6 +183,8 @@ RAG_CONFIG = {
     "chunk_size": int(os.environ.get("RAG_CHUNK_SIZE", "900")),
     "chunk_overlap": int(os.environ.get("RAG_CHUNK_OVERLAP", "120")),
     "similarity_threshold": float(os.environ.get("RAG_SIMILARITY_THRESHOLD", "0.58")),
+    # 分块模式: semantic(语义分块) | paragraph(段落分块)
+    "chunk_mode": os.environ.get("CHUNK_MODE", "semantic"),
     # 检索配置
     "vector_index_type": "HNSW",  # Flat, IVF, HNSW
     "rrf_k": 60,

@@ -1530,6 +1530,12 @@ def build_read_tab():
                 label="RAG分块粒度",
                 info="细:更精细召回 | 中:平衡 | 粗:减少碎片。切换后对后续上传/重建索引生效",
             )
+            chunk_mode = gr.Radio(
+                choices=["语义", "段落"],
+                value="语义",
+                label="分块模式",
+                info="语义:基于embedding相似度切割(精准) | 段落:按空行分块(快速/不调用 embedding 模型)",
+            )
 
         # ── Center: Reader ──
         with gr.Column(scale=5, min_width=400):
@@ -1581,6 +1587,7 @@ def build_read_tab():
         "pdf_selector": pdf_selector,
         "view_mode": view_mode,
         "chunk_granularity": chunk_granularity,
+        "chunk_mode": chunk_mode,
         "pdf_text_html": pdf_text_html,
         "pdf_embed_html": pdf_embed_html,
         "notes_html": notes_html,

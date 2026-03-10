@@ -48,7 +48,7 @@ from models.chunk import TextChunk, ChunkCollection
 from models.search import RetrievalResult, ProcessingResult, SearchResult
 from models.parse_result import ParsedDocument, ParsedSection, DocumentMetadata
 
-from services.chunking import SemanticChunker, TableChunker
+from services.chunking import SemanticChunker, TableChunker, ParagraphChunker
 from services.search import (
     FAISSVectorStore,
     BM25Index,
@@ -90,6 +90,8 @@ class RAGConfig:
     # 解析器配置
     parser_backend: str = "docling"  # "docling" 或 "mineru"
     mineru_parse_method: str = "auto"  # auto/ocr/txt
+    # 分块模式
+    chunk_mode: str = "semantic"  # semantic | paragraph
 
 
 class RAGService:
@@ -131,6 +133,7 @@ class RAGService:
                 storage_path=config.get("storage_path", "storage"),
                 parser_backend=config.get("parser_backend", "docling"),
                 mineru_parse_method=config.get("mineru_parse_method", "auto"),
+                chunk_mode=config.get("chunk_mode", "semantic"),
             )
         else:
             self.config = config
@@ -187,7 +190,14 @@ class RAGService:
                 self.parser = None
 
         # 2. 分块器
-        if ST_AVAILABLE:
+        chunk_mode = getattr(self.config, "chunk_mode", "semantic")
+        if chunk_mode == "paragraph":
+            self.chunker = ParagraphChunker(
+                max_chunk_size=self.config.chunk_size,
+            )
+            self.table_chunker = TableChunker()
+            print("✓ 段落分块器初始化成功")
+        elif ST_AVAILABLE:
             self.chunker = SemanticChunker(
                 max_chunk_size=self.config.chunk_size,
                 overlap=self.config.chunk_overlap,
@@ -672,13 +682,43 @@ class RAGService:
 
         if self.chunker:
             self.chunker.max_chunk_size = settings["chunk_size"]
-            self.chunker.overlap = settings["chunk_overlap"]
-            self.chunker.similarity_threshold = settings["similarity_threshold"]
+            if isinstance(self.chunker, SemanticChunker):
+                self.chunker.overlap = settings["chunk_overlap"]
+                self.chunker.similarity_threshold = settings["similarity_threshold"]
 
         return {
             "profile": profile if profile in mapping else "中",
             **settings,
         }
+
+    def update_chunk_mode(self, mode: str) -> dict:
+        """切换分块模式（semantic / paragraph），立即替换 self.chunker。"""
+        if mode not in ("semantic", "paragraph"):
+            mode = "semantic"
+
+        self.config.chunk_mode = mode
+
+        if mode == "paragraph":
+            self.chunker = ParagraphChunker(max_chunk_size=self.config.chunk_size)
+            label = "段落分块"
+        else:
+            # 切回语义分块（需要 ST）
+            try:
+                self.chunker = SemanticChunker(
+                    max_chunk_size=self.config.chunk_size,
+                    overlap=self.config.chunk_overlap,
+                    similarity_threshold=self.config.similarity_threshold,
+                    model_name=self.config.embedding_model,
+                    device=self.config.device,
+                )
+                label = "语义分块"
+            except Exception as e:
+                print(f"[RAGService] 语义分块器切换失败: {e}，保持段落模式")
+                self.chunker = ParagraphChunker(max_chunk_size=self.config.chunk_size)
+                label = "段落分块（语义模型不可用）"
+
+        print(f"[RAGService] 分块模式切换 -> {label}")
+        return {"mode": mode, "label": label}
 
     def get_parsed_document(self, doc_id: str) -> Optional[ParsedDocument]:
         """获取已缓存的解析结果（会话内）。"""
