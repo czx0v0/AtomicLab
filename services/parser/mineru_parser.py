@@ -12,16 +12,57 @@ MinerU Parser
 """
 
 import hashlib
+import importlib
 import os
-from typing import List, Optional
+import shutil
+import subprocess
+import sys
+import tempfile
+from typing import Any, List, Optional
 from pathlib import Path
 
-try:
-    from magic_pdf.pipe.UNIPipe import UNIPipe
+MINERU_IMPORT_ERROR: Optional[str] = None
+_MINERU_API = None
+UNIPipe: Any = None
 
-    MINERU_AVAILABLE = True
-except ImportError:
-    MINERU_AVAILABLE = False
+try:
+    # 兼容旧版magic-pdf API
+    _uni_pipe_mod = importlib.import_module("magic_pdf.pipe.UNIPipe")
+    UNIPipe = getattr(_uni_pipe_mod, "UNIPipe", None)
+
+    if UNIPipe is not None:
+        _MINERU_API = "UNIPipe"
+    else:
+        MINERU_IMPORT_ERROR = "magic_pdf.pipe.UNIPipe exists but UNIPipe not found"
+except ImportError as e:
+    MINERU_IMPORT_ERROR = str(e)
+
+
+def _find_magic_pdf_bin() -> Optional[str]:
+    """查找magic-pdf可执行文件，兼容未加入PATH的conda环境。"""
+    candidates = [
+        shutil.which("magic-pdf"),
+        shutil.which("magic-pdf.exe"),
+    ]
+
+    py_dir = Path(sys.executable).resolve().parent
+    candidates.extend(
+        [
+            str(py_dir / "Scripts" / "magic-pdf.exe"),
+            str(py_dir / "Scripts" / "magic-pdf"),
+            str(py_dir / "magic-pdf"),
+            str(py_dir / "magic-pdf.exe"),
+        ]
+    )
+
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return None
+
+
+_MAGIC_PDF_BIN = _find_magic_pdf_bin()
+MINERU_AVAILABLE = _MINERU_API is not None or _MAGIC_PDF_BIN is not None
 
 from models.parse_result import (
     ParsedDocument,
@@ -60,7 +101,8 @@ class MinerUParser:
         if not MINERU_AVAILABLE:
             raise ImportError(
                 "MinerU未安装。请运行: pip install magic-pdf[full]\n"
-                "GPU版本: pip install magic-pdf[full-gpu]"
+                "GPU版本: pip install magic-pdf[full-gpu]\n"
+                f"导入错误: {MINERU_IMPORT_ERROR or 'unknown'}"
             )
         self.parse_method = parse_method
 
@@ -83,14 +125,14 @@ class MinerUParser:
 
         print(f"[MinerU] 开始解析: {filepath}")
 
-        # MinerU解析
-        pipe = UNIPipe(filepath, parse_method=self.parse_method)
-
-        # 获取Markdown内容
-        md_content = pipe.get_markdown()
-
-        # 获取结构化内容列表
-        content_list = pipe.get_content_list()
+        # MinerU解析: 优先旧版Python API，不可用时回退CLI。
+        if _MINERU_API == "UNIPipe":
+            pipe = UNIPipe(filepath, parse_method=self.parse_method)
+            md_content = pipe.get_markdown()
+            content_list = pipe.get_content_list()
+        else:
+            md_content = self._parse_with_cli(filepath)
+            content_list = self._build_content_list_from_markdown(md_content)
 
         # 提取各元素
         sections = self._extract_sections(content_list, doc_id)
@@ -129,8 +171,79 @@ class MinerUParser:
         Returns:
             Markdown格式的内容
         """
-        pipe = UNIPipe(filepath, parse_method=self.parse_method)
-        return pipe.get_markdown()
+        if _MINERU_API == "UNIPipe":
+            pipe = UNIPipe(filepath, parse_method=self.parse_method)
+            return pipe.get_markdown()
+        return self._parse_with_cli(filepath)
+
+    def _parse_with_cli(self, filepath: str) -> str:
+        """调用magic-pdf命令行解析，并返回Markdown文本。"""
+        if not _MAGIC_PDF_BIN:
+            raise RuntimeError("magic-pdf 命令不存在，请检查MinerU安装")
+
+        with tempfile.TemporaryDirectory(prefix="mineru_parse_") as output_dir:
+            cmd = [
+                _MAGIC_PDF_BIN,
+                "-p",
+                filepath,
+                "-o",
+                output_dir,
+                "-m",
+                self.parse_method,
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0:
+                err = (proc.stderr or proc.stdout or "").strip()
+                raise RuntimeError(f"magic-pdf 执行失败: {err[-400:]}")
+
+            md_files = list(Path(output_dir).rglob("*.md"))
+            if not md_files:
+                raise RuntimeError("magic-pdf 未产出Markdown文件")
+
+            md_file = max(md_files, key=lambda p: p.stat().st_size)
+            return md_file.read_text(encoding="utf-8", errors="ignore")
+
+    def _build_content_list_from_markdown(self, markdown: str) -> list:
+        """将Markdown粗略映射为内容列表，兼容现有提取逻辑。"""
+        content_list = []
+
+        for line in markdown.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith("#"):
+                level = len(s) - len(s.lstrip("#"))
+                text = s[level:].strip()
+                if text:
+                    content_list.append({"type": "title", "text": text, "level": level})
+            else:
+                content_list.append({"type": "text", "text": s})
+
+        # 粗略提取Markdown表格
+        lines = markdown.splitlines()
+        i = 0
+        while i < len(lines):
+            if lines[i].strip().startswith("|"):
+                block = []
+                while i < len(lines) and lines[i].strip().startswith("|"):
+                    block.append(lines[i].strip())
+                    i += 1
+                if len(block) >= 2:
+                    headers = [c.strip() for c in block[0].strip("|").split("|")]
+                    rows = []
+                    for row_line in block[2:]:
+                        rows.append([c.strip() for c in row_line.strip("|").split("|")])
+                    content_list.append(
+                        {
+                            "type": "table",
+                            "caption": "",
+                            "table_body": [headers] + rows,
+                        }
+                    )
+                continue
+            i += 1
+
+        return content_list
 
     def _generate_doc_id(self, filepath: str) -> str:
         """生成文档ID"""
@@ -176,8 +289,11 @@ class MinerUParser:
                 caption = item.get("caption", "")
 
                 # 提取表头和行
-                headers = table_data[0] if table_data else []
-                rows = table_data[1:] if len(table_data) > 1 else []
+                headers = [str(h) for h in (table_data[0] if table_data else [])]
+                rows = [
+                    [str(cell) for cell in row]
+                    for row in (table_data[1:] if len(table_data) > 1 else [])
+                ]
 
                 # 生成Markdown格式
                 md_lines = []
@@ -246,6 +362,7 @@ class MinerUParser:
                 "title": Path(filepath).stem,
                 "parser": "mineru",
                 "parse_method": self.parse_method,
+                "api": _MINERU_API or "magic-pdf-cli",
             },
         )
 

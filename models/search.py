@@ -163,7 +163,9 @@ class ProcessingResult:
     error: Optional[str] = None
     processing_time_ms: float = 0.0
     # 新增：章节信息（用于知识树构建）
-    sections: Optional[List[dict]] = None  # [{section_id, heading, level, summary, page_start, page_end}]
+    sections: Optional[List[dict]] = (
+        None  # [{section_id, heading, level, summary, page_start, page_end}]
+    )
 
     def to_dict(self) -> dict:
         return {

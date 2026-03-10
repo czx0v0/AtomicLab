@@ -1142,6 +1142,29 @@ def append_sharegpt_records(output_jsonl: Path, records: List[Dict[str, Any]]) -
     return len(records)
 
 
+def load_processed_arxiv_ids(output_jsonl: Path) -> set:
+    """Scan existing output JSONL and return the set of arxiv_ids already written."""
+    processed: set = set()
+    if not output_jsonl.exists():
+        return processed
+    try:
+        with output_jsonl.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    arxiv_id = rec.get("meta", {}).get("arxiv_id")
+                    if arxiv_id:
+                        processed.add(arxiv_id)
+                except Exception:
+                    pass
+    except Exception as e:
+        log(f"Warning: could not read existing output for resume: {e}")
+    return processed
+
+
 def to_sharegpt_record(
     paper: PaperRecord,
     section: SectionChunk,
@@ -1202,28 +1225,74 @@ def main() -> None:
 
     # Fetch Semantic Scholar metadata (BibTeX + citations) if enabled
     if args.enable_semantic_scholar:
-        log("=" * 72)
-        log("Fetching Semantic Scholar metadata (BibTeX + citations)...")
-        log("Rate limit: <= 1 RPS with mandatory 1.2s throttle")
-        log(
-            "This will take approximately {:.1f} minutes".format(
-                max(0.0, ((len(papers) - 1) * 1.2) / 60)
+        s2_cache_path = args.raw_dir / "s2_cache.json"
+
+        # Load existing cache
+        s2_cache: Dict[str, Dict[str, Any]] = {}
+        if s2_cache_path.exists():
+            try:
+                s2_cache = json.loads(s2_cache_path.read_text(encoding="utf-8"))
+                log(
+                    f"Semantic Scholar cache loaded: {len(s2_cache)} entries from {s2_cache_path}"
+                )
+            except Exception as e:
+                log(f"Warning: could not read S2 cache ({e}), will re-fetch")
+
+        # Apply cached data immediately
+        for paper in papers:
+            cached = s2_cache.get(paper.arxiv_id)
+            if cached:
+                paper.bibtex = cached.get("bibtex", "")
+                paper.citations = cached.get("citations", [])
+
+        uncached_papers = [p for p in papers if not s2_cache.get(p.arxiv_id)]
+
+        if uncached_papers:
+            log("=" * 72)
+            log(
+                f"Fetching Semantic Scholar metadata for {len(uncached_papers)} new papers..."
             )
-        )
-        log("=" * 72)
+            log("Rate limit: <= 1 RPS with mandatory 1.2s throttle")
+            log(
+                "This will take approximately {:.1f} minutes".format(
+                    max(0.0, ((len(uncached_papers) - 1) * 1.2) / 60)
+                )
+            )
+            log("=" * 72)
 
-        s2_client = SemanticScholarClient(
-            api_key=SEMANTIC_SCHOLAR_API_KEY,
-            timeout_sec=20,
-            batch_size=20,
-        )
-        success_count = s2_client.enrich_papers(papers)
+            s2_client = SemanticScholarClient(
+                api_key=SEMANTIC_SCHOLAR_API_KEY,
+                timeout_sec=20,
+                batch_size=20,
+            )
+            success_count = s2_client.enrich_papers(uncached_papers)
 
-        log("=" * 72)
-        log(
-            f"Semantic Scholar fetch completed: {success_count}/{len(papers)} successful"
-        )
-        log("=" * 72)
+            # Persist newly fetched data to cache
+            for paper in uncached_papers:
+                if paper.bibtex or paper.citations:
+                    s2_cache[paper.arxiv_id] = {
+                        "bibtex": paper.bibtex,
+                        "citations": paper.citations,
+                    }
+            try:
+                s2_cache_path.parent.mkdir(parents=True, exist_ok=True)
+                s2_cache_path.write_text(
+                    json.dumps(s2_cache, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                log(f"S2 cache saved: {len(s2_cache)} total entries -> {s2_cache_path}")
+            except Exception as e:
+                log(f"Warning: could not save S2 cache: {e}")
+
+            log("=" * 72)
+            log(
+                f"Semantic Scholar fetch completed: {success_count}/{len(uncached_papers)} successful"
+            )
+            log("=" * 72)
+        else:
+            log(
+                f"Semantic Scholar: all {len(papers)} papers served from cache, no API call needed"
+            )
 
     client = build_teacher_client(
         timeout_sec=args.teacher_timeout, use_deepseek=args.use_deepseek
@@ -1233,10 +1302,25 @@ def main() -> None:
     total_notes = 0
     total_processed_papers = 0
 
-    # Collect all records first for potential train/test split
+    # Resume: skip papers already written to the output file.
+    # (Only active when not doing a train/test split, because split needs all records together.)
+    incremental_mode = args.test_split_ratio == 0
+    processed_arxiv_ids: set = set()
+    if incremental_mode:
+        processed_arxiv_ids = load_processed_arxiv_ids(args.output_jsonl)
+        if processed_arxiv_ids:
+            log(
+                f"Resume mode: {len(processed_arxiv_ids)} paper(s) already in "
+                f"{args.output_jsonl} — will skip them"
+            )
+
+    # Collect records from the current run (needed for train/test split)
     all_paper_records: List[Tuple[PaperRecord, Dict[str, Any]]] = []
 
     for idx, paper in enumerate(papers, start=1):
+        if paper.arxiv_id in processed_arxiv_ids:
+            log(f"[{idx}/{len(papers)}] Skip {paper.arxiv_id} (already processed)")
+            continue
         log(f"[{idx}/{len(papers)}] Processing {paper.arxiv_id} - {paper.title}")
 
         pdf_path = download_paper_pdf(
@@ -1309,7 +1393,15 @@ def main() -> None:
                 log(f"Section failed ({paper.arxiv_id}#{sec.order}): {e}; continue")
                 continue
 
-        # Store records with paper metadata for later split
+        # Incremental write: flush this paper immediately so a crash doesn't lose work.
+        if incremental_mode and paper_records:
+            written_now = append_sharegpt_records(args.output_jsonl, paper_records)
+            processed_arxiv_ids.add(paper.arxiv_id)
+            log(
+                f"  -> Saved {written_now} record(s) to {args.output_jsonl} (incremental)"
+            )
+
+        # Keep for potential train/test split at the end
         for rec in paper_records:
             all_paper_records.append((paper, rec))
 
@@ -1348,14 +1440,12 @@ def main() -> None:
         log(f"Train records: {written_train} -> {args.output_jsonl}")
         log(f"Test records: {written_test} -> {test_jsonl}")
     else:
-        # Write all to single file
-        all_records = [rec for _, rec in all_paper_records]
-        written = append_sharegpt_records(args.output_jsonl, all_records)
-        total_records = written
+        # Incremental mode already wrote everything paper-by-paper; just count.
+        total_records = sum(1 for _ in all_paper_records)
 
         log("=" * 72)
-        log("Build completed")
-        log(f"Total records written: {total_records}")
+        log("Build completed (incremental writes — no final flush needed)")
+        log(f"Total records written this run: {total_records}")
 
     log(f"Processed papers: {total_processed_papers}")
     log(f"AtomicNote count: {total_notes}")

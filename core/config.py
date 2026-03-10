@@ -176,9 +176,9 @@ RAG_CONFIG = {
     "reranker_model": "BAAI/bge-reranker-v2-m3",
     "device": "cpu",
     # 分块配置
-    "chunk_size": 512,
-    "chunk_overlap": 50,
-    "similarity_threshold": 0.7,
+    "chunk_size": int(os.environ.get("RAG_CHUNK_SIZE", "900")),
+    "chunk_overlap": int(os.environ.get("RAG_CHUNK_OVERLAP", "120")),
+    "similarity_threshold": float(os.environ.get("RAG_SIMILARITY_THRESHOLD", "0.58")),
     # 检索配置
     "vector_index_type": "HNSW",  # Flat, IVF, HNSW
     "rrf_k": 60,

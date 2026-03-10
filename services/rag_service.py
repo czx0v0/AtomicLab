@@ -141,6 +141,8 @@ class RAGService:
         # Chunk存储 (内存中)
         self.chunk_store: Dict[str, TextChunk] = {}
         self.doc_chunks: Dict[str, List[str]] = {}  # doc_id -> chunk_ids
+        # 解析结果缓存（会话内）
+        self.parsed_docs: Dict[str, ParsedDocument] = {}
 
     def _init_components(self):
         """初始化各组件"""
@@ -154,7 +156,11 @@ class RAGService:
 
         if parser_backend == "mineru":
             try:
-                from services.parser.mineru_parser import MinerUParser, MINERU_AVAILABLE
+                from services.parser.mineru_parser import (
+                    MinerUParser,
+                    MINERU_AVAILABLE,
+                    MINERU_IMPORT_ERROR,
+                )
 
                 if MINERU_AVAILABLE:
                     self.parser = MinerUParser(
@@ -162,7 +168,9 @@ class RAGService:
                     )
                     print("✓ MinerU解析器初始化成功 (高精度模式)")
                 else:
-                    raise ImportError("MinerU不可用")
+                    raise ImportError(
+                        f"MinerU不可用: {MINERU_IMPORT_ERROR or 'unknown reason'}"
+                    )
             except ImportError as e:
                 print(f"⚠️ MinerU解析器不可用: {e}")
                 print("  回退到Docling解析器...")
@@ -330,6 +338,9 @@ class RAGService:
                     error=f"解析置信度过低: {parsed.parse_confidence:.2f}",
                     confidence=parsed.parse_confidence,
                 )
+
+            # 缓存解析结果，供前端结构化渲染使用（如MinerU Markdown/章节视图）
+            self.parsed_docs[parsed.doc_id] = parsed
 
             print(f"解析完成: 置信度={parsed.parse_confidence:.2f}")
             print(f"  - 章节: {len(parsed.sections)}")
@@ -631,9 +642,52 @@ class RAGService:
         chunk_ids = self.doc_chunks.get(doc_id, [])
         return [self.chunk_store[cid] for cid in chunk_ids if cid in self.chunk_store]
 
+    def update_chunking_profile(self, profile: str = "中") -> Dict[str, Any]:
+        """更新分块粒度档位（细/中/粗）。
+
+        注意：仅影响后续解析与分块，已入库文档不会自动重建。
+        """
+        mapping = {
+            "细": {
+                "chunk_size": 720,
+                "chunk_overlap": 100,
+                "similarity_threshold": 0.62,
+            },
+            "中": {
+                "chunk_size": 900,
+                "chunk_overlap": 120,
+                "similarity_threshold": 0.58,
+            },
+            "粗": {
+                "chunk_size": 1200,
+                "chunk_overlap": 180,
+                "similarity_threshold": 0.52,
+            },
+        }
+
+        settings = mapping.get(profile, mapping["中"])
+        self.config.chunk_size = settings["chunk_size"]
+        self.config.chunk_overlap = settings["chunk_overlap"]
+        self.config.similarity_threshold = settings["similarity_threshold"]
+
+        if self.chunker:
+            self.chunker.max_chunk_size = settings["chunk_size"]
+            self.chunker.overlap = settings["chunk_overlap"]
+            self.chunker.similarity_threshold = settings["similarity_threshold"]
+
+        return {
+            "profile": profile if profile in mapping else "中",
+            **settings,
+        }
+
+    def get_parsed_document(self, doc_id: str) -> Optional[ParsedDocument]:
+        """获取已缓存的解析结果（会话内）。"""
+        return self.parsed_docs.get(doc_id)
+
     def delete_document(self, doc_id: str) -> bool:
         """删除文档及其chunks"""
         chunk_ids = self.doc_chunks.pop(doc_id, [])
+        self.parsed_docs.pop(doc_id, None)
 
         for cid in chunk_ids:
             self.chunk_store.pop(cid, None)
@@ -670,6 +724,7 @@ class RAGService:
         if clear_existing:
             self.chunk_store.clear()
             self.doc_chunks.clear()
+            self.parsed_docs.clear()
             print("🗑️ 已清空现有索引缓存")
 
         if self.vector_store:
