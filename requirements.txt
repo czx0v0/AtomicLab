@@ -18,6 +18,10 @@ sentence-transformers>=2.2.0
 # 高级PDF解析
 docling>=2.0.0
 
+# MinerU高精度解析（可选，约3GB模型）
+# pip install mineru[all]>=2.7.0
+# 需要额外配置 magic-pdf.json，详见 docs/MODEL_STORAGE_CONFIG.md
+
 # 向量数据库
 faiss-cpu>=1.7.4
 
