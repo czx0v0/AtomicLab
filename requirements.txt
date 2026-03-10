@@ -5,7 +5,6 @@ requests>=2.31.0
 tenacity>=8.2.3
 PyPDF2>=3.0.0
 python-dotenv>=1.0.0
-PyYAML>=6.0
 
 # v2.0 搜索功能依赖
 jieba>=0.42.0
@@ -16,8 +15,8 @@ numpy>=1.24.0,<2.0.0
 # v2.1 RAG语义搜索
 sentence-transformers>=2.2.0
 
-# 高级PDF解析
-docling>=2.0.0
+# 高级PDF解析（ModelScope创空间注释，PyYAML冲突）
+# docling>=2.0.0
 
 # MinerU高精度解析（可选，约3GB模型）
 # pip install mineru[all]>=2.7.0
@@ -30,7 +29,7 @@ faiss-cpu>=1.7.4
 rank-bm25>=0.2.2
 
 # OCR截图识别（可选）
-# paddleocr>=2.7.0  # 注意：可能与系统PyYAML冲突，创空间建议注释
+# paddleocr>=2.7.0  # 注意：可能与系统PyYAML冲突
 # easyocr>=1.7.0  # 备选方案
 
 # 中文分词模型 (可选)
