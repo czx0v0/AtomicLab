@@ -110,6 +110,7 @@ SYSTEM_PROMPT = (
     "你必须输出严格 json 格式。"
     "请将给定章节文本提炼为 AtomicNote，并以 JSON 对象输出。"
     "输出必须是一个包含 notes 键的 json 对象，不要输出任何额外说明。"
+    '当章节没有可提取价值时，返回 {"notes": []}，不要报错。'
 )
 
 USER_PROMPT_TEMPLATE = """
@@ -118,7 +119,7 @@ USER_PROMPT_TEMPLATE = """
 严格要求：
 1) 输出必须是 JSON 对象，不允许输出 JSON 数组。
 2) 你只能输出以下结构：
-    {"notes": [{...}, {...}]}
+    {{"notes": [{{...}}, {{...}}]}}
 3) notes 数组中的每个元素必须包含字段：
    - knowledge_type: 必须是 {allowed_types} 之一
    - title: 字符串
@@ -129,7 +130,7 @@ USER_PROMPT_TEMPLATE = """
 4) 不允许新增知识类型。
 5) page_num 与 bbox 必须精准引用证据中的值，禁止编造。
 6) bibtex_citation 必须使用下方提供的真实引用信息，不可编造。
-7) 如果章节没有可用证据，返回 {"notes": []}。
+7) 如果章节没有可用证据，或属于无价值段落（如纯标题、目录、版权声明），返回 {{"notes": []}}。
 
 文档信息：
 - arxiv_id: {arxiv_id}
@@ -294,9 +295,9 @@ def parse_args() -> argparse.Namespace:
 def search_arxiv_papers(
     keywords: Sequence[str], max_papers: int, per_query: int
 ) -> List[PaperRecord]:
-    client = arxiv.Client(page_size=50, delay_seconds=0, num_retries=3)
     seen_ids: set[str] = set()
     records: List[PaperRecord] = []
+    search_retries = 4
 
     for kw in keywords:
         query = f'all:"{kw}"'
@@ -308,26 +309,45 @@ def search_arxiv_papers(
         )
 
         log(f"Searching arXiv for keyword: {kw}")
-        try:
-            for result in client.results(search):
-                pid = result.get_short_id()
-                if pid in seen_ids:
-                    continue
-                seen_ids.add(pid)
+        last_error: Optional[Exception] = None
 
-                records.append(
-                    PaperRecord(
-                        arxiv_id=pid,
-                        title=result.title.replace("\n", " ").strip(),
-                        pdf_url=result.pdf_url or "",
-                        published=str(getattr(result, "published", "")),
-                        keywords=[kw],
+        for attempt in range(1, search_retries + 1):
+            # Recreate client each retry to avoid stale/broken connections.
+            client = arxiv.Client(page_size=50, delay_seconds=3.0, num_retries=3)
+            try:
+                for result in client.results(search):
+                    pid = result.get_short_id()
+                    if pid in seen_ids:
+                        continue
+                    seen_ids.add(pid)
+
+                    records.append(
+                        PaperRecord(
+                            arxiv_id=pid,
+                            title=result.title.replace("\n", " ").strip(),
+                            pdf_url=result.pdf_url or "",
+                            published=str(getattr(result, "published", "")),
+                            keywords=[kw],
+                        )
                     )
+                    if len(records) >= max_papers:
+                        break
+
+                # Success for current keyword.
+                last_error = None
+                break
+            except Exception as e:
+                last_error = e
+                wait_sec = min(2**attempt, 12)
+                log(
+                    f"Search error for '{kw}' (attempt {attempt}/{search_retries}): {e}"
                 )
-                if len(records) >= max_papers:
-                    break
-        except Exception as e:
-            log(f"Search error for '{kw}': {e}; continue")
+                if attempt < search_retries:
+                    log(f"Retrying arXiv search in {wait_sec}s...")
+                    time.sleep(wait_sec)
+
+        if last_error is not None:
+            log(f"Search failed for '{kw}' after {search_retries} attempts; continue")
 
         if len(records) >= max_papers:
             break
@@ -649,12 +669,18 @@ def load_mineru_evidence(
 
             return " ".join(texts)
 
-        def walk(node: Any) -> None:
+        def walk(
+            node: Any,
+            inherited_page: Optional[int] = None,
+            parent_key: Optional[str] = None,
+        ) -> None:
             nonlocal scanned_nodes, nodes_with_text, nodes_with_page, nodes_with_bbox, nodes_added
 
             if isinstance(node, dict):
                 scanned_nodes += 1
                 page = node.get("page_num", node.get("page", node.get("page_idx")))
+                if page is None:
+                    page = inherited_page
 
                 if page is not None:
                     nodes_with_page += 1
@@ -708,11 +734,16 @@ def load_mineru_evidence(
                             return
 
                 # Recurse into children
-                for v in node.values():
-                    walk(v)
+                for k, v in node.items():
+                    walk(v, inherited_page=page, parent_key=k)
             elif isinstance(node, list):
-                for item in node:
-                    walk(item)
+                for idx, item in enumerate(node):
+                    next_page = inherited_page
+                    # MinerU middle.json often stores per-page data under pdf_info list
+                    # where page number is represented by list index.
+                    if parent_key == "pdf_info" and inherited_page is None:
+                        next_page = idx
+                    walk(item, inherited_page=next_page, parent_key=parent_key)
 
         walk(obj)
 
@@ -827,6 +858,41 @@ def extract_json_array(text: str) -> List[Any]:
         return []
 
 
+def clean_json_string(text: str) -> str:
+    """Clean model output and keep only the JSON object body.
+
+    DeepSeek responses may contain <think>...</think> or markdown wrappers.
+    We keep content between the first '{' and the last '}'.
+    """
+    if not text:
+        return "{}"
+
+    cleaned = text.strip()
+
+    # Remove optional reasoning tags.
+    cleaned = re.sub(
+        r"<think>.*?</think>", "", cleaned, flags=re.DOTALL | re.IGNORECASE
+    )
+
+    # Remove fenced markdown block wrappers if present.
+    fenced = re.match(
+        r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.DOTALL | re.IGNORECASE
+    )
+    if fenced:
+        cleaned = fenced.group(1).strip()
+
+    # If model returns bare empty list, normalize to expected object schema.
+    if cleaned == "[]":
+        return '{"notes": []}'
+
+    first = cleaned.find("{")
+    last = cleaned.rfind("}")
+    if first == -1 or last == -1 or first > last:
+        return "{}"
+
+    return cleaned[first : last + 1]
+
+
 def validate_atomic_notes(
     items: Iterable[Any], debug: bool = False
 ) -> List[Dict[str, Any]]:
@@ -869,19 +935,24 @@ def validate_atomic_notes(
             )
             continue
 
-        if not (isinstance(bbox, list) and len(bbox) == 4):
-            rejected_reasons["invalid_bbox_format"] = (
-                rejected_reasons.get("invalid_bbox_format", 0) + 1
+        if isinstance(bbox, list) and len(bbox) == 4:
+            try:
+                bbox4 = [
+                    float(bbox[0]),
+                    float(bbox[1]),
+                    float(bbox[2]),
+                    float(bbox[3]),
+                ]
+            except Exception:
+                rejected_reasons["bbox_conversion_failed_use_default"] = (
+                    rejected_reasons.get("bbox_conversion_failed_use_default", 0) + 1
+                )
+                bbox4 = [0.0, 0.0, 0.0, 0.0]
+        else:
+            rejected_reasons["missing_or_invalid_bbox_use_default"] = (
+                rejected_reasons.get("missing_or_invalid_bbox_use_default", 0) + 1
             )
-            continue
-
-        try:
-            bbox4 = [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])]
-        except Exception:
-            rejected_reasons["bbox_conversion_failed"] = (
-                rejected_reasons.get("bbox_conversion_failed", 0) + 1
-            )
-            continue
+            bbox4 = [0.0, 0.0, 0.0, 0.0]
 
         valid.append(
             {
@@ -1016,7 +1087,8 @@ def teacher_extract_atomic_notes(
                     max_tokens=2000,
                 )
                 text = (resp.choices[0].message.content or "").strip()
-                raw_obj = json.loads(text)
+                cleaned_text = clean_json_string(text)
+                raw_obj = json.loads(cleaned_text)
                 if not isinstance(raw_obj, dict):
                     raise ValueError("Teacher response is not a JSON object")
 

@@ -10,3 +10,6 @@ data/*
 docs/*
 logs/*
 storage/*
+node_modules/
+package-lock.json
+package.json
