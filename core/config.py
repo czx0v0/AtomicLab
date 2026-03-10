@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 
 load_dotenv()  # 本地开发用，魔搭空间通过环境变量配置
 
+# Windows下默认关闭HF symlink提示，避免日志噪音影响排障。
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
 # ══════════════════════════════════════════════════════════════
 # HuggingFace镜像配置 - 中国大陆加速
 # ══════════════════════════════════════════════════════════════
@@ -60,6 +63,21 @@ else:
     MODEL_CACHE_DIR = None  # 使用默认
     # 不打印，避免干扰
     # print("[Config] 本地开发环境，使用默认模型缓存位置")
+
+# 本地环境如果显式设置了HF_HOME，同步到hub/cache相关变量
+# 避免部分依赖仍回落到C盘默认缓存路径。
+if not IN_MODELSCOPE_SPACE:
+    _hf_home = os.environ.get("HF_HOME", "").strip()
+    if _hf_home:
+        _hf_home = os.path.normpath(_hf_home)
+        os.environ["HF_HOME"] = _hf_home
+        os.environ.setdefault("TRANSFORMERS_CACHE", _hf_home)
+        os.environ.setdefault("HF_HUB_CACHE", os.path.join(_hf_home, "hub"))
+        os.environ.setdefault("HUGGINGFACE_HUB_CACHE", os.path.join(_hf_home, "hub"))
+        # 仅关闭警告，不影响功能；用于减少Windows链接提示噪音。
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+        print(f"[Config] 本地HF_HOME: {os.environ.get('HF_HOME')}")
+        print(f"[Config] 本地HF_HUB_CACHE: {os.environ.get('HF_HUB_CACHE')}")
 
 # ══════════════════════════════════════════════════════════════
 # API Configuration
@@ -173,6 +191,9 @@ RAG_CONFIG = {
     # 质量配置
     "min_parse_confidence": 0.5,
     "enable_quality_check": True,
+    # 解析器配置
+    "parser_backend": os.environ.get("PARSER_BACKEND", "docling"),
+    "mineru_parse_method": os.environ.get("MINERU_PARSE_METHOD", "auto"),
 }
 
 # 存储路径配置

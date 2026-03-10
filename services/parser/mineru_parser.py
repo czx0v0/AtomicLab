@@ -18,6 +18,7 @@ from pathlib import Path
 
 try:
     from magic_pdf.pipe.UNIPipe import UNIPipe
+
     MINERU_AVAILABLE = True
 except ImportError:
     MINERU_AVAILABLE = False
@@ -103,7 +104,9 @@ class MinerUParser:
         # 计算解析置信度 (MinerU通常较高)
         confidence = self._calculate_confidence(content_list, tables)
 
-        print(f"[MinerU] 解析完成: {len(sections)} 章节, {len(tables)} 表格, 置信度 {confidence:.2f}")
+        print(
+            f"[MinerU] 解析完成: {len(sections)} 章节, {len(tables)} 表格, 置信度 {confidence:.2f}"
+        )
 
         return ParsedDocument(
             doc_id=doc_id,
@@ -223,7 +226,7 @@ class MinerUParser:
             if item.get("type") == "equation":
                 formula = ParsedFormula(
                     formula_id=f"{doc_id}-EQ-{i:03d}",
-                    latex=item.get("latex", item.get("text", "")),
+                    content=item.get("latex", item.get("text", "")),
                     page_number=item.get("page", 0),
                 )
                 formulas.append(formula)
@@ -235,7 +238,9 @@ class MinerUParser:
         stat = os.stat(filepath) if os.path.exists(filepath) else None
 
         return DocumentMetadata(
-            page_count=max(item.get("page", 0) for item in content_list) if content_list else 0,
+            page_count=(
+                max(item.get("page", 0) for item in content_list) if content_list else 0
+            ),
             file_size=stat.st_size if stat else 0,
             extra={
                 "title": Path(filepath).stem,
