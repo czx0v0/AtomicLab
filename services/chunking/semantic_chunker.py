@@ -325,18 +325,22 @@ class SemanticChunker:
         1. 相似度低于阈值时分割
         2. 避免产生过小的chunks
         """
-        min_chunk_sentences = 2  # 最少句子数
+        min_chunk_sentences = 4  # 最少句子数（提高下限，避免分块过碎）
+        min_chunk_tokens = max(120, self.max_chunk_size // 3)  # 最小token阈值
 
         split_points = [0]
         current_chunk_start = 0
 
         for i, sim in enumerate(similarities):
             current_chunk_size = i - current_chunk_start + 1
+            current_chunk_text = "".join(sentences[current_chunk_start : i + 1])
+            current_chunk_tokens = self._estimate_tokens(current_chunk_text)
 
             # 检查是否应该分割
             should_split = (
                 sim < self.similarity_threshold
                 and current_chunk_size >= min_chunk_sentences
+                and current_chunk_tokens >= min_chunk_tokens
             )
 
             if should_split:

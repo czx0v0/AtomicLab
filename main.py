@@ -77,7 +77,13 @@ from tabs.write import (
     get_doc_choices,
     _render_write_graph,
 )
-from tabs.chat import build_chat_tab, handle_chat_send, handle_chat_clear, handle_ai_ask, handle_feedback
+from tabs.chat import (
+    build_chat_tab,
+    handle_chat_send,
+    handle_chat_clear,
+    handle_ai_ask,
+    handle_feedback,
+)
 
 # RAG服务集成
 from services.rag_service import get_rag_service
@@ -140,6 +146,21 @@ def _handle_reset_cooldowns():
     return _get_model_status_html()
 
 
+def _handle_chunk_granularity_change(profile: str):
+    """切换RAG分块粒度配置（仅影响后续上传/重建索引）。"""
+    try:
+        result = rag_service.update_chunking_profile(profile)
+        return (
+            "<span class='agent-st'>"
+            f"已切换分块粒度为 {result['profile']} "
+            f"(size={result['chunk_size']}, overlap={result['chunk_overlap']}, sim={result['similarity_threshold']})；"
+            "对后续上传/重建索引生效"
+            "</span>"
+        )
+    except Exception as e:
+        return f"<span class='agent-st'>切换分块粒度失败: {str(e)[:80]}</span>"
+
+
 # ══════════════════════════════════════════════════════════════
 # GRADIO APP
 # ══════════════════════════════════════════════════════════════
@@ -190,9 +211,15 @@ with gr.Blocks(title=APP_TITLE) as demo:
     ).then(
         fn=lambda: (
             gr.update(value=""),  # pdf_selector
-            gr.update(value="<div class='nc-empty'>上传文献后显示</div>"),  # file_list_html
-            gr.update(value="<div class='txt-empty'>选择文献后，文本将在此显示</div>"),  # pdf_text_html
-            gr.update(value="<div class='txt-empty'>选择文献后，PDF 将在此显示</div>"),  # pdf_embed_html
+            gr.update(
+                value="<div class='nc-empty'>上传文献后显示</div>"
+            ),  # file_list_html
+            gr.update(
+                value="<div class='txt-empty'>选择文献后，文本将在此显示</div>"
+            ),  # pdf_text_html
+            gr.update(
+                value="<div class='txt-empty'>选择文献后，PDF 将在此显示</div>"
+            ),  # pdf_embed_html
             render_note_cards([]),  # notes_html
             render_stats({"docs": 0, "notes": 0, "nodes": 0}),  # stats_html
             _render_graph(KnowledgeTree()),  # global_graph_html
@@ -288,6 +315,11 @@ with gr.Blocks(title=APP_TITLE) as demo:
         fn=handle_mode_switch,
         inputs=[read["view_mode"], read["pdf_selector"], lib_st, page_st, notes_st],
         outputs=[read["pdf_text_html"], read["pdf_embed_html"]],
+    )
+    read["chunk_granularity"].change(
+        fn=_handle_chunk_granularity_change,
+        inputs=[read["chunk_granularity"]],
+        outputs=[org["agent_status"]],
     )
     # Popup: highlight action → auto-save note (v2.0: also creates annotation node + refresh PDF view)
     read["highlight_action_tb"].change(

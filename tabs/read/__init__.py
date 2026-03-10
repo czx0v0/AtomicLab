@@ -396,12 +396,9 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
 
 
 def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> str:
-    """Render Docling structure view showing hierarchical sections.
+    """Render parser structure view showing hierarchical sections.
 
-    v2.4: Docling结构显示模式
-    - 显示章节层级结构
-    - 显示标题层级关系
-    - 辅助文本分块功能
+    v2.5: 优先使用解析器原生章节（MinerU/Docling），避免模糊匹配章节。
     """
     if not pid or pid not in lib:
         return "<div class='txt-empty'>选择文献后，Docling结构将在此显示</div>"
@@ -445,273 +442,63 @@ def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> s
         # 使用全局RAG服务实例
         rag_service = get_rag_service(RAG_CONFIG)
 
-        # 如果文档已索引，尝试获取chunks
+        # 优先使用解析器原生结果（避免基于chunk的模糊章节推断）
+        parsed_doc = None
+        if hasattr(rag_service, "get_parsed_document"):
+            parsed_doc = rag_service.get_parsed_document(pid)
+
+        chunks = []
+        if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
+            chunk_ids = rag_service.doc_chunks[pid]
+            for chunk_id in chunk_ids:
+                if chunk_id in rag_service.chunk_store:
+                    chunks.append(rag_service.chunk_store[chunk_id])
+
+        if parsed_doc:
+            parsed_data = {
+                "title": parsed_doc.title or doc_info.get("name", "未命名文档"),
+                "content": parsed_doc.content,
+                "sections": [s.to_dict() for s in parsed_doc.sections],
+                "metadata": {
+                    "page_count": parsed_doc.metadata.page_count,
+                    "parse_confidence": parsed_doc.parse_confidence,
+                    "parser": parsed_doc.metadata.extra.get("parser", "unknown"),
+                },
+            }
+            return render_docling_structure(
+                parsed_data=parsed_data,
+                chunks=chunks,
+                doc_name=doc_info.get("name", ""),
+            )
+
+        if is_indexed and chunks:
+            # 降级：无解析缓存时，按chunk元数据构造最小结构
+            parsed_data = {
+                "title": doc_info.get("name", "未命名文档"),
+                "content": "\n\n".join(
+                    c.content for c in chunks if hasattr(c, "content")
+                ),
+                "sections": [],
+                "metadata": {
+                    "page_count": chunk_count,
+                    "parse_confidence": doc_info.get("parse_confidence", 0.8),
+                },
+            }
+            return render_docling_structure(
+                parsed_data=parsed_data,
+                chunks=chunks,
+                doc_name=doc_info.get("name", ""),
+            )
+
         if is_indexed:
-            # 获取文档的chunks
-            chunks = []
-            if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
-                chunk_ids = rag_service.doc_chunks[pid]
-                for chunk_id in chunk_ids:
-                    if chunk_id in rag_service.chunk_store:
-                        chunks.append(rag_service.chunk_store[chunk_id])
-
-            if not chunks:
-                # 已标记为indexed但chunks不在内存中
-                return f"""
-                <div class='docling-status' style='padding: 40px; text-align: center;'>
-                    <div style='font-size: 48px; margin-bottom: 20px;'>🔄</div>
-                    <h3>索引需要重新加载</h3>
-                    <p>文档已解析（{chunk_count} chunks），但索引不在内存中</p>
-                    <p style='color: #718096; font-size: 14px;'>请重新上传PDF或切换到"文本模式"</p>
-                </div>
-                """
-
-            # 构建ParsedDocument结构
-            if chunks:
-                # 构建内容
-                parsed_data = {
-                    "title": doc_info.get("name", "未命名文档"),
-                    "content": "",
-                    "sections": [],
-                    "metadata": {
-                        "page_count": chunk_count,
-                        "parse_confidence": doc_info.get("parse_confidence", 0.8),
-                    },
-                }
-
-                # 按chunk_index排序
-                sorted_chunks = sorted(
-                    chunks,
-                    key=lambda c: (
-                        c.metadata.chunk_index
-                        if c.metadata and hasattr(c.metadata, "chunk_index")
-                        else 0
-                    ),
-                )
-
-                # 提取章节结构 - 改进的混合策略
-                # 同时使用元数据和Markdown标题提取章节
-                section_dict = {}
-                import re
-
-                # 多模式章节提取 - 增强版
-                # 模式1: 标准Markdown标题
-                heading_pattern_md = re.compile(
-                    r"(?:^|\n)\s*(#{1,6})\s+(.+?)\s*$", re.MULTILINE
-                )
-
-                # 模式2: 编号章节 (如 "1. INTRODUCTION", "Task 1: Peak Prediction")
-                heading_pattern_numbered = re.compile(
-                    r"(?:^|\n)\s*(?:(\d+)\.|Task\s+(\d+):?)\s+([A-Z][A-Za-z\s]+)",
-                    re.MULTILINE,
-                )
-
-                # 模式3: 大写章节名 (如 "INTRODUCTION", "RELATED WORK", "ACKNOWLEDGEMENT")
-                heading_pattern_caps = re.compile(
-                    r"(?:^|\n)\s{0,4}([A-Z][A-Z\s]{3,50})\s*$", re.MULTILINE
-                )
-
-                # 模式4: 特定章节关键词
-                section_keywords = [
-                    "references",
-                    "introduction",
-                    "related work",
-                    "acknowledgements",
-                    "acknowledgement",
-                    "appendix",
-                    "abstract",
-                    "methods",
-                    "method",
-                    "results",
-                    "result",
-                    "discussion",
-                    "conclusions",
-                    "conclusion",
-                    "background",
-                    "task 1",
-                    "task 2",
-                    "task 3",
-                    "web server",
-                    "experimental validation",
-                ]
-
-                # 调试：检查前几个chunk的内容
-                print(f"[DEBUG] 总共 {len(sorted_chunks)} 个chunks")
-                for i, chunk in enumerate(sorted_chunks[:5]):
-                    chunk_content = chunk.content if hasattr(chunk, "content") else ""
-                    print(f"[DEBUG] Chunk {i} 前150字符: {repr(chunk_content[:150])}")
-                    md_matches = list(heading_pattern_md.finditer(chunk_content))
-                    numbered_matches = list(
-                        heading_pattern_numbered.finditer(chunk_content)
-                    )
-                    caps_matches = list(heading_pattern_caps.finditer(chunk_content))
-                    print(
-                        f"[DEBUG] Chunk {i} Markdown标题: {len(md_matches)}, 编号章节: {len(numbered_matches)}, 大写章节: {len(caps_matches)}"
-                    )
-                    if md_matches:
-                        for j, match in enumerate(md_matches[:2]):
-                            print(
-                                f"[DEBUG]   Markdown匹配 {j}: {repr(match.group(0)[:80])}"
-                            )
-                    if numbered_matches:
-                        for j, match in enumerate(numbered_matches[:2]):
-                            print(
-                                f"[DEBUG]   编号章节匹配 {j}: {repr(match.group(0)[:80])}"
-                            )
-                    if caps_matches:
-                        for j, match in enumerate(caps_matches[:2]):
-                            print(
-                                f"[DEBUG]   大写章节匹配 {j}: {repr(match.group(0)[:80])}"
-                            )
-
-                # 用于跟踪当前章节（当chunk没有明确章节时）
-                current_section_key = None
-
-                for i, chunk in enumerate(sorted_chunks):
-                    section_name = ""
-                    level = 2  # 默认层级
-                    chunk_content = chunk.content if hasattr(chunk, "content") else ""
-
-                    # ========== 多模式章节提取 ==========
-                    # 策略1: 标准Markdown标题 (## Chapter)
-                    md_matches = list(heading_pattern_md.finditer(chunk_content))
-
-                    if md_matches:
-                        first_match = md_matches[0]
-                        level = len(first_match.group(1))
-                        heading_text = first_match.group(2).strip()
-
-                        # 跳过参考文献格式
-                        if heading_text and not re.match(
-                            r"^\d+\.\s*[A-Z][a-z]+,", heading_text
-                        ):
-                            section_name = heading_text
-                            print(
-                                f"[DEBUG] Chunk {i} Markdown章节: '{heading_text[:50]}' (level={level})"
-                            )
-
-                    # 策略2: 编号章节 (1. INTRODUCTION, Task 1: Peak)
-                    if not section_name:
-                        numbered_matches = list(
-                            heading_pattern_numbered.finditer(chunk_content)
-                        )
-
-                        if numbered_matches:
-                            match = numbered_matches[0]
-                            # 提取章节名
-                            if match.group(3):  # "1. INTRODUCTION" 格式
-                                section_name = match.group(3).strip()
-                                level = 2
-                            elif match.group(2):  # "Task 1:" 格式
-                                section_name = (
-                                    f"Task {match.group(2)}: {match.group(3).strip()}"
-                                )
-                                level = 2
-                            print(
-                                f"[DEBUG] Chunk {i} 编号章节: '{section_name[:50]}' (level={level})"
-                            )
-
-                    # 策略3: 大写章节名 (INTRODUCTION, RELATED WORK)
-                    if not section_name:
-                        caps_matches = list(
-                            heading_pattern_caps.finditer(chunk_content)
-                        )
-
-                        if caps_matches:
-                            heading_text = caps_matches[0].group(1).strip()
-                            # 过滤太短的标题
-                            if len(heading_text) >= 5:
-                                section_name = heading_text
-                                level = 2
-                                print(
-                                    f"[DEBUG] Chunk {i} 大写章节: '{heading_text[:50]}' (level={level})"
-                                )
-
-                    # 策略4: 关键词匹配 (references, introduction, etc.)
-                    if not section_name:
-                        chunk_lower = chunk_content.lower()
-                        for keyword in section_keywords:
-                            if keyword in chunk_lower[:200]:  # 只检查前200字符
-                                # 提取包含关键词的行
-                                lines = chunk_content.split("\n")[:5]  # 只检查前5行
-                                for line in lines:
-                                    line_stripped = line.strip()
-                                    if (
-                                        keyword in line_stripped.lower()
-                                        and len(line_stripped) < 80
-                                    ):
-                                        section_name = line_stripped
-                                        level = 2
-                                        print(
-                                            f"[DEBUG] Chunk {i} 关键词章节: '{section_name[:50]}' (level={level})"
-                                        )
-                                        break
-                                if section_name:
-                                    break
-
-                    # 策略5: 检查metadata（过滤参考文献格式）
-                    if not section_name:
-                        if chunk.metadata and hasattr(chunk.metadata, "section_name"):
-                            meta_section = chunk.metadata.section_name
-                            if meta_section and not re.match(
-                                r"^\d+\.\s*[A-Z][a-z]+,", meta_section
-                            ):
-                                section_name = meta_section
-                                level = 2
-                                print(
-                                    f"[DEBUG] Chunk {i} Metadata章节: '{section_name[:50]}' (level={level})"
-                                )
-
-                    # 如果找到章节，创建或更新
-                    if section_name:
-                        if section_name not in section_dict:
-                            section_dict[section_name] = {
-                                "section_id": f"sec-{hash(section_name)}",
-                                "heading": section_name,
-                                "level": level,
-                                "content": chunk_content,
-                                "page_start": chunk.page_number,
-                                "page_end": chunk.page_number,
-                            }
-                        else:
-                            # 章节已存在，追加内容
-                            section_dict[section_name]["content"] += (
-                                "\n\n" + chunk_content
-                            )
-                            # 更新页码范围
-                            if chunk.page_number:
-                                section_dict[section_name][
-                                    "page_end"
-                                ] = chunk.page_number
-
-                        current_section_key = section_name
-                    else:
-                        # 如果没有章节名，归入当前章节
-                        if current_section_key and current_section_key in section_dict:
-                            section_dict[current_section_key]["content"] += (
-                                "\n\n" + chunk_content
-                            )
-                            if chunk.page_number:
-                                section_dict[current_section_key][
-                                    "page_end"
-                                ] = chunk.page_number
-
-                # 转换为列表
-                parsed_data["sections"] = list(section_dict.values())
-
-                # 调试输出
-                print(
-                    f"[DoclingStructureView] 提取到 {len(parsed_data['sections'])} 个章节:"
-                )
-                for sec in parsed_data["sections"]:
-                    print(f"  - {sec['heading'][:50]}... (level={sec['level']})")
-
-                # 渲染结构视图
-                return render_docling_structure(
-                    parsed_data=parsed_data,
-                    chunks=chunks,
-                    doc_name=doc_info.get("name", ""),
-                )
+            return f"""
+            <div class='docling-status' style='padding: 40px; text-align: center;'>
+                <div style='font-size: 48px; margin-bottom: 20px;'>🔄</div>
+                <h3>索引需要重新加载</h3>
+                <p>文档已解析（{chunk_count} chunks），但索引不在内存中</p>
+                <p style='color: #718096; font-size: 14px;'>请重新上传PDF或切换到"文本模式"</p>
+            </div>
+            """
 
     except Exception as e:
         print(f"[DoclingStructureView] 渲染失败: {e}")
@@ -723,6 +510,83 @@ def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> s
     return (
         "<div class='txt-empty'>Docling结构视图不可用，请先上传PDF并等待解析完成</div>"
     )
+
+
+def _render_mineru_markdown_view(pid: str, lib: dict) -> str:
+    """Render MinerU Markdown view.
+
+    直接显示MinerU解析得到的Markdown，避免回退到旧文本模式观感。
+    """
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，MinerU Markdown将在此显示</div>"
+
+    doc_info = lib[pid]
+    is_processing = doc_info.get("rag_processing", False)
+    rag_status = doc_info.get("rag_status", "")
+
+    if is_processing:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>⏳</div>
+            <h3 style='color: #0369a1;'>MinerU解析中...</h3>
+            <p style='color: #4b5563;'>状态: {rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请稍后再试</p>
+        </div>
+        """
+
+    try:
+        from services.rag_service import get_rag_service
+        from core.config import RAG_CONFIG
+
+        rag_service = get_rag_service(RAG_CONFIG)
+        parsed_doc = None
+        if hasattr(rag_service, "get_parsed_document"):
+            parsed_doc = rag_service.get_parsed_document(pid)
+
+        if not parsed_doc:
+            return "<div class='txt-empty'>当前会话未找到MinerU解析缓存，请重新上传该PDF后查看Markdown模式</div>"
+
+        parser_name = parsed_doc.metadata.extra.get("parser", "unknown")
+        markdown_text = parsed_doc.content or ""
+        if not markdown_text.strip():
+            return "<div class='txt-empty'>MinerU未返回Markdown内容</div>"
+
+        # 轻量Markdown显示：保留换行与标题语义，避免依赖额外库
+        md_lines = []
+        for raw_line in markdown_text.splitlines():
+            line = esc(raw_line)
+            stripped = raw_line.lstrip()
+            if stripped.startswith("###### "):
+                md_lines.append(f"<h6>{esc(stripped[7:])}</h6>")
+            elif stripped.startswith("##### "):
+                md_lines.append(f"<h5>{esc(stripped[6:])}</h5>")
+            elif stripped.startswith("#### "):
+                md_lines.append(f"<h4>{esc(stripped[5:])}</h4>")
+            elif stripped.startswith("### "):
+                md_lines.append(f"<h3>{esc(stripped[4:])}</h3>")
+            elif stripped.startswith("## "):
+                md_lines.append(f"<h2>{esc(stripped[3:])}</h2>")
+            elif stripped.startswith("# "):
+                md_lines.append(f"<h1>{esc(stripped[2:])}</h1>")
+            elif stripped == "":
+                md_lines.append("<div style='height:10px;'></div>")
+            else:
+                md_lines.append(f"<p>{line}</p>")
+
+        body_html = "\n".join(md_lines)
+        return f"""
+        <div class='mineru-md-wrap' style='padding:16px 20px;'>
+            <div style='margin-bottom:12px;color:#4b5563;font-size:13px;'>
+                解析器: <b>{esc(parser_name)}</b> | 置信度: <b>{parsed_doc.parse_confidence:.2f}</b>
+            </div>
+            <div class='mineru-md-body' style='line-height:1.8;font-size:15px;'>
+                {body_html}
+            </div>
+        </div>
+        """
+    except Exception as e:
+        print(f"[MinerUMarkdownView] 渲染失败: {e}")
+        return "<div class='txt-empty'>MinerU Markdown视图渲染失败，请查看日志</div>"
 
 
 def _render_chunk_database_view(pid: str, lib: dict) -> str:
@@ -897,14 +761,16 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
                             lib[pid]["parse_confidence"] = result.confidence
                             lib[pid]["rag_progress"] = 100
                             print(f"[RAG] 完成: {fn} ({result.chunk_count} chunks)")
-                            
+
                             # 创建section节点（章节信息同步到知识树）
                             if result.sections:
                                 doc_node = tree.find_document_node(pid)
                                 if doc_node:
                                     for sec_data in result.sections:
                                         section_node = tree.create_section_node(
-                                            section_heading=sec_data.get("heading", "未知章节"),
+                                            section_heading=sec_data.get(
+                                                "heading", "未知章节"
+                                            ),
                                             source_pid=pid,
                                             doc_node_id=doc_node.id,
                                             level=sec_data.get("level", 2),
@@ -913,8 +779,12 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
                                         )
                                         # 添加章节摘要到metadata
                                         if sec_data.get("summary"):
-                                            section_node.metadata["summary"] = sec_data["summary"]
-                                    print(f"[RAG] 创建 {len(result.sections)} 个章节节点")
+                                            section_node.metadata["summary"] = sec_data[
+                                                "summary"
+                                            ]
+                                    print(
+                                        f"[RAG] 创建 {len(result.sections)} 个章节节点"
+                                    )
                         else:
                             lib[pid]["rag_processing"] = False
                             lib[pid]["rag_status"] = f"❌ 失败: {result.error[:30]}"
@@ -1014,6 +884,12 @@ def handle_mode_switch(mode, pid, lib, page_st, notes=None):
         return (
             gr.update(visible=False),
             gr.update(value=chunk_db_html, visible=True),
+        )
+    elif mode == "MinerU Markdown":
+        md_html = _render_mineru_markdown_view(pid, lib)
+        return (
+            gr.update(visible=False),
+            gr.update(value=md_html, visible=True),
         )
     else:
         # 文本模式
@@ -1597,12 +1473,14 @@ def build_read_tab():
     v2.3: PDF高亮模式为默认显示模式
     """
     # 上传提示
-    gr.HTML("""
+    gr.HTML(
+        """
     <div class='upload-notice' style='background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:0.85em;color:#92400e;'>
     ⚠️ <strong>提示：</strong>上传的文件仅在当前会话中使用，不会永久保存。刷新页面后需要重新上传。
     </div>
-    """)
-    
+    """
+    )
+
     gr.HTML(
         "<div class='tip'>"
         "PDF高亮模式：选择文字弹出工具栏，或切换到截图模式框选区域 | 支持高亮·翻译·批注保存到知识图谱"
@@ -1620,7 +1498,9 @@ def build_read_tab():
                     scale=4,
                 )
                 # 重置按钮 - 清空所有状态
-                reset_btn = gr.Button("🔄 重置", scale=1, size="sm", variant="secondary")
+                reset_btn = gr.Button(
+                    "🔄 重置", scale=1, size="sm", variant="secondary"
+                )
             gr.Markdown("### 文献列表")
             file_list_html = gr.HTML("<div class='nc-empty'>上传文献后显示</div>")
             # Hidden textbox for programmatic value setting
@@ -1632,10 +1512,23 @@ def build_read_tab():
                 show_label=False,
             )
             view_mode = gr.Radio(
-                choices=["PDF高亮", "文本模式", "PDF原版", "Docling结构", "分块数据库"],
+                choices=[
+                    "PDF高亮",
+                    "文本模式",
+                    "PDF原版",
+                    "Docling结构",
+                    "MinerU Markdown",
+                    "分块数据库",
+                ],
                 value="PDF高亮",  # v2.3: PDF高亮模式为默认
                 label="查看模式",
-                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真 | Docling:章节结构 | 分块:数据库视图",
+                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真 | Docling:章节结构 | MinerU Markdown:解析原文 | 分块:数据库视图",
+            )
+            chunk_granularity = gr.Radio(
+                choices=["细", "中", "粗"],
+                value="中",
+                label="RAG分块粒度",
+                info="细:更精细召回 | 中:平衡 | 粗:减少碎片。切换后对后续上传/重建索引生效",
             )
 
         # ── Center: Reader ──
@@ -1687,6 +1580,7 @@ def build_read_tab():
         "file_list_html": file_list_html,
         "pdf_selector": pdf_selector,
         "view_mode": view_mode,
+        "chunk_granularity": chunk_granularity,
         "pdf_text_html": pdf_text_html,
         "pdf_embed_html": pdf_embed_html,
         "notes_html": notes_html,
