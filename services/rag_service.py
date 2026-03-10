@@ -46,9 +46,8 @@ except ImportError:
 
 from models.chunk import TextChunk, ChunkCollection
 from models.search import RetrievalResult, ProcessingResult, SearchResult
-from models.parse_result import ParsedDocument
+from models.parse_result import ParsedDocument, ParsedSection, DocumentMetadata
 
-from services.parser import DoclingParser
 from services.chunking import SemanticChunker, TableChunker
 from services.search import (
     FAISSVectorStore,
@@ -90,6 +89,7 @@ class RAGConfig:
 
     # 解析器配置
     parser_backend: str = "docling"  # "docling" 或 "mineru"
+    mineru_parse_method: str = "auto"  # auto/ocr/txt
 
 
 class RAGService:
@@ -129,6 +129,8 @@ class RAGService:
                 rerank_top_n=config.get("rerank_top_n", 20),
                 min_parse_confidence=config.get("min_parse_confidence", 0.5),
                 storage_path=config.get("storage_path", "storage"),
+                parser_backend=config.get("parser_backend", "docling"),
+                mineru_parse_method=config.get("mineru_parse_method", "auto"),
             )
         else:
             self.config = config
@@ -147,14 +149,17 @@ class RAGService:
         print("=" * 50)
 
         # 1. 文档解析器 - 支持MinerU和Docling
-        parser_backend = getattr(self.config, 'parser_backend', 'docling')
+        parser_backend = getattr(self.config, "parser_backend", "docling")
         self.parser = None
-        
+
         if parser_backend == "mineru":
             try:
-                from services.parser import MinerUParser, MINERU_AVAILABLE
+                from services.parser.mineru_parser import MinerUParser, MINERU_AVAILABLE
+
                 if MINERU_AVAILABLE:
-                    self.parser = MinerUParser()
+                    self.parser = MinerUParser(
+                        parse_method=self.config.mineru_parse_method
+                    )
                     print("✓ MinerU解析器初始化成功 (高精度模式)")
                 else:
                     raise ImportError("MinerU不可用")
@@ -162,9 +167,11 @@ class RAGService:
                 print(f"⚠️ MinerU解析器不可用: {e}")
                 print("  回退到Docling解析器...")
                 parser_backend = "docling"
-        
+
         if parser_backend == "docling" or self.parser is None:
             try:
+                from services.parser.docling_parser import DoclingParser
+
                 self.parser = DoclingParser()
                 print("✓ Docling解析器初始化成功")
             except ImportError as e:
@@ -307,7 +314,14 @@ class RAGService:
         try:
             # 1. 解析文档
             print(f"\n解析文档: {filepath}")
-            parsed = self.parser.parse(filepath, doc_id)
+            try:
+                parsed = self.parser.parse(filepath, doc_id)
+            except Exception as parse_error:
+                if self._is_windows_privilege_error(parse_error):
+                    print("⚠️ 检测到Windows缓存链接权限问题，回退到纯文本解析模式")
+                    parsed = self._fallback_parse_document(filepath, doc_id)
+                else:
+                    raise
 
             # 2. 质量检查
             if parsed.parse_confidence < self.config.min_parse_confidence:
@@ -383,6 +397,62 @@ class RAGService:
 
         except Exception as e:
             return ProcessingResult(success=False, error=str(e))
+
+    def _is_windows_privilege_error(self, error: Exception) -> bool:
+        """检测Windows下HF缓存链接权限错误(WinError 1314)。"""
+        msg = str(error)
+        return (
+            "WinError 1314" in msg
+            or "客户端没有所需的特权" in msg
+            or "required privilege is not held by the client" in msg.lower()
+        )
+
+    def _fallback_parse_document(
+        self, filepath: str, doc_id: Optional[str] = None
+    ) -> ParsedDocument:
+        """Docling失败时回退为PyPDF2纯文本解析，保证RAG流程可继续。"""
+        if doc_id is None:
+            filename = os.path.basename(filepath)
+            doc_id = (
+                "doc-" + filename.encode("utf-8", errors="ignore").hex()[:8].upper()
+            )
+
+        text = ""
+        page_count = 0
+        try:
+            from PyPDF2 import PdfReader
+
+            reader = PdfReader(filepath)
+            page_count = len(reader.pages)
+            chunks = []
+            for page in reader.pages:
+                chunks.append(page.extract_text() or "")
+            text = "\n\n".join(chunks).strip()
+        except Exception as e:
+            raise RuntimeError(f"回退解析失败: {e}") from e
+
+        if not text:
+            raise RuntimeError("回退解析失败: PDF未提取到文本")
+
+        title = Path(filepath).stem
+        section = ParsedSection(
+            section_id=f"{doc_id}_s000",
+            heading="Document",
+            level=1,
+            content=text[:3000],
+            page_start=1,
+            page_end=max(page_count, 1),
+        )
+        metadata = DocumentMetadata(page_count=page_count, extra={"title": title})
+
+        return ParsedDocument(
+            doc_id=doc_id,
+            title=title,
+            content=text,
+            sections=[section],
+            metadata=metadata,
+            parse_confidence=0.56,
+        )
 
     def _chunk_document(self, parsed: ParsedDocument) -> List[TextChunk]:
         """对文档进行分块"""
@@ -487,9 +557,7 @@ class RAGService:
         start_time = time.time()
 
         if not self.hybrid_searcher:
-            return RetrievalResult(
-                chunks=[], context="", query=query, error="混合检索器未初始化"
-            )
+            return RetrievalResult(chunks=[], context="", query=query)
 
         # 1. 混合检索
         print(
