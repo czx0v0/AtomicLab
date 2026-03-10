@@ -16,16 +16,6 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 # HuggingFace镜像配置 - 中国大陆加速
 # ══════════════════════════════════════════════════════════════
 
-# HuggingFace镜像对中国大陆用户都需要（本地和创空间都慢）
-# 统一启用镜像加速
-if "HF_ENDPOINT" not in os.environ:
-    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-    print("[Config] 已启用HuggingFace镜像加速: hf-mirror.com")
-
-# ══════════════════════════════════════════════════════════════
-# 环境检测 - ModelScope创空间
-# ══════════════════════════════════════════════════════════════
-
 # 检测是否运行在ModelScope创空间环境
 # 关键：只有明确的创空间特征才触发，本地开发不应受影响
 # 本地设置MS_KEY只是用于API调用，不代表是创空间环境
@@ -43,6 +33,27 @@ if os.environ.get("MODELSCOPE_ENVIRONMENT", "").lower() == "studio":
     IN_MODELSCOPE_SPACE = True
     print("[Config] 检测方式2: MODELSCOPE_ENVIRONMENT=studio")
 
+# HuggingFace镜像配置
+# ModelScope创空间无法访问HuggingFace，需要特殊处理
+if IN_MODELSCOPE_SPACE:
+    # 创空间：使用ModelScope模型源
+    # 设置ModelScope缓存目录（持久化）
+    os.environ["MODELSCOPE_CACHE"] = "/mnt/workspace/.cache/modelscope"
+
+    # 尝试从ModelScope下载sentence-transformers模型
+    # ModelScope镜像了常用的embedding模型
+    print("[Config] 创空间环境，配置ModelScope模型源")
+
+    # 设置使用ModelScope的HF镜像（部分可用）
+    if "HF_ENDPOINT" not in os.environ:
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        print("[Config] 尝试HuggingFace镜像: hf-mirror.com")
+else:
+    # 本地开发：统一启用镜像加速
+    if "HF_ENDPOINT" not in os.environ:
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        print("[Config] 已启用HuggingFace镜像加速: hf-mirror.com")
+
 # ══════════════════════════════════════════════════════════════
 # 模型缓存目录 - 仅ModelScope创空间需要特殊设置
 # ══════════════════════════════════════════════════════════════
@@ -59,28 +70,26 @@ if IN_MODELSCOPE_SPACE:
         os.environ["HF_HOME"] = MODEL_CACHE_DIR
     print(f"[Config] ModelScope创空间环境")
     print(f"[Config] 模型缓存目录: {MODEL_CACHE_DIR}")
-    
+
     # ══════════════════════════════════════════════════════════════
     # MinerU 自动初始化（创空间无终端访问权限时）
     # ══════════════════════════════════════════════════════════════
     MINERU_MODELS_DIR = "/mnt/workspace/models/MinerU"
     MINERU_CONFIG_FILE = "/mnt/workspace/.magic-pdf.json"
-    
+
     # 自动创建 MinerU 配置文件
     if not os.path.exists(MINERU_CONFIG_FILE):
         try:
             os.makedirs(MINERU_MODELS_DIR, exist_ok=True)
             import json
-            config_content = {
-                "models-dir": MINERU_MODELS_DIR,
-                "device-mode": "cpu"
-            }
+
+            config_content = {"models-dir": MINERU_MODELS_DIR, "device-mode": "cpu"}
             with open(MINERU_CONFIG_FILE, "w") as f:
                 json.dump(config_content, f, indent=2)
             print(f"[Config] 已自动创建 MinerU 配置文件: {MINERU_CONFIG_FILE}")
         except Exception as e:
             print(f"[Config] 创建 MinerU 配置文件失败: {e}")
-    
+
     # 设置 MinerU 环境变量
     os.environ.setdefault("MINERU_TOOLS_CONFIG_JSON", MINERU_CONFIG_FILE)
     os.environ.setdefault("MODELSCOPE_CACHE", "/mnt/workspace/.cache/modelscope")

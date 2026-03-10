@@ -19,6 +19,46 @@ from core.config import IN_MODELSCOPE_SPACE, MODEL_CACHE_DIR
 # SentenceTransformers缓存目录配置
 # ══════════════════════════════════════════════════════════════
 
+
+# ModelScope创空间：使用ModelScope下载embedding模型
+def _download_embedding_model_from_modelscope(model_name: str) -> Optional[str]:
+    """从ModelScope下载embedding模型，返回本地路径"""
+    if not IN_MODELSCOPE_SPACE:
+        return None
+
+    try:
+        from modelscope import snapshot_download
+
+        # ModelScope上的sentence-transformers镜像模型
+        # 映射 HuggingFace 模型名到 ModelScope 模型名
+        modelscope_mapping = {
+            "paraphrase-multilingual-MiniLM-L12-v2": "AI-ModelScope/paraphrase-multilingual-MiniLM-L12-v2",
+            "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": "AI-ModelScope/paraphrase-multilingual-MiniLM-L12-v2",
+            "BAAI/bge-reranker-v2-m3": "Xorbits/bge-reranker-v2-m3",
+        }
+
+        ms_model_name = modelscope_mapping.get(model_name)
+        if not ms_model_name:
+            # 尝试直接使用原模型名
+            ms_model_name = model_name
+
+        print(f"[RAG] 从ModelScope下载模型: {ms_model_name}")
+
+        cache_dir = "/mnt/workspace/.cache/modelscope"
+        local_path = snapshot_download(
+            ms_model_name,
+            cache_dir=cache_dir,
+        )
+        print(f"[RAG] 模型下载完成: {local_path}")
+        return local_path
+    except ImportError:
+        print("[RAG] modelscope库未安装，无法从ModelScope下载模型")
+        return None
+    except Exception as e:
+        print(f"[RAG] ModelScope下载模型失败: {e}")
+        return None
+
+
 # 关键：本地开发完全使用默认缓存，不干预HuggingFace行为
 if IN_MODELSCOPE_SPACE and MODEL_CACHE_DIR:
     # ModelScope创空间: 使用持久化存储目录
@@ -215,13 +255,24 @@ class RAGService:
         # 3. Embedding模型
         if ST_AVAILABLE:
             try:
+                # ModelScope创空间：先尝试从ModelScope下载模型
+                model_path = self.config.embedding_model
+                if IN_MODELSCOPE_SPACE:
+                    print("[RAG] 检测到ModelScope创空间环境")
+                    local_model_path = _download_embedding_model_from_modelscope(
+                        self.config.embedding_model
+                    )
+                    if local_model_path:
+                        model_path = local_model_path
+                        print(f"[RAG] 使用ModelScope本地模型: {model_path}")
+
                 # 根据环境选择缓存目录
                 cache_folder = (
                     SENTENCE_TRANSFORMERS_CACHE if IN_MODELSCOPE_SPACE else None
                 )
 
                 self.embedding_model = SentenceTransformer(
-                    self.config.embedding_model,
+                    model_path,
                     device=self.config.device,
                     cache_folder=cache_folder,
                 )
@@ -229,22 +280,43 @@ class RAGService:
                 if cache_folder:
                     print(f"  模型缓存位置: {cache_folder}")
             except Exception as e:
-                print(f"⚠️ Embedding模型加载失败: {e}")
-                print("尝试清理缓存并重新加载...")
-                # 清理缓存
-                import shutil
+                error_msg = str(e)
+                print(f"⚠️ Embedding模型加载失败: {error_msg}")
 
-                cache_dir = Path.home() / ".cache" / "torch" / "sentence_transformers"
-                model_name = self.config.embedding_model.replace("/", "_")
-                model_cache = cache_dir / model_name
-                if model_cache.exists():
-                    shutil.rmtree(model_cache)
-                    print(f"已清理缓存: {model_cache}")
-                # 重试
-                self.embedding_model = SentenceTransformer(
-                    self.config.embedding_model, device=self.config.device
-                )
-                print(f"✓ Embedding模型重新加载成功")
+                # 检测是否是网络不可达错误（ModelScope创空间常见）
+                if (
+                    "Network is unreachable" in error_msg
+                    or "Cannot send a request" in error_msg
+                ):
+                    print("⚠️ 检测到网络不可达，RAG语义搜索将不可用")
+                    print("  将使用BM25关键词搜索作为降级方案")
+                    if IN_MODELSCOPE_SPACE:
+                        print("  提示: ModelScope创空间无法访问HuggingFace")
+                        print("  如需RAG语义搜索，请预先下载模型到持久化目录")
+                    self.embedding_model = None
+                else:
+                    print("尝试清理缓存并重新加载...")
+                    # 清理缓存
+                    import shutil
+
+                    cache_dir = (
+                        Path.home() / ".cache" / "torch" / "sentence_transformers"
+                    )
+                    model_name = self.config.embedding_model.replace("/", "_")
+                    model_cache = cache_dir / model_name
+                    if model_cache.exists():
+                        shutil.rmtree(model_cache)
+                        print(f"已清理缓存: {model_cache}")
+                    # 重试
+                    try:
+                        self.embedding_model = SentenceTransformer(
+                            self.config.embedding_model, device=self.config.device
+                        )
+                        print(f"✓ Embedding模型重新加载成功")
+                    except Exception as retry_error:
+                        print(f"⚠️ 重试失败: {retry_error}")
+                        print("  RAG语义搜索将不可用，使用BM25关键词搜索")
+                        self.embedding_model = None
         else:
             self.embedding_model = None
 
@@ -284,6 +356,8 @@ class RAGService:
             print("✓ 混合检索器初始化成功")
         else:
             self.hybrid_searcher = None
+            if not self.embedding_model:
+                print("⚠️ 混合检索器不可用（缺少Embedding模型），将使用BM25关键词搜索")
 
         # 7. 重排序器
         if self.config.use_reranker and ST_AVAILABLE:
@@ -385,7 +459,9 @@ class RAGService:
                             section.summary = summary_obj.summary
                             section.key_points = summary_obj.key_points
                             # 将摘要文本作为可检索chunk加入RAG索引
-                            summary_text = f"[章节摘要] {section.heading}: {summary_obj.summary}"
+                            summary_text = (
+                                f"[章节摘要] {section.heading}: {summary_obj.summary}"
+                            )
                             summary_chunk = TextChunk(
                                 chunk_id=f"{section.section_id}-SUMMARY",
                                 doc_id=parsed.doc_id,
@@ -603,7 +679,15 @@ class RAGService:
         """
         start_time = time.time()
 
+        # 降级：使用BM25关键词搜索
         if not self.hybrid_searcher:
+            if self.bm25_index and self.chunk_store:
+                print(
+                    f"\n使用BM25关键词搜索: '{query[:50]}'"
+                    if len(query) > 50
+                    else f"\n使用BM25关键词搜索: '{query}'"
+                )
+                return self._bm25_search(query, top_k)
             return RetrievalResult(chunks=[], context="", query=query)
 
         # 1. 混合检索
@@ -672,6 +756,40 @@ class RAGService:
                 parts.append(f"{source}\n{chunk.content}")
 
         return "\n\n---\n\n".join(parts)
+
+    def _bm25_search(self, query: str, top_k: int = 5) -> RetrievalResult:
+        """BM25关键词搜索（降级方案）"""
+        import time as time_module
+
+        start_time = time_module.time()
+
+        # 使用BM25搜索
+        results = self.bm25_index.search(query, top_k=top_k * 2)
+
+        # 转换为SearchResult并填充chunk
+        search_results = []
+        for chunk_id, score in results[:top_k]:
+            if chunk_id in self.chunk_store:
+                chunk = self.chunk_store[chunk_id]
+                from models.search import SearchResult as SR
+
+                search_results.append(SR(chunk=chunk, score=score, _chunk_id=chunk_id))
+
+        # 提取chunks
+        chunks = [r.chunk for r in search_results if r.chunk]
+
+        # 构建上下文
+        context = self._build_context(chunks)
+
+        elapsed = (time_module.time() - start_time) * 1000
+
+        return RetrievalResult(
+            chunks=chunks,
+            context=context,
+            query=query,
+            total_candidates=len(search_results),
+            retrieval_time_ms=elapsed,
+        )
 
     def get_document_chunks(self, doc_id: str) -> List[TextChunk]:
         """获取文档的所有chunks"""
