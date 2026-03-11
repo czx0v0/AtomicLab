@@ -217,14 +217,36 @@ class MinerUParser:
                 "-m",
                 self.parse_method,
             ]
-            proc = subprocess.run(cmd, capture_output=True, text=True)
+            print(f"[MinerU] 执行命令: {' '.join(cmd)}")
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            stdout = (proc.stdout or "").strip()
+            stderr = (proc.stderr or "").strip()
             if proc.returncode != 0:
-                err = (proc.stderr or proc.stdout or "").strip()
-                raise RuntimeError(f"magic-pdf 执行失败: {err[-400:]}")
+                combined = (stderr or stdout)[-600:]
+                print(f"[MinerU] 命令失败 (exit {proc.returncode}):\n{combined}")
+                raise RuntimeError(f"magic-pdf 执行失败 (exit {proc.returncode}): {combined[-400:]}")
+
+            # 列出输出目录内容方便调试
+            all_files = list(Path(output_dir).rglob("*"))
+            print(f"[MinerU] 输出目录文件数: {len(all_files)}")
+            if all_files:
+                for f in all_files[:10]:
+                    print(f"  {f.relative_to(output_dir)}")
+            if stdout:
+                print(f"[MinerU] stdout (末200字): {stdout[-200:]}")
 
             md_files = list(Path(output_dir).rglob("*.md"))
             if not md_files:
-                raise RuntimeError("magic-pdf 未产出Markdown文件")
+                # 尝试读取任何文本输出
+                txt_files = list(Path(output_dir).rglob("*.txt"))
+                if txt_files:
+                    txt_file = max(txt_files, key=lambda p: p.stat().st_size)
+                    print(f"[MinerU] 无.md文件，尝试读取.txt: {txt_file.name}")
+                    return txt_file.read_text(encoding="utf-8", errors="ignore")
+                raise RuntimeError(
+                    f"magic-pdf 未产出Markdown文件 (共{len(all_files)}个输出文件). "
+                    f"stdout: {stdout[-200:]}"
+                )
 
             md_file = max(md_files, key=lambda p: p.stat().st_size)
             return md_file.read_text(encoding="utf-8", errors="ignore")

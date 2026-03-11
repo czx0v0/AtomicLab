@@ -414,7 +414,22 @@ class RAGService:
                     print("⚠️ 检测到Windows缓存链接权限问题，回退到纯文本解析模式")
                     parsed = self._fallback_parse_document(filepath, doc_id)
                 else:
-                    raise
+                    # MinerU 解析失败时自动降级到 Docling
+                    parser_backend = getattr(self.config, "parser_backend", "docling")
+                    if parser_backend == "mineru":
+                        print(f"⚠️ MinerU解析失败: {parse_error}")
+                        print("  自动降级到Docling解析器...")
+                        try:
+                            from services.parser.docling_parser import DoclingParser
+                            fallback_parser = DoclingParser()
+                            parsed = fallback_parser.parse(filepath, doc_id)
+                            print("✓ Docling降级解析成功")
+                        except Exception as fallback_err:
+                            raise RuntimeError(
+                                f"MinerU解析失败({parse_error}), Docling降级也失败: {fallback_err}"
+                            ) from fallback_err
+                    else:
+                        raise
 
             # 2. 质量检查
             if parsed.parse_confidence < self.config.min_parse_confidence:
