@@ -7,7 +7,7 @@ Hybrid Searcher
 
 import os
 import time
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Union
 from collections import defaultdict
 
 # 设置HuggingFace镜像（中国大陆加速）
@@ -44,7 +44,9 @@ class HybridSearcher:
         self,
         vector_store: FAISSVectorStore,
         bm25_index: BM25Index,
-        embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2",
+        embedding_model: Union[
+            str, "SentenceTransformer"
+        ] = "paraphrase-multilingual-MiniLM-L12-v2",
         device: str = "cpu",
     ):
         if not ST_AVAILABLE:
@@ -55,20 +57,21 @@ class HybridSearcher:
         self.vector_store = vector_store
         self.bm25_index = bm25_index
 
-        # 加载embedding模型
-        print(f"加载embedding模型: {embedding_model}")
-        try:
-            self.embedding_model = SentenceTransformer(embedding_model, device=device)
-        except Exception as e:
-            print(f"⚠️ 模型加载失败，尝试清理缓存: {e}")
-            import shutil
-            from pathlib import Path
-
-            cache_dir = Path.home() / ".cache" / "torch" / "sentence_transformers"
-            model_cache = cache_dir / embedding_model.replace("/", "_")
-            if model_cache.exists():
-                shutil.rmtree(model_cache)
-            self.embedding_model = SentenceTransformer(embedding_model, device=device)
+        # 加载embedding模型 - 支持传入已加载的模型对象或模型名
+        if isinstance(embedding_model, SentenceTransformer):
+            # 直接使用已加载的模型对象
+            self.embedding_model = embedding_model
+            print("使用已加载的embedding模型")
+        else:
+            # 按模型名加载
+            print(f"加载embedding模型: {embedding_model}")
+            try:
+                self.embedding_model = SentenceTransformer(
+                    embedding_model, device=device
+                )
+            except Exception as e:
+                print(f"⚠️ 模型加载失败: {e}")
+                raise
 
         # RRF参数
         self.rrf_k = 60  # RRF平滑参数,标准值60

@@ -348,7 +348,7 @@ class RAGService:
             self.hybrid_searcher = HybridSearcher(
                 vector_store=self.vector_store,
                 bm25_index=self.bm25_index,
-                embedding_model=self.config.embedding_model,
+                embedding_model=self.embedding_model,  # 传递已加载的模型对象
                 device=self.config.device,
             )
             self.hybrid_searcher.set_weights(
