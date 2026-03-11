@@ -23,6 +23,42 @@ except ImportError:
 from models.chunk import TextChunk
 from models.search import SearchResult, RerankInfo
 
+# ModelScope 创空间检测
+from core.config import IN_MODELSCOPE_SPACE
+
+
+def _download_reranker_from_modelscope(model_name: str) -> Optional[str]:
+    """从ModelScope下载reranker模型，返回本地路径"""
+    if not IN_MODELSCOPE_SPACE:
+        return None
+    
+    try:
+        from modelscope import snapshot_download
+        
+        # ModelScope上的reranker模型映射
+        modelscope_mapping = {
+            "BAAI/bge-reranker-v2-m3": "BAAI/bge-reranker-v2-m3",
+            "BAAI/bge-reranker-base": "BAAI/bge-reranker-base",
+        }
+        
+        ms_model_name = modelscope_mapping.get(model_name, model_name)
+        
+        print(f"[Reranker] 从ModelScope下载模型: {ms_model_name}")
+        
+        cache_dir = "/mnt/workspace/.cache/modelscope"
+        local_path = snapshot_download(
+            ms_model_name,
+            cache_dir=cache_dir,
+        )
+        print(f"[Reranker] 模型下载完成: {local_path}")
+        return local_path
+    except ImportError:
+        print("[Reranker] modelscope库未安装，无法从ModelScope下载模型")
+        return None
+    except Exception as e:
+        print(f"[Reranker] ModelScope下载模型失败: {e}")
+        return None
+
 
 class RerankerService:
     """
@@ -56,18 +92,23 @@ class RerankerService:
             )
 
         print(f"加载重排序模型: {model_name}")
+        
+        # ModelScope创空间：先尝试从ModelScope下载
+        model_path = model_name
+        if IN_MODELSCOPE_SPACE:
+            local_model_path = _download_reranker_from_modelscope(model_name)
+            if local_model_path:
+                model_path = local_model_path
+                print(f"[Reranker] 使用ModelScope本地模型: {model_path}")
+        
         try:
-            self.model = CrossEncoder(model_name, device=device, max_length=max_length)
+            self.model = CrossEncoder(model_path, device=device, max_length=max_length)
+            print(f"✓ 重排序模型加载成功: {model_name}")
         except Exception as e:
-            print(f"⚠️ 重排序模型加载失败，尝试清理缓存: {e}")
-            import shutil
-            from pathlib import Path
-
-            cache_dir = Path.home() / ".cache" / "torch" / "sentence_transformers"
-            model_cache = cache_dir / model_name.replace("/", "_")
-            if model_cache.exists():
-                shutil.rmtree(model_cache)
-            self.model = CrossEncoder(model_name, device=device, max_length=max_length)
+            print(f"✗ 重排序器初始化失败: {e}")
+            # 重排序是可选功能，初始化失败时设为None
+            self.model = None
+            
         self.model_name = model_name
         self.batch_size = batch_size
 
@@ -85,8 +126,8 @@ class RerankerService:
         Returns:
             重排序后的SearchResult列表
         """
-        if not results:
-            return []
+        if not results or not self.model:
+            return results[:top_n] if results else []
 
         start_time = time.time()
 
@@ -139,8 +180,8 @@ class RerankerService:
         Returns:
             [(chunk, score), ...] 按分数排序
         """
-        if not chunks:
-            return []
+        if not chunks or not self.model:
+            return [(chunk, 0.0) for chunk in chunks[:top_n]]
 
         # 构建pairs
         pairs = [[query, chunk.content] for chunk in chunks]
@@ -165,6 +206,8 @@ class RerankerService:
         Returns:
             相关性分数 (0-1)
         """
+        if not self.model:
+            return 0.0
         score = self.model.predict([[query, text]])[0]
         return float(score)
 
