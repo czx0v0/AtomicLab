@@ -536,7 +536,8 @@ GLOBAL_JS = r"""
   }
 
   // ── Show popup on text selection in .txt-reader ──
-  document.addEventListener('mouseup', function(e) {
+  // 处理选中文本后显示弹窗（同时支持鼠标和触摸设备）
+  function handleTextSelection(e) {
     if (popup.contains(e.target)) return;
     // Don't show popup when clicking on existing marks
     if (e.target.closest('mark[data-note-id]')) return;
@@ -544,32 +545,50 @@ GLOBAL_JS = r"""
     var reader = e.target.closest('.txt-reader');
     if (!reader) { hidePopup(); return; }
 
-    var sel = window.getSelection();
-    var text = sel.toString().trim();
-    if (!text) { hidePopup(); return; }
+    // 触摸事件需要短暂延迟等待浏览器完成选区
+    var doShow = function() {
+      var sel = window.getSelection();
+      var text = sel ? sel.toString().trim() : '';
+      if (!text) { hidePopup(); return; }
 
-    selectedText = text;
-    var para = e.target.closest('.txt-para');
-    selectedPage = para ? (para.dataset.page || '1') : '1';
+      selectedText = text;
+      var para = e.target.closest('.txt-para');
+      selectedPage = para ? (para.dataset.page || '1') : '1';
 
-    // Position near selection
-    var range = sel.getRangeAt(0);
-    var rect = range.getBoundingClientRect();
-    var px = rect.left + rect.width / 2 - 150;
-    var py = rect.top - 52;
-    if (py < 10) py = rect.bottom + 10;
-    px = Math.max(10, Math.min(px, window.innerWidth - 400));
+      // Position near selection
+      try {
+        var range = sel.getRangeAt(0);
+        var rect = range.getBoundingClientRect();
+        var px = rect.left + rect.width / 2 - 150;
+        var py = rect.top - 52;
+        if (rect.top - 52 < 10) py = rect.bottom + 10;
+        px = Math.max(10, Math.min(px, window.innerWidth - 320));
+        popup.style.left = px + 'px';
+        popup.style.top = py + 'px';
+        popup.style.transform = '';
+      } catch(posErr) {
+        popup.style.left = '50%';
+        popup.style.top = '80px';
+        popup.style.transform = 'translateX(-50%)';
+      }
+      var tr = document.getElementById('popup-translate-result');
+      if (tr) { tr.style.display = 'none'; tr.textContent = ''; }
+      var ann = document.getElementById('popup-annotation');
+      if (ann) ann.value = '';
+      popup.classList.add('show');
+    };
 
-    popup.style.left = px + 'px';
-    popup.style.top = py + 'px';
-    var tr = document.getElementById('popup-translate-result');
-    if (tr) { tr.style.display = 'none'; tr.textContent = ''; }
-    var ann = document.getElementById('popup-annotation');
-    if (ann) ann.value = '';
-    popup.classList.add('show');
-  });
+    if (e.type === 'touchend') {
+      setTimeout(doShow, 100); // 触摸需要延迟
+    } else {
+      doShow();
+    }
+  }
 
-  // Hide on outside click
+  document.addEventListener('mouseup', handleTextSelection);  // 桌面端
+  document.addEventListener('touchend', handleTextSelection); // 手机/平板端
+
+  // Hide on outside click/touch
   document.addEventListener('mousedown', function(e) {
     if (!popup.contains(e.target) && !e.target.closest('.txt-reader')) {
       hidePopup();
