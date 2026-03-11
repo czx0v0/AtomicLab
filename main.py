@@ -239,7 +239,9 @@ with gr.Blocks(title=APP_TITLE) as demo:
             _render_write_graph(KnowledgeTree(), None),  # write_graph_html
             gr.update(choices=[]),  # write_doc_selector
             gr.update(choices=[("全部文献", "__all__")]),  # org_doc_selector
-            gr.update(choices=[("全部文献", "__all__")], value="__all__"),  # chat doc_selector
+            gr.update(
+                choices=[("全部文献", "__all__")], value="__all__"
+            ),  # chat doc_selector
         ),
         inputs=[],
         outputs=[

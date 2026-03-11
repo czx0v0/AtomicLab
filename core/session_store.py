@@ -4,6 +4,7 @@
 支持多用户 Demo 场景，数据按 session_id 隔离，默认30分钟后自动清理
 参考 AtomicLab/modelspace-deploy/aether_engine/core/session_store.py 改进版
 """
+
 import os
 import time
 import shutil
@@ -44,18 +45,18 @@ def get_session_dir(session_id: str) -> Path:
 def init_session(session_id: str) -> Path:
     """
     初始化会话目录，记录活跃时间
-    
+
     Returns:
         会话目录路径
     """
     with _lock:
         session_dir = get_session_dir(session_id)
         session_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 预创建子目录
         (session_dir / "faiss").mkdir(exist_ok=True)
         (session_dir / "bm25").mkdir(exist_ok=True)
-        
+
         _session_metadata[session_id] = {
             "created_at": datetime.utcnow(),
             "last_active": datetime.utcnow(),
@@ -93,17 +94,21 @@ def is_session_valid(session_id: str) -> bool:
                 }
                 return True
             return False
-        
+
         last_active = _session_metadata[session_id]["last_active"]
-        return datetime.utcnow() - last_active <= timedelta(seconds=SESSION_EXPIRE_SECONDS)
+        return datetime.utcnow() - last_active <= timedelta(
+            seconds=SESSION_EXPIRE_SECONDS
+        )
 
 
 def get_active_session_ids() -> list:
     """获取所有活跃会话ID"""
     with _lock:
         return [
-            sid for sid, meta in _session_metadata.items()
-            if datetime.utcnow() - meta["last_active"] <= timedelta(seconds=SESSION_EXPIRE_SECONDS)
+            sid
+            for sid, meta in _session_metadata.items()
+            if datetime.utcnow() - meta["last_active"]
+            <= timedelta(seconds=SESSION_EXPIRE_SECONDS)
         ]
 
 
@@ -112,10 +117,11 @@ def cleanup_expired_sessions():
     with _lock:
         now = datetime.utcnow()
         expired = [
-            sid for sid, meta in list(_session_metadata.items())
+            sid
+            for sid, meta in list(_session_metadata.items())
             if now - meta["last_active"] > timedelta(seconds=SESSION_EXPIRE_SECONDS)
         ]
-        
+
         for session_id in expired:
             try:
                 session_dir = get_session_dir(session_id)
@@ -125,7 +131,7 @@ def cleanup_expired_sessions():
                 logger.info(f"[Session] 已清理过期会话: {session_id}")
             except Exception as e:
                 logger.error(f"[Session] 清理会话失败 {session_id}: {e}")
-    
+
     if expired:
         logger.info(f"[Session] 共清理 {len(expired)} 个过期会话")
 
@@ -146,10 +152,11 @@ def cleanup_all_sessions():
 def start_cleanup_scheduler(interval_seconds: int = 300):
     """
     启动定时清理任务
-    
+
     Args:
         interval_seconds: 检查间隔（默认5分钟）
     """
+
     def cleanup_loop():
         while True:
             time.sleep(interval_seconds)
@@ -157,10 +164,12 @@ def start_cleanup_scheduler(interval_seconds: int = 300):
                 cleanup_expired_sessions()
             except Exception as e:
                 logger.error(f"[Session] 清理任务出错: {e}")
-    
+
     thread = threading.Thread(target=cleanup_loop, daemon=True)
     thread.start()
-    logger.info(f"[Session] 清理调度器已启动，间隔 {interval_seconds}s，超时 {SESSION_EXPIRE_SECONDS}s")
+    logger.info(
+        f"[Session] 清理调度器已启动，间隔 {interval_seconds}s，超时 {SESSION_EXPIRE_SECONDS}s"
+    )
 
 
 class SessionDataStore:
@@ -168,15 +177,15 @@ class SessionDataStore:
     会话内存数据存储
     用于保存笔记、文档元数据等轻量级数据
     """
-    
+
     _memory_store: Dict[str, Dict[str, Any]] = {}
-    
+
     @classmethod
     def get(cls, session_id: str, key: str, default=None):
         """获取会话数据"""
         touch_session(session_id)
         return cls._memory_store.get(session_id, {}).get(key, default)
-    
+
     @classmethod
     def set(cls, session_id: str, key: str, value: Any):
         """设置会话数据"""
@@ -184,14 +193,14 @@ class SessionDataStore:
         if session_id not in cls._memory_store:
             cls._memory_store[session_id] = {}
         cls._memory_store[session_id][key] = value
-    
+
     @classmethod
     def delete(cls, session_id: str, key: str):
         """删除指定键"""
         touch_session(session_id)
         if session_id in cls._memory_store:
             cls._memory_store[session_id].pop(key, None)
-    
+
     @classmethod
     def cleanup_session(cls, session_id: str):
         """清理会话内存数据"""

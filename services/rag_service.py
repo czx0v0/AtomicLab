@@ -421,6 +421,7 @@ class RAGService:
                         print("  自动降级到Docling解析器...")
                         try:
                             from services.parser.docling_parser import DoclingParser
+
                             fallback_parser = DoclingParser()
                             parsed = fallback_parser.parse(filepath, doc_id)
                             print("✓ Docling降级解析成功")
@@ -990,20 +991,23 @@ class RAGService:
         self.chunk_store.clear()
         self.doc_chunks.clear()
         self.parsed_docs.clear()
-        
+
         if self.vector_store:
             self.vector_store.clear()
         if self.bm25_index:
             self.bm25_index.clear()
-        
+
         # 清理存储目录
-        if hasattr(self.config, 'storage_path') and self.config.storage_path:
+        if hasattr(self.config, "storage_path") and self.config.storage_path:
             import shutil
+
             storage_path = Path(self.config.storage_path)
             if storage_path.exists():
                 shutil.rmtree(storage_path, ignore_errors=True)
-        
-        print(f"[Session] 已清理 RAG 数据: {getattr(self.config, 'storage_path', '未知')}")
+
+        print(
+            f"[Session] 已清理 RAG 数据: {getattr(self.config, 'storage_path', '未知')}"
+        )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1020,47 +1024,53 @@ _session_rag_lock = Lock()
 _shared_rag_service: Optional[RAGService] = None
 
 
-def get_rag_service(config: Optional[RAGConfig] = None, session_id: Optional[str] = None) -> RAGService:
+def get_rag_service(
+    config: Optional[RAGConfig] = None, session_id: Optional[str] = None
+) -> RAGService:
     """
     获取 RAG 服务实例
-    
+
     - session_id=None：返回全局共享服务（本地开发）
     - session_id 指定：返回会话独立服务（多用户 Demo）
     """
     global _shared_rag_service
-    
+
     if session_id is None:
         if _shared_rag_service is None:
             _shared_rag_service = RAGService(config)
         return _shared_rag_service
-    
+
     with _session_rag_lock:
         if session_id not in _session_rag_services:
             # 通过 session_store 初始化会话目录
             try:
                 from core.session_store import init_session, touch_session
+
                 session_dir = init_session(session_id)
                 session_storage = str(session_dir)
             except ImportError:
                 session_storage = f"storage/sessions/{session_id}"
-            
+
             if config is None:
                 session_config = RAGConfig(storage_path=session_storage)
             elif isinstance(config, dict):
-                session_config = RAGConfig(**{**config, 'storage_path': session_storage})
+                session_config = RAGConfig(
+                    **{**config, "storage_path": session_storage}
+                )
             else:
                 session_config = config
                 session_config.storage_path = session_storage
-            
+
             _session_rag_services[session_id] = RAGService(session_config)
         else:
             # 更新会话活跃时间
             try:
                 from core.session_store import touch_session
+
                 touch_session(session_id)
             except ImportError:
                 pass
-        
+
         return _session_rag_services[session_id]
 
 
@@ -1072,24 +1082,25 @@ def create_session() -> str:
 def clear_session(session_id: str) -> bool:
     """清理指定会话的所有数据（RAG + 文件）"""
     cleared = False
-    
+
     with _session_rag_lock:
         if session_id in _session_rag_services:
             service = _session_rag_services.pop(session_id)
             service.clear()
             cleared = True
-    
+
     # 同步清理 session_store
     try:
         from core.session_store import SessionDataStore, get_session_dir
         import shutil
+
         SessionDataStore.cleanup_session(session_id)
         session_dir = get_session_dir(session_id)
         if session_dir.exists():
             shutil.rmtree(session_dir, ignore_errors=True)
     except Exception as e:
         print(f"[Session] session_store 清理失败: {e}")
-    
+
     print(f"[Session] 已清理会话: {session_id}")
     return cleared
 
@@ -1104,6 +1115,7 @@ def start_session_cleanup():
     """启动会话清理调度器（委托给 session_store）"""
     try:
         from core.session_store import start_cleanup_scheduler
+
         start_cleanup_scheduler(interval_seconds=300)
     except ImportError:
         print("[Session] session_store 未可用，跳过清理调度器")

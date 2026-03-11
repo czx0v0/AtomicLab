@@ -421,8 +421,12 @@ def handle_extract_citations(pid, lib, notes):
                     # doc_id 是 TextChunk 的属性，不是 metadata 的属性
                     chunk_doc_id = getattr(chunk, "doc_id", "")
                     # 也检查 metadata 中的 doc_title 是否匹配当前文档名
-                    meta_doc_title = getattr(chunk.metadata, "doc_title", "") if hasattr(chunk, "metadata") and chunk.metadata else ""
-                    
+                    meta_doc_title = (
+                        getattr(chunk.metadata, "doc_title", "")
+                        if hasattr(chunk, "metadata") and chunk.metadata
+                        else ""
+                    )
+
                     if chunk_doc_id == pid or meta_doc_title == doc_name:
                         doc_chunks.append(chunk)
 
@@ -439,7 +443,9 @@ def handle_extract_citations(pid, lib, notes):
                     print(f"[Citation] 从 {len(doc_chunks)} 个chunks提取")
                     result = extractor.extract_from_chunks(doc_chunks, pid)
                     if result and result.citations:
-                        extraction_log.append(f"✓ RAG chunks提取成功: {len(result.citations)} 条引用")
+                        extraction_log.append(
+                            f"✓ RAG chunks提取成功: {len(result.citations)} 条引用"
+                        )
                 else:
                     extraction_log.append("⚠️ 未找到RAG chunks")
             else:
@@ -457,7 +463,9 @@ def handle_extract_citations(pid, lib, notes):
                     print(f"[Citation] 从 {len(doc_notes)} 条笔记提取")
                     result = extractor.extract_from_notes(doc_notes, pid)
                     if result and result.citations:
-                        extraction_log.append(f"✓ 笔记提取成功: {len(result.citations)} 条引用")
+                        extraction_log.append(
+                            f"✓ 笔记提取成功: {len(result.citations)} 条引用"
+                        )
                 else:
                     extraction_log.append("⚠️ 该文献无笔记")
 
@@ -465,11 +473,15 @@ def handle_extract_citations(pid, lib, notes):
         if not result or not result.citations:
             text_content = doc_info.get("text", "")
             if text_content:
-                extraction_log.append(f"📄 尝试从原始文本提取 ({len(text_content)} 字符)")
+                extraction_log.append(
+                    f"📄 尝试从原始文本提取 ({len(text_content)} 字符)"
+                )
                 print(f"[Citation] 从原始文本提取 ({len(text_content)} 字符)")
                 result = extractor.extract_from_text(text_content, pid)
                 if result and result.citations:
-                    extraction_log.append(f"✓ 原始文本提取成功: {len(result.citations)} 条引用")
+                    extraction_log.append(
+                        f"✓ 原始文本提取成功: {len(result.citations)} 条引用"
+                    )
             else:
                 extraction_log.append("⚠️ 无原始文本数据")
 
@@ -956,14 +968,14 @@ def handle_note_action(action_data, tree, lib, notes):
 
 def handle_add_reference(source_id, target_id, tree):
     """手动添加引用关系边。
-    
+
     让用户可以手动为两个节点添加表示被引用关系的边。
-    
+
     Args:
         source_id: 引用方节点ID（引用其他文献的节点）
         target_id: 被引用方节点ID（被引用的节点）
         tree: 知识树实例
-    
+
     Returns:
         (status_message, tree, doc_tree_html, global_graph_html)
     """
@@ -974,7 +986,7 @@ def handle_add_reference(source_id, target_id, tree):
             gr.update(),
             gr.update(),
         )
-    
+
     if source_id == target_id:
         return (
             "<span class='agent-st error'>不能添加自引用</span>",
@@ -982,10 +994,10 @@ def handle_add_reference(source_id, target_id, tree):
             gr.update(),
             gr.update(),
         )
-    
+
     source_node = tree.get_node(source_id)
     target_node = tree.get_node(target_id)
-    
+
     if not source_node or not target_node:
         return (
             f"<span class='agent-st error'>节点未找到</span>",
@@ -993,26 +1005,30 @@ def handle_add_reference(source_id, target_id, tree):
             gr.update(),
             gr.update(),
         )
-    
+
     # 检查是否已存在该引用关系
     for edge in tree.edges:
-        if edge.source == source_id and edge.target == target_id and edge.relation == "references":
+        if (
+            edge.source == source_id
+            and edge.target == target_id
+            and edge.relation == "references"
+        ):
             return (
                 "<span class='agent-st error'>该引用关系已存在</span>",
                 tree,
                 gr.update(),
                 gr.update(),
             )
-    
+
     # 添加引用关系边
     tree.add_cross_reference(source_id, target_id)
-    
+
     # 获取节点所属文档信息用于刷新显示
     source_pid = source_node.source_pid
     target_pid = target_node.source_pid
-    
+
     status_msg = f"<span class='agent-st success'>✓ 已添加引用关系: {source_node.label[:20]} → {target_node.label[:20]}</span>"
-    
+
     return (
         status_msg,
         tree,

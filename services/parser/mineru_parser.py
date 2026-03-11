@@ -218,13 +218,17 @@ class MinerUParser:
                 self.parse_method,
             ]
             print(f"[MinerU] 执行命令: {' '.join(cmd)}")
-            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+            )
             stdout = (proc.stdout or "").strip()
             stderr = (proc.stderr or "").strip()
             if proc.returncode != 0:
                 combined = (stderr or stdout)[-600:]
                 print(f"[MinerU] 命令失败 (exit {proc.returncode}):\n{combined}")
-                raise RuntimeError(f"magic-pdf 执行失败 (exit {proc.returncode}): {combined[-400:]}")
+                raise RuntimeError(
+                    f"magic-pdf 执行失败 (exit {proc.returncode}): {combined[-400:]}"
+                )
 
             # 列出输出目录内容方便调试
             all_files = list(Path(output_dir).rglob("*"))

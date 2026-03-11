@@ -273,8 +273,11 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
         """
         if basic_text.strip():
             import html as _html
-            paras = [p for p in basic_text.split('\n') if p.strip()]
-            content_html = ''.join(f"<p class='txt-para'>{_html.escape(p)}</p>" for p in paras[:200])
+
+            paras = [p for p in basic_text.split("\n") if p.strip()]
+            content_html = "".join(
+                f"<p class='txt-para'>{_html.escape(p)}</p>" for p in paras[:200]
+            )
             return f"<div class='txt-reader'>{warn_bar}{content_html}</div>"
         return f"""
         <div class='docling-status' style='padding:20px;text-align:center;background:#fef2f2;
@@ -562,6 +565,7 @@ def _render_mineru_markdown_view(pid: str, lib: dict) -> str:
 
         # 轻量Markdown显示：保留换行与标题语义，避免依赖额外库
         import re as _re
+
         _img_re = _re.compile(r"!\[([^\]]*)\]\([^\)]*\)")
 
         def _render_line(raw_line: str) -> str:
@@ -573,11 +577,11 @@ def _render_mineru_markdown_view(pid: str, lib: dict) -> str:
                 last = 0
                 for m in _img_re.finditer(stripped):
                     if m.start() > last:
-                        parts.append(esc(stripped[last:m.start()]))
+                        parts.append(esc(stripped[last : m.start()]))
                     alt = esc(m.group(1)) if m.group(1) else "图片"
                     parts.append(
                         f'<span style="display:inline-block;background:#f3f4f6;'
-                        f'border:1px solid #d1d5db;border-radius:6px;padding:2px 10px;'
+                        f"border:1px solid #d1d5db;border-radius:6px;padding:2px 10px;"
                         f'color:#6b7280;font-size:13px;">🖼 {alt}</span>'
                     )
                     last = m.end()

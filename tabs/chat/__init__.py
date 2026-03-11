@@ -215,10 +215,11 @@ def handle_chat_send(message, chat_history, tree, lib, notes):
 
     except Exception as e:
         import traceback
+
         error_detail = traceback.format_exc()
         print(f"[Chat] AI处理异常: {e}")
         print(f"[Chat] 错误堆栈:\n{error_detail}")
-        
+
         # 在回复中显示错误详情（开发模式）
         error_msg = f"❌ 系统异常：{e}\n\n<details><summary>📝 错误详情（开发者信息）</summary>\n\n```\n{error_detail[:500]}\n```\n</details>"
         chat_history[-1]["content"] = error_msg
@@ -232,41 +233,41 @@ def handle_chat_clear():
 
 def handle_feedback(feedback_data, chat_history=None):
     """Handle user feedback on AI responses.
-    
+
     Gradio 4.x like事件传递的参数格式:
     - LikeData对象包含: index, value ('like'/'dislike')
-    
+
     同时保存反馈数据用于RAG模型微调。
     """
     if not feedback_data:
         return ""
-    
+
     try:
         # Gradio 4.x使用.value属性
-        if hasattr(feedback_data, 'value'):
+        if hasattr(feedback_data, "value"):
             action = feedback_data.value
-            index = getattr(feedback_data, 'index', '?')
+            index = getattr(feedback_data, "index", "?")
         elif isinstance(feedback_data, dict):
-            action = feedback_data.get('value', '')
-            index = feedback_data.get('index', '?')
+            action = feedback_data.get("value", "")
+            index = feedback_data.get("index", "?")
         else:
             action = str(feedback_data)
-            index = '?'
-        
+            index = "?"
+
         # 保存反馈数据用于模型微调
         _save_feedback_for_training(action, index, chat_history)
-        
-        if action == 'like':
+
+        if action == "like":
             print(f"[Chat] 用户对第 {index} 条回答点赞")
             return "<span class='agent-st success'>✓ 感谢反馈！这将帮助我们改进AI回答质量。</span>"
-        elif action == 'dislike':
+        elif action == "dislike":
             print(f"[Chat] 用户对第 {index} 条回答点踩")
             return "<span class='agent-st error'>✓ 感谢反馈！我们会持续改进AI回答质量。</span>"
         else:
             print(f"[Chat] 收到反馈: {action}")
     except Exception as e:
         print(f"[Chat] 反馈处理异常: {e}")
-    
+
     return ""
 
 
@@ -274,28 +275,34 @@ def _save_feedback_for_training(action: str, index: int, chat_history):
     """保存反馈数据用于RAG模型微调"""
     if not chat_history or len(chat_history) < 2:
         return
-    
+
     try:
         from models.feedback import RetrievalFeedback
         from services.feedback_service import save_feedback
-        
+
         # 找到对应的用户问题和AI回答
         # chat_history格式: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
         target_idx = int(index) * 2 if str(index).isdigit() else -2
-        
+
         if target_idx >= 0 and target_idx < len(chat_history):
             user_msg = chat_history[target_idx]
-            ai_msg = chat_history[target_idx + 1] if target_idx + 1 < len(chat_history) else None
+            ai_msg = (
+                chat_history[target_idx + 1]
+                if target_idx + 1 < len(chat_history)
+                else None
+            )
         else:
             # 默认取最后一条
             user_msg = chat_history[-2] if len(chat_history) >= 2 else None
             ai_msg = chat_history[-1] if chat_history else None
-        
+
         if not user_msg or not ai_msg:
             return
-        
-        query = user_msg.get("content", "") if isinstance(user_msg, dict) else str(user_msg)
-        
+
+        query = (
+            user_msg.get("content", "") if isinstance(user_msg, dict) else str(user_msg)
+        )
+
         # 创建反馈对象
         feedback = RetrievalFeedback(
             query=query,
@@ -303,11 +310,11 @@ def _save_feedback_for_training(action: str, index: int, chat_history):
             retrieved_contents=[],
             user_rating=action,
         )
-        
+
         # 保存反馈
         save_feedback(feedback)
         print(f"[Chat] 反馈已保存: {action}")
-        
+
     except Exception as e:
         print(f"[Chat] 保存反馈失败: {e}")
 
@@ -376,11 +383,11 @@ def build_chat_tab():
         # 模型选择器 - 初始化默认值
         from core.model_state import cooldown_manager
         from core.config import MODEL_DISPLAY_NAMES
-        
+
         _models = cooldown_manager.get_all_models()
         _model_choices = [(MODEL_DISPLAY_NAMES.get(m, m), m) for m in _models]
         _preferred = cooldown_manager.get_preferred() or (_models[0] if _models else "")
-        
+
         model_selector = gr.Dropdown(
             choices=_model_choices,
             value=_preferred,
