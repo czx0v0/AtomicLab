@@ -971,13 +971,85 @@ class RAGService:
         )
 
 
-# 全局RAG服务实例
-_rag_service: Optional[RAGService] = None
+    def clear(self):
+        """清空当前会话的所有数据"""
+        self.chunk_store.clear()
+        self.doc_chunks.clear()
+        self.parsed_docs.clear()
+        
+        if self.vector_store:
+            self.vector_store.clear()
+        if self.bm25_index:
+            self.bm25_index.clear()
+        
+        # 清理存储目录
+        if hasattr(self.config, 'storage_path') and self.config.storage_path:
+            import shutil
+            storage_path = Path(self.config.storage_path)
+            if storage_path.exists():
+                shutil.rmtree(storage_path, ignore_errors=True)
+        
+        print(f"已清理会话数据: {self.config.storage_path}")
 
 
-def get_rag_service(config: Optional[RAGConfig] = None) -> RAGService:
-    """获取全局RAG服务实例"""
-    global _rag_service
-    if _rag_service is None:
-        _rag_service = RAGService(config)
-    return _rag_service
+# 会话级 RAG 服务管理
+import uuid
+from threading import Lock
+
+_session_services: Dict[str, RAGService] = {}
+_session_lock = Lock()
+_shared_rag_service: Optional[RAGService] = None
+
+
+def get_rag_service(config: Optional[RAGConfig] = None, session_id: Optional[str] = None) -> RAGService:
+    """
+    获取 RAG 服务实例
+    
+    Args:
+        config: RAG 配置
+        session_id: 会话ID（可选，用于会话级隔离）
+    
+    Returns:
+        RAGService 实例
+    """
+    global _shared_rag_service
+    
+    if session_id is None:
+        if _shared_rag_service is None:
+            _shared_rag_service = RAGService(config)
+        return _shared_rag_service
+    
+    with _session_lock:
+        if session_id not in _session_services:
+            session_storage = f"storage/sessions/{session_id}"
+            if config is None:
+                config = RAGConfig(storage_path=session_storage)
+            elif isinstance(config, dict):
+                config = RAGConfig(**{**config, 'storage_path': session_storage})
+            else:
+                config.storage_path = session_storage
+            
+            _session_services[session_id] = RAGService(config)
+        
+        return _session_services[session_id]
+
+
+def create_session() -> str:
+    """创建新会话，返回 session_id"""
+    return str(uuid.uuid4())[:8]
+
+
+def clear_session(session_id: str) -> bool:
+    """清理指定会话的数据"""
+    with _session_lock:
+        if session_id in _session_services:
+            service = _session_services.pop(session_id)
+            service.clear()
+            return True
+        return False
+
+
+def get_active_sessions() -> List[str]:
+    """获取所有活跃会话ID"""
+    with _session_lock:
+        return list(_session_services.keys())
