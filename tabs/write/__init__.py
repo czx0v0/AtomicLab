@@ -492,6 +492,7 @@ def build_write_tab():
                 value="__all__",
                 label="选择文献",
                 interactive=True,
+                allow_custom_value=True,
             )
 
             # Search bar

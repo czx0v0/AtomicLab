@@ -1114,6 +1114,7 @@ def build_organize_tab():
             label="选择文献",
             interactive=True,
             scale=2,
+            allow_custom_value=True,
         )
         search_input = gr.Textbox(
             label="搜索", placeholder="搜索知识节点和原文...", scale=3

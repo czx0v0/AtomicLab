@@ -398,6 +398,7 @@ def build_chat_tab():
             scale=2,
             container=False,
             elem_id="chat-doc-selector",
+            allow_custom_value=True,
         )
         # 模型状态指示
         model_status = gr.HTML("", elem_id="chat-model-status")
