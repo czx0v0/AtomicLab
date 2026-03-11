@@ -23,7 +23,8 @@ modelscope>=1.10.0
 
 # MinerU高精度解析（不用 mineru[all]，避免 PyYAML 冲突）
 mineru>=2.0.0
-# MinerU 布局模型依赖（单独安装避免拉入 vllm/xformers 等重依赖）
+# MinerU 布局模型依赖（显式声明确保安装）
+ultralytics>=8.0.0
 doclayout-yolo
 
 # 向量数据库
