@@ -21,10 +21,8 @@ modelscope>=1.10.0
 # 高级PDF解析（Docling作为MinerU降级备选）
 docling>=2.0.0
 
-# MinerU高精度解析（v2.0.0+无PyYAML依赖）
-# 注意：使用mineru而不是mineru[all]或magic-pdf
-# mineru v2.0.0+ 已移除PyYAML依赖，避免与系统PyYAML冲突
-mineru>=2.0.0
+# MinerU高精度解析（必须用 mineru[all] 包含 doclayout-yolo 等布局模型依赖）
+mineru[all]>=2.0.0
 
 # 向量数据库
 faiss-cpu>=1.7.4
