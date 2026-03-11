@@ -18,8 +18,8 @@ sentence-transformers>=2.2.0
 # ModelScope模型下载（创空间使用）
 modelscope>=1.10.0
 
-# 高级PDF解析（ModelScope创空间注释，PyYAML冲突）
-# docling>=2.0.0
+# 高级PDF解析（Docling作为MinerU降级备选）
+docling>=2.0.0
 
 # MinerU高精度解析（v2.0.0+无PyYAML依赖）
 # 注意：使用mineru而不是mineru[all]或magic-pdf

@@ -203,17 +203,26 @@ class MinerUParser:
         return self._parse_with_cli(filepath)
 
     def _parse_with_cli(self, filepath: str) -> str:
-        """调用magic-pdf命令行解析，并返回Markdown文本。"""
+        """调用mineru/magic-pdf命令行解析，并返回Markdown文本。"""
         if not _MINERU_BIN:
             raise RuntimeError("magic-pdf 命令不存在，请检查MinerU安装")
 
         with tempfile.TemporaryDirectory(prefix="mineru_parse_") as output_dir:
+            # 复制文件到纯 ASCII 临时路径（mineru CLI 对含空格/中文的路径可能失败）
+            safe_name = "input.pdf"
+            safe_path = os.path.join(output_dir, safe_name)
+            shutil.copy2(filepath, safe_path)
+            print(f"[MinerU] 已复制到安全路径: {safe_path}")
+
+            sub_output = os.path.join(output_dir, "output")
+            os.makedirs(sub_output, exist_ok=True)
+
             cmd = [
                 _MINERU_BIN,
                 "-p",
-                filepath,
+                safe_path,
                 "-o",
-                output_dir,
+                sub_output,
                 "-m",
                 self.parse_method,
             ]
@@ -223,33 +232,38 @@ class MinerUParser:
             )
             stdout = (proc.stdout or "").strip()
             stderr = (proc.stderr or "").strip()
+
+            # 始终打印 stderr（mineru 的核心日志在 stderr）
+            if stderr:
+                print(f"[MinerU] stderr (末500字):\n{stderr[-500:]}")
+            if stdout:
+                print(f"[MinerU] stdout (末200字): {stdout[-200:]}")
+
             if proc.returncode != 0:
                 combined = (stderr or stdout)[-600:]
-                print(f"[MinerU] 命令失败 (exit {proc.returncode}):\n{combined}")
+                print(f"[MinerU] 命令失败 (exit {proc.returncode})")
                 raise RuntimeError(
                     f"magic-pdf 执行失败 (exit {proc.returncode}): {combined[-400:]}"
                 )
 
             # 列出输出目录内容方便调试
-            all_files = list(Path(output_dir).rglob("*"))
+            all_files = list(Path(sub_output).rglob("*"))
             print(f"[MinerU] 输出目录文件数: {len(all_files)}")
             if all_files:
-                for f in all_files[:10]:
-                    print(f"  {f.relative_to(output_dir)}")
-            if stdout:
-                print(f"[MinerU] stdout (末200字): {stdout[-200:]}")
+                for f in all_files[:15]:
+                    print(f"  {f.relative_to(sub_output)}")
 
-            md_files = list(Path(output_dir).rglob("*.md"))
+            md_files = list(Path(sub_output).rglob("*.md"))
             if not md_files:
                 # 尝试读取任何文本输出
-                txt_files = list(Path(output_dir).rglob("*.txt"))
+                txt_files = list(Path(sub_output).rglob("*.txt"))
                 if txt_files:
                     txt_file = max(txt_files, key=lambda p: p.stat().st_size)
                     print(f"[MinerU] 无.md文件，尝试读取.txt: {txt_file.name}")
                     return txt_file.read_text(encoding="utf-8", errors="ignore")
                 raise RuntimeError(
                     f"magic-pdf 未产出Markdown文件 (共{len(all_files)}个输出文件). "
-                    f"stdout: {stdout[-200:]}"
+                    f"stderr: {stderr[-200:]} stdout: {stdout[-200:]}"
                 )
 
             md_file = max(md_files, key=lambda p: p.stat().st_size)
