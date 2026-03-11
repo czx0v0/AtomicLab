@@ -995,8 +995,9 @@ class RAGService:
 # 会话级 RAG 服务管理
 import uuid
 from threading import Lock
+from typing import Dict, Tuple
 
-_session_services: Dict[str, RAGService] = {}
+_session_services: Dict[str, Tuple[RAGService, float]] = {}
 _session_lock = Lock()
 _shared_rag_service: Optional[RAGService] = None
 
@@ -1043,8 +1044,9 @@ def clear_session(session_id: str) -> bool:
     """清理指定会话的数据"""
     with _session_lock:
         if session_id in _session_services:
-            service = _session_services.pop(session_id)
+            service, _ = _session_services.pop(session_id)
             service.clear()
+            print(f"[Session] 已清理会话: {session_id}")
             return True
         return False
 
@@ -1053,3 +1055,44 @@ def get_active_sessions() -> List[str]:
     """获取所有活跃会话ID"""
     with _session_lock:
         return list(_session_services.keys())
+
+import time
+from threading import Thread
+
+# 会话超时时间（秒）- 默认30分钟无访问自动清理
+SESSION_TIMEOUT_SECONDS = int(os.environ.get("SESSION_TIMEOUT", "1800"))
+
+
+def _cleanup_expired_sessions():
+    """清理过期会话"""
+    current_time = time.time()
+    expired = []
+    with _session_lock:
+        for session_id, (_, last_access) in list(_session_services.items()):
+            if current_time - last_access > SESSION_TIMEOUT_SECONDS:
+                expired.append(session_id)
+        for session_id in expired:
+            service, _ = _session_services.pop(session_id)
+            try:
+                service.clear()
+            except Exception as e:
+                print(f"[Session] 清理失败 {session_id}: {e}")
+    if expired:
+        print(f"[Session] 已清理 {len(expired)} 个过期会话")
+
+
+def _session_cleanup_loop():
+    """后台清理循环"""
+    while True:
+        time.sleep(60)  # 每分钟检查一次
+        try:
+            _cleanup_expired_sessions()
+        except Exception as e:
+            print(f"[Session] 清理循环错误: {e}")
+
+
+def start_session_cleanup():
+    """启动会话清理线程"""
+    cleanup_thread = Thread(target=_session_cleanup_loop, daemon=True)
+    cleanup_thread.start()
+    print(f"[Session] 会话清理线程已启动 (超时: {SESSION_TIMEOUT_SECONDS}秒)")
