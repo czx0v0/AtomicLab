@@ -970,9 +970,8 @@ class RAGService:
             f"✅ 索引已加载: {len(self.chunk_store)} chunks, {len(self.doc_chunks)} 文档"
         )
 
-
     def clear(self):
-        """清空当前会话的所有数据"""
+        """清空当前会话的所有数据（内存 + 磁盘）"""
         self.chunk_store.clear()
         self.doc_chunks.clear()
         self.parsed_docs.clear()
@@ -989,16 +988,20 @@ class RAGService:
             if storage_path.exists():
                 shutil.rmtree(storage_path, ignore_errors=True)
         
-        print(f"已清理会话数据: {self.config.storage_path}")
+        print(f"[Session] 已清理 RAG 数据: {getattr(self.config, 'storage_path', '未知')}")
 
 
-# 会话级 RAG 服务管理
+# ══════════════════════════════════════════════════════════════
+# 会话级 RAG 服务管理（对接 core.session_store）
+# ══════════════════════════════════════════════════════════════
 import uuid
 from threading import Lock
-from typing import Dict, Tuple
+from typing import Dict
 
-_session_services: Dict[str, Tuple[RAGService, float]] = {}
-_session_lock = Lock()
+_session_rag_services: Dict[str, RAGService] = {}
+_session_rag_lock = Lock()
+
+# 全局共享服务（本地开发 / 无 session_id 场景）
 _shared_rag_service: Optional[RAGService] = None
 
 
@@ -1006,12 +1009,8 @@ def get_rag_service(config: Optional[RAGConfig] = None, session_id: Optional[str
     """
     获取 RAG 服务实例
     
-    Args:
-        config: RAG 配置
-        session_id: 会话ID（可选，用于会话级隔离）
-    
-    Returns:
-        RAGService 实例
+    - session_id=None：返回全局共享服务（本地开发）
+    - session_id 指定：返回会话独立服务（多用户 Demo）
     """
     global _shared_rag_service
     
@@ -1020,19 +1019,34 @@ def get_rag_service(config: Optional[RAGConfig] = None, session_id: Optional[str
             _shared_rag_service = RAGService(config)
         return _shared_rag_service
     
-    with _session_lock:
-        if session_id not in _session_services:
-            session_storage = f"storage/sessions/{session_id}"
-            if config is None:
-                config = RAGConfig(storage_path=session_storage)
-            elif isinstance(config, dict):
-                config = RAGConfig(**{**config, 'storage_path': session_storage})
-            else:
-                config.storage_path = session_storage
+    with _session_rag_lock:
+        if session_id not in _session_rag_services:
+            # 通过 session_store 初始化会话目录
+            try:
+                from core.session_store import init_session, touch_session
+                session_dir = init_session(session_id)
+                session_storage = str(session_dir)
+            except ImportError:
+                session_storage = f"storage/sessions/{session_id}"
             
-            _session_services[session_id] = RAGService(config)
+            if config is None:
+                session_config = RAGConfig(storage_path=session_storage)
+            elif isinstance(config, dict):
+                session_config = RAGConfig(**{**config, 'storage_path': session_storage})
+            else:
+                session_config = config
+                session_config.storage_path = session_storage
+            
+            _session_rag_services[session_id] = RAGService(session_config)
+        else:
+            # 更新会话活跃时间
+            try:
+                from core.session_store import touch_session
+                touch_session(session_id)
+            except ImportError:
+                pass
         
-        return _session_services[session_id]
+        return _session_rag_services[session_id]
 
 
 def create_session() -> str:
@@ -1041,58 +1055,40 @@ def create_session() -> str:
 
 
 def clear_session(session_id: str) -> bool:
-    """清理指定会话的数据"""
-    with _session_lock:
-        if session_id in _session_services:
-            service, _ = _session_services.pop(session_id)
+    """清理指定会话的所有数据（RAG + 文件）"""
+    cleared = False
+    
+    with _session_rag_lock:
+        if session_id in _session_rag_services:
+            service = _session_rag_services.pop(session_id)
             service.clear()
-            print(f"[Session] 已清理会话: {session_id}")
-            return True
-        return False
+            cleared = True
+    
+    # 同步清理 session_store
+    try:
+        from core.session_store import SessionDataStore, get_session_dir
+        import shutil
+        SessionDataStore.cleanup_session(session_id)
+        session_dir = get_session_dir(session_id)
+        if session_dir.exists():
+            shutil.rmtree(session_dir, ignore_errors=True)
+    except Exception as e:
+        print(f"[Session] session_store 清理失败: {e}")
+    
+    print(f"[Session] 已清理会话: {session_id}")
+    return cleared
 
 
-def get_active_sessions() -> List[str]:
+def get_active_sessions() -> list:
     """获取所有活跃会话ID"""
-    with _session_lock:
-        return list(_session_services.keys())
-
-import time
-from threading import Thread
-
-# 会话超时时间（秒）- 默认30分钟无访问自动清理
-SESSION_TIMEOUT_SECONDS = int(os.environ.get("SESSION_TIMEOUT", "1800"))
-
-
-def _cleanup_expired_sessions():
-    """清理过期会话"""
-    current_time = time.time()
-    expired = []
-    with _session_lock:
-        for session_id, (_, last_access) in list(_session_services.items()):
-            if current_time - last_access > SESSION_TIMEOUT_SECONDS:
-                expired.append(session_id)
-        for session_id in expired:
-            service, _ = _session_services.pop(session_id)
-            try:
-                service.clear()
-            except Exception as e:
-                print(f"[Session] 清理失败 {session_id}: {e}")
-    if expired:
-        print(f"[Session] 已清理 {len(expired)} 个过期会话")
-
-
-def _session_cleanup_loop():
-    """后台清理循环"""
-    while True:
-        time.sleep(60)  # 每分钟检查一次
-        try:
-            _cleanup_expired_sessions()
-        except Exception as e:
-            print(f"[Session] 清理循环错误: {e}")
+    with _session_rag_lock:
+        return list(_session_rag_services.keys())
 
 
 def start_session_cleanup():
-    """启动会话清理线程"""
-    cleanup_thread = Thread(target=_session_cleanup_loop, daemon=True)
-    cleanup_thread.start()
-    print(f"[Session] 会话清理线程已启动 (超时: {SESSION_TIMEOUT_SECONDS}秒)")
+    """启动会话清理调度器（委托给 session_store）"""
+    try:
+        from core.session_store import start_cleanup_scheduler
+        start_cleanup_scheduler(interval_seconds=300)
+    except ImportError:
+        print("[Session] session_store 未可用，跳过清理调度器")
