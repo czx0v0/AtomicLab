@@ -26,6 +26,8 @@ mineru>=2.0.0
 # MinerU 布局模型依赖（显式声明确保安装）
 ultralytics>=8.0.0
 doclayout-yolo
+# MinerU 公式识别模块依赖（unimernet 需要）
+ftfy
 
 # 向量数据库
 faiss-cpu>=1.7.4
