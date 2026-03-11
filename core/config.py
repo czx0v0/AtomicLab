@@ -74,39 +74,56 @@ if IN_MODELSCOPE_SPACE:
     # ══════════════════════════════════════════════════════════════
     # MinerU 自动初始化（创空间无终端访问权限时）
     # ══════════════════════════════════════════════════════════════
-    MINERU_MODELS_DIR = "/mnt/workspace/models/MinerU"
     MINERU_CONFIG_FILE = "/mnt/workspace/.magic-pdf.json"
+    MODELSCOPE_CACHE_DIR = "/mnt/workspace/.cache/modelscope"
 
-    # 自动创建 MinerU 配置文件
-    if not os.path.exists(MINERU_CONFIG_FILE):
-        try:
-            os.makedirs(MINERU_MODELS_DIR, exist_ok=True)
-            import json
+    # 设置 MinerU 环境变量（先于配置文件生成，让 mineru 知道模型缓存路径）
+    os.environ.setdefault("MINERU_TOOLS_CONFIG_JSON", MINERU_CONFIG_FILE)
+    os.environ.setdefault("MODELSCOPE_CACHE", MODELSCOPE_CACHE_DIR)
 
-            config_content = {"models-dir": MINERU_MODELS_DIR, "device-mode": "cpu"}
+    # 自动创建/更新 MinerU 配置文件
+    # 关键：不再硬编码 models-dir，让 mineru 使用自身默认路径
+    # mineru-models-download 默认下到 ~/.cache/magic-pdf/ 或 MODELSCOPE_CACHE
+    # 若 models-dir 路径不存在，magic-pdf 会静默退出(exit 0)不产生任何输出
+    try:
+        import json
+        _need_write = True
+        if os.path.exists(MINERU_CONFIG_FILE):
+            try:
+                with open(MINERU_CONFIG_FILE, "r") as _f:
+                    _existing = json.load(_f)
+                # 如果旧配置包含不存在的 models-dir，需要更新
+                _old_models_dir = _existing.get("models-dir", "")
+                if _old_models_dir and os.path.isdir(_old_models_dir):
+                    _need_write = False  # 路径存在，保留旧配置
+                    print(f"[Config] MinerU 配置文件有效，models-dir: {_old_models_dir}")
+                else:
+                    print(f"[Config] MinerU 配置文件中 models-dir 不存在: {_old_models_dir}，将更新")
+            except Exception:
+                pass
+
+        if _need_write:
+            # 不设置 models-dir，让 mineru 自动查找
+            config_content = {"device-mode": "cpu"}
             with open(MINERU_CONFIG_FILE, "w") as f:
                 json.dump(config_content, f, indent=2)
-            print(f"[Config] 已自动创建 MinerU 配置文件: {MINERU_CONFIG_FILE}")
-        except Exception as e:
-            print(f"[Config] 创建 MinerU 配置文件失败: {e}")
-
-    # 设置 MinerU 环境变量
-    os.environ.setdefault("MINERU_TOOLS_CONFIG_JSON", MINERU_CONFIG_FILE)
-    os.environ.setdefault("MODELSCOPE_CACHE", "/mnt/workspace/.cache/modelscope")
-
-    # 自动下载 MinerU 模型（首次使用时）
-    # mineru v2.0.0+ 支持自动模型管理，无需手动下载
-    # 这里保留旧版兼容逻辑
-    try:
-        model_files = (
-            os.listdir(MINERU_MODELS_DIR) if os.path.exists(MINERU_MODELS_DIR) else []
-        )
-        if len(model_files) == 0:
-            print("[Config] MinerU 模型目录为空")
-            print("[Config] mineru v2.0.0+ 将在首次使用时自动下载模型")
-            print("[Config] 模型约 3GB，首次解析可能需要几分钟")
+            print(f"[Config] 已更新 MinerU 配置文件: {MINERU_CONFIG_FILE} (不指定models-dir，使用默认路径)")
     except Exception as e:
-        print(f"[Config] MinerU 模型目录检查失败: {e}")
+        print(f"[Config] 创建 MinerU 配置文件失败: {e}")
+
+    # 打印 magic-pdf 模型可能存在的路径（方便排查）
+    _possible_model_dirs = [
+        "/root/.cache/magic-pdf/models",
+        f"{MODELSCOPE_CACHE_DIR}/models",
+        os.path.expanduser("~/.cache/magic-pdf/models"),
+    ]
+    for _d in _possible_model_dirs:
+        if os.path.exists(_d):
+            _files = os.listdir(_d)
+            print(f"[Config] MinerU 模型目录已找到: {_d} ({len(_files)} 个文件)")
+            break
+    else:
+        print("[Config] 未找到 MinerU 模型目录，首次解析将触发自动下载")
 else:
     MODEL_CACHE_DIR = None  # 使用默认
 

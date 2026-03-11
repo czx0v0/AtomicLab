@@ -261,18 +261,29 @@ def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
         </div>
         """
 
-    # 如果有状态但失败了
+    # 如果有状态但失败了（不全屏阅覆，展示警告条并回进基础文本）
     if rag_status and "失败" in rag_status:
-        return f"""
-        <div class='docling-status' style='padding: 40px; text-align: center; background: #fef2f2; border-radius: 8px; margin: 20px;'>
-            <div style='font-size: 48px; margin-bottom: 20px;'>❌</div>
-            <h3 style='color: #dc2626;'>Docling解析失败</h3>
-            <p style='color: #4b5563;'>{rag_status}</p>
-            <p style='color: #718096; font-size: 14px;'>请切换到"文本模式"查看，或重新上传</p>
+        # 尝试展示基础文本内容而不是全屏错误
+        basic_text = doc_info.get("text", "")
+        warn_bar = f"""
+        <div style='background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;
+          padding:8px 12px;margin-bottom:12px;font-size:.82em;color:#92400e;'>
+          ⚠️ RAG解析失败（{rag_status.replace('❌ ','')})，以下显示基础文本。切换到“PDF高亮”模式可查看原始 PDF。
         </div>
         """
-
-    # 如果正在处理中（有chunk_count但未标记为indexed）
+        if basic_text.strip():
+            import html as _html
+            paras = [p for p in basic_text.split('\n') if p.strip()]
+            content_html = ''.join(f"<p class='txt-para'>{_html.escape(p)}</p>" for p in paras[:200])
+            return f"<div class='txt-reader'>{warn_bar}{content_html}</div>"
+        return f"""
+        <div class='docling-status' style='padding:20px;text-align:center;background:#fef2f2;
+          border-radius:8px;margin:20px;'>
+          <div style='font-size:36px;margin-bottom:10px;'>⚠️</div>
+          <p style='color:#dc2626;font-weight:600;'>{rag_status}</p>
+          <p style='color:#6b7280;font-size:.84em;'>请切换到“PDF高亮”模式查看原始PDF。</p>
+        </div>
+        """
     if chunk_count > 0 and not is_indexed:
         return f"""
         <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
@@ -425,15 +436,13 @@ def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> s
     # 如果有状态但失败了
     if rag_status and "失败" in rag_status:
         return f"""
-        <div class='docling-status' style='padding: 40px; text-align: center; background: #fef2f2; border-radius: 8px; margin: 20px;'>
-            <div style='font-size: 48px; margin-bottom: 20px;'>❌</div>
-            <h3 style='color: #dc2626;'>Docling解析失败</h3>
-            <p style='color: #4b5563;'>{rag_status}</p>
-            <p style='color: #718096; font-size: 14px;'>请切换到"文本模式"查看，或重新上传</p>
+        <div class='docling-status' style='padding: 20px; text-align: center; background: #fef2f2;
+          border-radius: 8px; margin: 20px;'>
+          <div style='font-size: 36px; margin-bottom: 10px;'>⚠️</div>
+          <p style='color: #dc2626; font-weight:600;'>{rag_status}</p>
+          <p style='color: #718096; font-size: .84em;'>切换到“PDF高亮”模式可查看原始PDF</p>
         </div>
         """
-
-    # 尝试从RAG服务获取解析结果
     try:
         from services.rag_service import get_rag_service
         from core.config import RAG_CONFIG
