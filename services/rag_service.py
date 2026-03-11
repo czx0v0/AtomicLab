@@ -414,7 +414,7 @@ class RAGService:
                     print("⚠️ 检测到Windows缓存链接权限问题，回退到纯文本解析模式")
                     parsed = self._fallback_parse_document(filepath, doc_id)
                 else:
-                    # MinerU 解析失败时自动降级到 Docling
+                    # MinerU 解析失败时自动降级到 Docling，再失败则用 PyPDF2 基础提取
                     parser_backend = getattr(self.config, "parser_backend", "docling")
                     if parser_backend == "mineru":
                         print(f"⚠️ MinerU解析失败: {parse_error}")
@@ -426,9 +426,10 @@ class RAGService:
                             parsed = fallback_parser.parse(filepath, doc_id)
                             print("✓ Docling降级解析成功")
                         except Exception as fallback_err:
-                            raise RuntimeError(
-                                f"MinerU解析失败({parse_error}), Docling降级也失败: {fallback_err}"
-                            ) from fallback_err
+                            print(f"⚠️ Docling降级也失败: {fallback_err}")
+                            print("  最终降级到PyPDF2基础提取...")
+                            parsed = self._fallback_parse_document(filepath, doc_id)
+                            print("✓ PyPDF2基础提取完成")
                     else:
                         raise
 

@@ -18,11 +18,13 @@ sentence-transformers>=2.2.0
 # ModelScope模型下载（创空间使用）
 modelscope>=1.10.0
 
-# 高级PDF解析（Docling作为MinerU降级备选）
-docling>=2.0.0
+# 高级PDF解析（Docling 可能触发 PyYAML 冲突，先注释；MinerU+doclayout-yolo 成功后可去掉注释）
+# docling>=2.0.0
 
-# MinerU高精度解析（必须用 mineru[all] 包含 doclayout-yolo 等布局模型依赖）
-mineru[all]>=2.0.0
+# MinerU高精度解析（不用 mineru[all]，避免 PyYAML 冲突）
+mineru>=2.0.0
+# MinerU 布局模型依赖（单独安装避免拉入 vllm/xformers 等重依赖）
+doclayout-yolo
 
 # 向量数据库
 faiss-cpu>=1.7.4
