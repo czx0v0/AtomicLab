@@ -203,8 +203,8 @@ THINKING_MODELS = {m for m in [MODEL_NAME] + FALLBACK_MODELS if _is_thinking_mod
 APP_TITLE = "Atomic Lab"
 APP_SUBTITLE = "Read · Organize · Write"
 
-# Knowledge Node Types
-NODE_TYPES = ["domain", "document", "note", "tag"]
+# Knowledge Node Types (五级: Domain -> Document -> Section -> Note/Summary -> Atomic)
+NODE_TYPES = ["domain", "document", "section", "summary", "note", "atomic"]
 
 # Note Categories
 NOTE_CATEGORIES = ["方法", "公式", "图像", "定义", "观点", "数据", "其他"]
@@ -223,20 +223,25 @@ CATEGORY_COLORS = {
 # Edge Relation Types
 EDGE_RELATIONS = ["contains", "tagged_with", "references"]
 
+# 五级联动：Domain -> Document -> Section -> Summary/Note -> Atomic
 # ECharts Node Colors
 NODE_COLORS = {
-    "domain": "#5b8def",  # Blue
-    "document": "#48bb78",  # Green
-    "note": "#ecc94b",  # Yellow
-    "tag": "#9f7aea",  # Purple
+    "domain": "#5b8def",    # Blue（领域）
+    "document": "#48bb78",  # Green（论文）
+    "section": "#38b2ac",   # Teal（章节标题）
+    "summary": "#b794f4",   # Purple（章节摘要）
+    "note": "#ecc94b",     # Yellow（原子卡片）
+    "atomic": "#718096",   # Gray（原子知识卡片，小方块区分）
 }
 
 # ECharts Node Sizes
 NODE_SIZES = {
     "domain": 50,
     "document": 40,
-    "note": 25,
-    "tag": 15,
+    "section": 30,
+    "summary": 26,
+    "note": 22,
+    "atomic": 14,  # 小方块，与 note 圆点区分
 }
 
 # ══════════════════════════════════════════════════════════════
@@ -252,7 +257,7 @@ RAG_CONFIG = {
     # 分块配置
     "chunk_size": int(os.environ.get("RAG_CHUNK_SIZE", "900")),
     "chunk_overlap": int(os.environ.get("RAG_CHUNK_OVERLAP", "120")),
-    "similarity_threshold": float(os.environ.get("RAG_SIMILARITY_THRESHOLD", "0.58")),
+    "similarity_threshold": float(os.environ.get("RAG_SIMILARITY_THRESHOLD", "0.5")),
     # 分块模式: semantic(语义分块) | paragraph(段落分块)
     "chunk_mode": os.environ.get("CHUNK_MODE", "paragraph"),
     # 检索配置

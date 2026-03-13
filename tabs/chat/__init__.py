@@ -12,6 +12,7 @@ Exports:
 
 import time
 import inspect
+import json
 import gradio as gr
 
 from agents.router import RouterAgent
@@ -87,27 +88,40 @@ def format_agent_msg(agent_name: str, icon: str, content: str) -> str:
 
 
 def _render_citation_bar(citation_items: list) -> str:
-    """渲染 RAG 引用跳转按钮栏。citation_items: [{"pid", "page", "label"}, ...]。"""
-    if not citation_items:
-        return ""
-    parts = [
-        '<div class="chat-citation-bar" style="margin-top:10px;padding:8px 0;border-top:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">',
-        '<span style="font-size:12px;color:#718096;margin-right:6px;">📑 跳转引用:</span>',
-    ]
+    """渲染 RAG 引用跳转按钮栏，并注入 data-citations / window.__lastCitations 供对话内 [1] 点击跳转 PDF。"""
+    citations_data = []
     for item in citation_items:
         pid = item.get("pid", "") or ""
-        page = item.get("page", 1)
-        label = item.get("label", "") or f"p.{page}"
         if not pid:
             continue
+        citations_data.append({
+            "pid": pid,
+            "page": int(item.get("page", 1)),
+            "label": (item.get("label") or f"p.{item.get('page', 1)}")[:80],
+        })
+    data_attr = esc(json.dumps(citations_data, ensure_ascii=False))
+    if not citations_data:
+        return '<div class="chat-citation-bar" data-citations="[]"></div><script>window.__lastCitations=[];</script>'
+    parts = [
+        '<div class="chat-citation-bar" data-citations="' + data_attr + '" style="margin-top:10px;padding:8px 0;border-top:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">',
+        '<span style="font-size:12px;color:#718096;margin-right:6px;">📑 跳转引用:</span>',
+    ]
+    for item in citations_data:
+        pid = item["pid"]
+        page = item["page"]
+        label = item["label"]
         safe_label = esc(label[:30] + ("..." if len(label) > 30 else ""))
         parts.append(
             f'<button type="button" class="citation-jump-btn" '
-            f'onclick="jumpToSource(\'{esc(pid)}\', {int(page)})" '
+            f'onclick="jumpToSource(\'{esc(pid)}\', {page})" '
             f'style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid #cbd5e0;background:#f7fafc;cursor:pointer;color:#2d3748;">'
             f'📑 {safe_label}</button>'
         )
     parts.append("</div>")
+    parts.append(
+        "<script>window.__lastCitations=" + json.dumps(citations_data, ensure_ascii=False) + ";"
+        "if(window.makeCitationsClickable)window.makeCitationsClickable();</script>"
+    )
     return "\n".join(parts)
 
 
@@ -396,7 +410,7 @@ def handle_chat_stream(message, messages, tree, lib, notes):
 
         rag_service = get_rag_service(RAG_CONFIG)
         try:
-            retrieval = rag_service.retrieve(question, top_k=5)
+            retrieval = rag_service.retrieve(question, top_k=15)
             for idx, chunk in enumerate(retrieval.chunks[:3], start=1):
                 title = getattr(chunk.metadata, "doc_title", "") or "未知文献"
                 preview = (chunk.content or "").replace("\n", " ")[:80]
@@ -605,7 +619,7 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
     if not is_skip:
         rag_service = get_rag_service(RAG_CONFIG)
         try:
-            retrieval = rag_service.retrieve(question, top_k=5)
+            retrieval = rag_service.retrieve(question, top_k=15)
             n_local = len(retrieval.chunks) if retrieval and retrieval.chunks else 0
             for idx, chunk in enumerate((retrieval.chunks or [])[:3], start=1):
                 title = getattr(chunk.metadata, "doc_title", "") or "未知文献"

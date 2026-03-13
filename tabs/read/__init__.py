@@ -873,7 +873,7 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
     )
 
 
-def handle_load_demo(lib, stats, notes, tree, rag_service=None):
+def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
     """
     加载静态 Demo 数据（秒开体验）。
 
@@ -884,6 +884,7 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None):
       - mock_notes.json (notes 状态)
     - 绝不调用 RAG 解析或 embedding，仅通知 rag_service
       从 demo_data/faiss_index/ 加载现有索引
+    - view_mode: 当前阅读模式，用于全量刷新 pdf_text/html、pdf_embed、mineru_markdown 三块视图
     """
     try:
         demo_dir = get_demo_data_path()
@@ -910,10 +911,12 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None):
             }
             active_pid = "DEMO-MOCK"
             page = 1
-            pdf_html = render_pdf_text(active_pid, mock_lib, page)
             file_list_html = _render_file_list(mock_lib, active_pid)
-
-            # 不加载任何索引，也不调用 RAG 解析。
+            txt_upd, embed_upd, mineru_upd = handle_mode_switch(
+                view_mode or "PDF高亮", active_pid, mock_lib, page, []
+            )
+            if txt_upd.get("visible", False):
+                txt_upd = gr.update(value=render_pdf_text(active_pid, mock_lib, page), visible=True)
             return (
                 mock_lib,
                 mock_stats,
@@ -921,10 +924,12 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None):
                 tree,
                 gr.update(value=active_pid),
                 render_stats(mock_stats),
-                pdf_html,
+                txt_upd,
                 page,
                 file_list_html,
                 gr.update(),  # upload_f
+                embed_upd,
+                mineru_upd,
             )
 
         with open(lib_path, "r", encoding="utf-8") as f:
@@ -960,8 +965,13 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None):
         # 选取第一个文献作为当前激活文献
         active_pid = next(iter(new_lib.keys())) if new_lib else ""
         page = 1
-        pdf_html = render_pdf_text(active_pid or None, new_lib, page)
         file_list_html = _render_file_list(new_lib, active_pid)
+        # 按当前 view_mode 全量刷新三块视图（文本/PDF嵌入/分块数据库/MinerU Markdown）
+        txt_upd, embed_upd, mineru_upd = handle_mode_switch(
+            view_mode or "PDF高亮", active_pid, new_lib, page, new_notes
+        )
+        if txt_upd.get("visible", False):
+            txt_upd = gr.update(value=render_pdf_text(active_pid or None, new_lib, page), visible=True)
 
         # 尝试让 RAG 服务从 demo_data/faiss_index 目录加载现成索引，
         # 并将 ParsedDocument 恢复到 RAGService 的内存缓存中，避免“索引不在内存中”提示。
@@ -1031,6 +1041,16 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None):
                         parse_confidence=pd_data.get("parse_confidence", 1.0),
                     )
                     service.parsed_docs[parsed_doc.doc_id] = parsed_doc
+                # 上下文切换：使分块显示等前端能在内存中找到当前文档
+                if active_pid and active_pid == parsed_doc.doc_id:
+                    service.set_active_document(active_pid)
+            if service is not None and active_pid:
+                service.set_active_document(active_pid)
+            # Heuristic：为每个 Document 下的 Section 补 Summary 并将 Note 挂到 Summary 下
+            if tree:
+                for node in list(getattr(tree, "nodes", {}).values()):
+                    if getattr(node, "type", None) == "document":
+                        getattr(tree, "ensure_section_summary_heuristic", lambda _: 0)(node.id)
         except Exception as e:  # pragma: no cover - demo 辅助逻辑
             print(f"[Demo] 加载 Demo 索引或恢复解析缓存失败: {e}")
 
@@ -1041,13 +1061,20 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None):
             tree,
             gr.update(value=active_pid or ""),
             render_stats(new_stats),
-            pdf_html,
+            txt_upd,
             page,
             file_list_html,
             gr.update(value=None),  # upload_f
+            embed_upd,
+            mineru_upd,
         )
     except Exception as e:
         print(f"[Demo] 加载 Demo 数据异常: {e}")
+        txt_upd, embed_upd, mineru_upd = (
+            gr.update(value=render_pdf_text(None, lib)),
+            gr.update(),
+            gr.update(),
+        )
         return (
             lib,
             stats,
@@ -1055,10 +1082,12 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None):
             tree,
             gr.update(),
             render_stats(stats),
-            render_pdf_text(None, lib),
+            txt_upd,
             1,
             _render_file_list(lib),
             gr.update(),
+            embed_upd,
+            mineru_upd,
         )
 
 

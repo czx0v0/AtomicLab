@@ -1,13 +1,14 @@
 """
 Knowledge Tree Model
 ====================
-Data structures for document -> note -> tag hierarchical knowledge graph.
+五级联动：Domain -> Document -> Section -> Summary/Note -> Atomic Knowledge.
 
 Tree structure:
-    domain (学科领域)
-    └── document (文献)
-        └── note (笔记, with category: 方法/公式/图像/定义/观点/数据/其他)
-            └── tag (AI 标签关键词)
+    domain (领域，如 AI)
+    └── document (论文)
+        └── section (章节标题，由 Markdown # 生成)
+            └── summary (章节摘要，虚拟节点) / note (原子卡片)
+                └── (原子知识点块)
 """
 
 from dataclasses import dataclass, field
@@ -38,7 +39,7 @@ class KnowledgeNode:
     """
 
     id: str
-    type: Literal["domain", "document", "section", "note", "tag"]
+    type: Literal["domain", "document", "section", "summary", "note", "atomic"]
     label: str
     content: str = ""
     source_pid: str = ""
@@ -66,9 +67,14 @@ class KnowledgeNode:
 
     @classmethod
     def from_dict(cls, d: dict) -> "KnowledgeNode":
+        t = d.get("type", "note")
+        if t == "tag":
+            t = "note"
+        if t not in ("domain", "document", "section", "summary", "note", "atomic"):
+            t = "note"
         return cls(
             id=d["id"],
-            type=d["type"],
+            type=t,
             label=d["label"],
             content=d.get("content", ""),
             source_pid=d.get("source_pid", ""),
@@ -81,7 +87,7 @@ class KnowledgeNode:
         )
 
     def to_echarts_node(self, highlight: bool = False) -> dict:
-        """Convert to ECharts node format."""
+        """Convert to ECharts node format. Atomic 节点使用小方块(symbol=rect)与 Note 圆点区分。"""
         color = NODE_COLORS.get(self.type, "#888")
         # Notes get category-specific color
         if self.type == "note":
@@ -107,10 +113,14 @@ class KnowledgeNode:
             "symbolSize": size,
             "category": self.type,
             "itemStyle": {"color": color},
-            "label": {"show": self.type in ("domain", "document")},
+            "label": {"show": self.type in ("domain", "document", "section")},
             "source_pid": self.source_pid or "",
             "page": page if page is not None else 1,
         }
+        # Atomic Knowledge：小方块样式，与 Note 圆点区分
+        if self.type == "atomic":
+            node["symbol"] = "rect"
+            node["symbolSize"] = [size * 0.9, size * 0.9]
         if highlight:
             node["itemStyle"] = {
                 "color": "#f56565",
@@ -172,7 +182,7 @@ class KnowledgeEdge:
 
 
 class KnowledgeTree:
-    """Hierarchical knowledge tree: domain -> document -> note -> tag."""
+    """五级联动: Domain -> Document -> Section -> Summary/Note -> Atomic."""
 
     def __init__(self):
         self.nodes: dict[str, KnowledgeNode] = {}
@@ -339,6 +349,82 @@ class KnowledgeTree:
                     return n
         return None
 
+    def _reparent_note_to_section(
+        self, note_node_id: str, new_section_id: str
+    ) -> None:
+        """将笔记节点从当前父节点移动到指定 section 下（更新 parent_id、children、edges）。"""
+        note = self.nodes.get(note_node_id)
+        if not note or note.type != "note":
+            return
+        old_parent_id = note.parent_id
+        if old_parent_id == new_section_id:
+            return
+        old_parent = self.nodes.get(old_parent_id)
+        if old_parent and note_node_id in old_parent.children:
+            old_parent.children.remove(note_node_id)
+        self.edges[:] = [
+            e
+            for e in self.edges
+            if not (e.source == old_parent_id and e.target == note_node_id)
+        ]
+        note.parent_id = new_section_id
+        new_parent = self.nodes.get(new_section_id)
+        if new_parent and note_node_id not in new_parent.children:
+            new_parent.children.append(note_node_id)
+        self.add_edge(
+            KnowledgeEdge(source=new_section_id, target=note_node_id, relation="contains")
+        )
+
+    def bind_notes_to_sections_heuristic(self, doc_node_id: str) -> int:
+        """
+        将直接挂在 document 下的 note 软绑定到最相关的 section 下（Document -> Section -> Note）。
+        启发式：优先按页码归属（note.page 落在 section 的 page_start~page_end），
+        其次按文本包含（note.content 与 section.label/content 重叠）。
+        返回被重新挂载的 note 数量。
+        """
+        doc = self.nodes.get(doc_node_id)
+        if not doc or doc.type != "document":
+            return 0
+        sections = [
+            n
+            for n in self.nodes.values()
+            if n.type == "section" and n.parent_id == doc_node_id
+        ]
+        notes_direct = [
+            n
+            for n in self.nodes.values()
+            if n.type == "note" and n.parent_id == doc_node_id
+        ]
+        if not sections or not notes_direct:
+            return 0
+        moved = 0
+        for note in notes_direct:
+            page = note.metadata.get("page") or note.metadata.get("page_start") or 1
+            if not isinstance(page, int):
+                try:
+                    page = int(page)
+                except (TypeError, ValueError):
+                    page = 1
+            best = self.get_sections_by_page(doc_node_id, page)
+            if not best:
+                for sec in sections:
+                    if note.content and sec.content and (
+                        (note.content[:50] in sec.content or sec.label in note.content)
+                    ):
+                        best = sec
+                        break
+            if not best:
+                for sec in sections:
+                    s = sec.metadata.get("page_start", 0) or 0
+                    e = sec.metadata.get("page_end", 9999) or 9999
+                    if s <= page <= e:
+                        best = sec
+                        break
+            if best:
+                self._reparent_note_to_section(note.id, best.id)
+                moved += 1
+        return moved
+
     def find_note_by_original_id(self, original_id: str) -> "KnowledgeNode":
         """Find a note node by its original note ID (from notes_st).
 
@@ -397,42 +483,143 @@ class KnowledgeTree:
             self._link_parent_child(parent_id, node.id, "contains")
         return node
 
-    # ── tag ────────────────────────────────────────────────────
+    # ── summary（章节摘要，虚拟节点）────────────────────────────
 
-    def create_tag_node(self, tag_text: str, note_node_id: str = None) -> KnowledgeNode:
-        """Create a tag node under a note."""
+    def create_summary_node(
+        self,
+        section_node_id: str,
+        title: str = "本章摘要",
+        content: str = "",
+        source_pid: str = "",
+    ) -> KnowledgeNode:
+        """在 Section 下创建 Summary 节点，用于挂载该章节下的所有 Note。"""
+        section = self.nodes.get(section_node_id)
+        if not section or section.type != "section":
+            raise ValueError("section_node_id 必须指向 section 节点")
         node = KnowledgeNode(
             id=next_node_id(),
-            type="tag",
-            label=tag_text,
-            content=tag_text,
-            parent_id=note_node_id,
-            weight=0.3,
-            tags=[tag_text],
+            type="summary",
+            label=title[:50],
+            content=content,
+            source_pid=source_pid or section.source_pid,
+            parent_id=section_node_id,
+            weight=0.65,
+            metadata={"virtual": True},
         )
         self.add_node(node)
-        if note_node_id:
-            self._link_parent_child(note_node_id, node.id, "tagged_with")
+        self._link_parent_child(section_node_id, node.id, "contains")
         return node
+
+    # ── atomic（原子知识，挂在 Note 下）────────────────────────────
+
+    def create_atomic_knowledge_node(
+        self,
+        note_node_id: str,
+        label: str,
+        content: str = "",
+        category: str = "Insight",
+        source_pid: str = "",
+        metadata: dict = None,
+    ) -> KnowledgeNode:
+        """在 Note 下创建 Atomic Knowledge 节点（公理/边界/方法论等解构卡片）。"""
+        note = self.nodes.get(note_node_id)
+        if not note or note.type != "note":
+            raise ValueError("note_node_id 必须指向 note 节点")
+        meta = dict(metadata or {})
+        meta.setdefault("category", category)
+        node = KnowledgeNode(
+            id=next_node_id(),
+            type="atomic",
+            label=label[:80],
+            content=content,
+            source_pid=source_pid or note.source_pid,
+            parent_id=note_node_id,
+            weight=0.6,
+            metadata=meta,
+        )
+        self.add_node(node)
+        self._link_parent_child(note_node_id, node.id, "contains")
+        return node
+
+    def ensure_section_summary_heuristic(self, doc_node_id: str) -> int:
+        """
+        为每个 Section 若无 Summary 子节点则创建虚拟 Summary，并将该 Section 下所有直接 Note 挂到 Summary 下。
+        形成 Section -> Summary -> Notes 闭环。返回创建的 Summary 数量。
+        """
+        doc = self.nodes.get(doc_node_id)
+        if not doc or doc.type != "document":
+            return 0
+        sections = [
+            n
+            for n in self.nodes.values()
+            if n.type == "section" and n.parent_id == doc_node_id
+        ]
+        created = 0
+        for sec in sections:
+            children = self.get_children(sec.id)
+            has_summary = any(c.type == "summary" for c in children)
+            notes_direct = [c for c in children if c.type == "note"]
+            if not has_summary and notes_direct:
+                summary_node = self.create_summary_node(
+                    sec.id,
+                    title=sec.label or "本章摘要",
+                    content=sec.metadata.get("summary", "") or "",
+                    source_pid=sec.source_pid,
+                )
+                created += 1
+                for note in notes_direct:
+                    self._reparent_note_to_section(note.id, summary_node.id)
+            elif has_summary and notes_direct:
+                summary_node = next(c for c in children if c.type == "summary")
+                for note in notes_direct:
+                    self._reparent_note_to_section(note.id, summary_node.id)
+        return created
+
+    def create_tag_node(self, tag_text: str, note_node_id: str = None) -> Optional["KnowledgeNode"]:
+        """已剔除 Tag 层级：不再创建 tag 节点，仅将标签写入 note 的 metadata.tags。保留接口兼容。"""
+        if not note_node_id or not tag_text:
+            return None
+        note = self.nodes.get(note_node_id)
+        if note and note.type == "note":
+            if "tags" not in note.metadata:
+                note.metadata["tags"] = []
+            if tag_text not in note.metadata["tags"]:
+                note.metadata["tags"].append(tag_text)
+            if tag_text not in note.tags:
+                note.tags.append(tag_text)
+        return None
 
     # ── ECharts serialization ──────────────────────────────────
 
     def to_echarts_option(self, highlight_ids: list[str] = None) -> dict:
         highlight_ids = highlight_ids or []
+        # 五级联动：先绑定 Note 到 Section，再为 Section 补 Summary 并挂载 Note -> Summary
+        for n in list(self.nodes.values()):
+            if n.type == "document":
+                self.bind_notes_to_sections_heuristic(n.id)
+                self.ensure_section_summary_heuristic(n.id)
 
         categories = [
             {"name": "domain"},
             {"name": "document"},
-            {"name": "section"},  # 添加section类别
+            {"name": "section"},
+            {"name": "summary"},
             {"name": "note"},
-            {"name": "tag"},
+            {"name": "atomic"},
         ]
 
+        valid_types = ("domain", "document", "section", "summary", "note", "atomic")
+        valid_ids = {n.id for n in self.nodes.values() if n.type in valid_types}
         nodes_data = [
             node.to_echarts_node(highlight=node.id in highlight_ids)
             for node in self.nodes.values()
+            if node.type in valid_types
         ]
-        links_data = [edge.to_echarts_link() for edge in self.edges]
+        links_data = [
+            edge.to_echarts_link()
+            for edge in self.edges
+            if edge.source in valid_ids and edge.target in valid_ids
+        ]
 
         return {
             "tooltip": {
@@ -442,7 +629,7 @@ class KnowledgeTree:
                 "extraCssText": "max-width:320px;white-space:pre-wrap;",
             },
             "legend": {
-                "data": ["domain", "document", "section", "note", "tag"],  # 添加section
+                "data": ["domain", "document", "section", "summary", "note", "atomic"],
                 "orient": "horizontal",
                 "top": 10,
             },
@@ -583,28 +770,18 @@ class KnowledgeTree:
     def to_document_graph_option(self) -> dict:
         """Generate ECharts option showing only document-level relationships.
 
-        Documents are connected when they share tags or have cross-references.
+        Documents are connected by cross-references (Tag 层级已剔除，不再按标签连边).
         """
         doc_nodes = [n for n in self.nodes.values() if n.type == "document"]
         if not doc_nodes:
             return {}
 
-        # Collect tags per document
-        doc_tags: dict[str, set[str]] = {}
-        for dn in doc_nodes:
-            tags = set()
-            for child in self.get_children(dn.id):
-                if child.type == "note":
-                    for tag_child in self.get_children(child.id):
-                        if tag_child.type == "tag":
-                            tags.add(tag_child.label.lower())
-            doc_tags[dn.id] = tags
-
         # Build nodes
         nodes_data = []
         for dn in doc_nodes:
-            tag_count = len(doc_tags.get(dn.id, set()))
-            note_count = sum(1 for c in self.get_children(dn.id) if c.type == "note")
+            note_count = sum(
+                1 for c in self.get_children(dn.id) if c.type in ("note", "section", "summary")
+            )
             nodes_data.append(
                 {
                     "id": dn.id,
@@ -616,26 +793,8 @@ class KnowledgeTree:
                 }
             )
 
-        # Build edges: shared tags
         links_data = []
-        doc_list = list(doc_tags.keys())
-        for i in range(len(doc_list)):
-            for j in range(i + 1, len(doc_list)):
-                shared = doc_tags[doc_list[i]] & doc_tags[doc_list[j]]
-                if shared:
-                    links_data.append(
-                        {
-                            "source": doc_list[i],
-                            "target": doc_list[j],
-                            "lineStyle": {
-                                "width": 1 + len(shared) * 1.5,
-                                "opacity": 0.6,
-                                "type": "solid",
-                            },
-                        }
-                    )
-
-        # Also include explicit cross-reference edges between documents
+        # Cross-reference edges between documents
         for edge in self.edges:
             if edge.relation == "references":
                 src = self.nodes.get(edge.source)

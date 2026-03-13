@@ -254,7 +254,7 @@ def handle_synthesize(tree, lib):
             parent = tree.get_node(nn.parent_id)
             if parent and parent.type == "document":
                 doc_name = parent.label
-        tags = [c.label for c in tree.get_children(nn.id) if c.type == "tag"]
+        tags = list(nn.tags) if nn.tags else list(nn.metadata.get("tags", []))
         synth_notes.append(
             {
                 "content": nn.content,
@@ -353,8 +353,13 @@ def handle_atomic_decompose(pid, notes, lib, tree):
             if decomposition.atoms:
                 total_atoms += len(decomposition.atoms)
 
-                # 渲染原子知识
+                # 挂载到知识树：每个 Note 下创建 Atomic Knowledge 节点
+                note_node = None
+                if tree and hasattr(tree, "find_note_by_original_id") and hasattr(tree, "create_atomic_knowledge_node"):
+                    note_node = tree.find_note_by_original_id(note_id)
+
                 for atom in decomposition.atoms:
+                    # 渲染原子知识卡片
                     results_html += f"""
                     <div class='atom-card' style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin:8px 0;'>
                         <div style='font-weight:600;color:#1e40af;margin-bottom:8px;'>{esc(atom.category)} · 置信度: {atom.confidence:.0%}</div>
@@ -364,6 +369,21 @@ def handle_atomic_decompose(pid, notes, lib, tree):
                         <div style='margin-top:8px;font-size:0.85em;color:#9ca3af;'>标签: {', '.join(atom.tags) if atom.tags else '无'}</div>
                     </div>
                     """
+                    # 在树中创建 atomic 节点，挂在对应 Note 下
+                    if note_node:
+                        try:
+                            label = f"{atom.category}: {(atom.axiom[:36] + '…') if len(atom.axiom) > 36 else atom.axiom}"
+                            content = f"Axiom: {atom.axiom}\nMethodology: {atom.methodology}\nBoundary: {atom.boundary}"
+                            tree.create_atomic_knowledge_node(
+                                note_node.id,
+                                label,
+                                content=content,
+                                category=atom.category,
+                                source_pid=doc_id,
+                                metadata={"confidence": atom.confidence, "tags": atom.tags or []},
+                            )
+                        except Exception:
+                            pass
 
         if not results_html:
             results_html = "<div class='nc-empty'>未能提取有效原子知识</div>"
@@ -680,7 +700,8 @@ def handle_search(query, tree, lib, rag_service=None):
                 cat_badge = f'<span class="cn-cat" style="background:{cat_color}20;color:{cat_color};border:1px solid {cat_color}40">{esc(cat)}</span>'
 
             # Tags
-            tags = [esc(c.label) for c in tree.get_children(node.id) if c.type == "tag"]
+            tags = list(node.tags) if node.tags else list(node.metadata.get("tags", []))
+            tags = [esc(t) for t in tags]
             tags_html = ""
             if tags:
                 tags_html = (
@@ -1063,11 +1084,14 @@ def handle_node_select(node_id, tree):
 
     page_html = f'<span class="nt-page">p.{page}</span>' if page else ""
 
-    # Collect tags
-    tags = []
-    for child in tree.get_children(node_id):
-        if child.type == "tag":
-            tags.append(esc(child.label))
+    # Collect tags（已剔除 Tag 层级，从 node.tags / metadata 读取）
+    node_obj = tree.get_node(node_id)
+    if node_obj and node_obj.tags:
+        tags = [esc(t) for t in node_obj.tags]
+    elif node_obj:
+        tags = [esc(t) for t in node_obj.metadata.get("tags", [])]
+    else:
+        tags = []
     tags_html = ""
     if tags:
         tags_html = (

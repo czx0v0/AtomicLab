@@ -961,8 +961,11 @@ def render_doc_note_tree(tree, pid: str = None) -> str:
                 f'<div class="nt-translation"><b>翻译:</b> {esc(translation)}</div>'
             )
 
+        # 一键引用：在写作区光标处插入 [Ref:node_id]
+        ref_btn = f'<span class="nt-action-btn nt-ref-btn" onclick="insertCitationAtCursor(\'{esc(node_id)}\')" title="插入到写作区光标处">➕ 引用</span>'
         # Action buttons (unified with read tab)
         actions_html = f"""<div class="nt-actions">
+  {ref_btn}
   <span class="nt-action-btn" onclick="noteAction('translate', '{node_id}')">翻译</span>
   <span class="nt-action-btn" onclick="noteAction('tag', '{node_id}')">AI标签</span>
   <span class="nt-action-btn" onclick="showAnnotatePopup('{node_id}')">添加批注</span>

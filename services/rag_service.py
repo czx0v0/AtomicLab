@@ -187,6 +187,16 @@ class RAGService:
         self.doc_chunks: Dict[str, List[str]] = {}  # doc_id -> chunk_ids
         # 解析结果缓存（会话内）
         self.parsed_docs: Dict[str, ParsedDocument] = {}
+        # 当前激活文档（Demo/分块显示时前端切换用）
+        self._active_doc_id: Optional[str] = None
+
+    def set_active_document(self, doc_id: str) -> None:
+        """设置当前激活文档，供分块显示等前端逻辑在内存中定位数据。"""
+        self._active_doc_id = doc_id
+
+    def get_active_document(self) -> Optional[str]:
+        """返回当前激活文档 ID。"""
+        return self._active_doc_id
 
     def _init_components(self):
         """初始化各组件"""
@@ -677,7 +687,7 @@ class RAGService:
     def retrieve(
         self,
         query: str,
-        top_k: int = 5,
+        top_k: int = 15,
         use_reranker: Optional[bool] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
     ) -> RetrievalResult:
@@ -915,6 +925,48 @@ class RAGService:
             self.bm25_index.save()
         print("所有索引已保存")
 
+    def _recover_chunk_store_from_vector_store(self) -> int:
+        """从 vector_store.metadata_store 恢复 chunk_store 与 doc_chunks。用于 load() 与 Demo 加载。"""
+        loaded_count = 0
+        if not self.vector_store or not hasattr(self.vector_store, "metadata_store"):
+            return loaded_count
+        for chunk_id, metadata in self.vector_store.metadata_store.items():
+            if chunk_id in self.chunk_store:
+                continue
+            if not isinstance(metadata, dict):
+                continue
+            try:
+                from models.chunk import TextChunk, ChunkMetadata
+
+                chunk = TextChunk(
+                    chunk_id=chunk_id,
+                    doc_id=metadata.get("doc_id", ""),
+                    content=metadata.get("content", ""),
+                    chunk_type=metadata.get("chunk_type", "paragraph"),
+                    page_number=metadata.get("page_number"),
+                    metadata=(
+                        ChunkMetadata(
+                            doc_title=metadata.get("doc_title", ""),
+                            page_number=metadata.get("page_number"),
+                        )
+                        if metadata
+                        else ChunkMetadata()
+                    ),
+                )
+                self.chunk_store[chunk_id] = chunk
+                loaded_count += 1
+                doc_id = metadata.get("doc_id", "")
+                if doc_id:
+                    if doc_id not in self.doc_chunks:
+                        self.doc_chunks[doc_id] = []
+                    if chunk_id not in self.doc_chunks[doc_id]:
+                        self.doc_chunks[doc_id].append(chunk_id)
+            except Exception as e:
+                print(f"⚠️ 加载chunk {chunk_id} 失败: {e}")
+        if loaded_count:
+            print(f"✅ 从索引恢复 {loaded_count} 个 chunks 到内存")
+        return loaded_count
+
     def load(self, clear_existing: bool = False):
         """加载所有索引和chunk映射
 
@@ -929,54 +981,7 @@ class RAGService:
 
         if self.vector_store:
             self.vector_store.load()
-            # 从vector_store恢复chunk_store
-            # chunk_map: Dict[int, str] = faiss_id -> chunk_id
-            # metadata_store: Dict[str, dict] = chunk_id -> metadata
-            if hasattr(self.vector_store, "metadata_store"):
-                loaded_count = 0
-                for chunk_id, metadata in self.vector_store.metadata_store.items():
-                    if chunk_id not in self.chunk_store:
-                        # 确保metadata是字典
-                        if not isinstance(metadata, dict):
-                            print(
-                                f"⚠️ chunk {chunk_id} 的metadata格式不正确({type(metadata)})，跳过"
-                            )
-                            continue
-
-                        try:
-                            # 创建轻量级chunk对象
-                            from models.chunk import TextChunk, ChunkMetadata
-
-                            chunk = TextChunk(
-                                chunk_id=chunk_id,
-                                doc_id=metadata.get("doc_id", ""),
-                                content=metadata.get("content", ""),
-                                chunk_type=metadata.get("chunk_type", "paragraph"),
-                                page_number=metadata.get("page_number"),
-                                metadata=(
-                                    ChunkMetadata(
-                                        doc_title=metadata.get("doc_title", ""),
-                                        page_number=metadata.get("page_number"),
-                                    )
-                                    if metadata
-                                    else ChunkMetadata()
-                                ),
-                            )
-                            self.chunk_store[chunk_id] = chunk
-                            loaded_count += 1
-
-                            # 重建doc_chunks映射
-                            doc_id = metadata.get("doc_id", "")
-                            if doc_id:
-                                if doc_id not in self.doc_chunks:
-                                    self.doc_chunks[doc_id] = []
-                                if chunk_id not in self.doc_chunks[doc_id]:
-                                    self.doc_chunks[doc_id].append(chunk_id)
-                        except Exception as e:
-                            print(f"⚠️ 加载chunk {chunk_id} 失败: {e}")
-                            continue
-
-                print(f"✅ 从索引加载了 {loaded_count} 个chunks")
+            self._recover_chunk_store_from_vector_store()
 
         if self.bm25_index:
             self.bm25_index.load()
@@ -1146,6 +1151,7 @@ def get_active_sessions() -> list:
 def load_demo_index_from_path(index_dir: str) -> bool:
     """
     从指定目录加载 Demo 向量索引，而不重新进行 embedding。
+    同时将 chunk_store / doc_chunks 从 metadata_store 恢复到内存，避免「索引不在内存中」。
 
     设计用于 Demo 场景：index_dir 通常为 demo_data/faiss_index。
     """
@@ -1157,7 +1163,20 @@ def load_demo_index_from_path(index_dir: str) -> bool:
     path = Path(index_dir)
     service.vector_store.storage_path = path
     print(f"[RAG] 正在从 Demo 索引目录加载 FAISS: {path}")
-    return service.vector_store.load()
+    ok = service.vector_store.load()
+    if ok:
+        service._recover_chunk_store_from_vector_store()
+        # 若 Demo 目录下存在 bm25 索引，则一并加载以启用混合检索（传入 path 避免覆盖 storage_path 为 str 导致 .exists() 报错）
+        base = path.parent
+        bm25_path = base / "bm25" / "index.pkl"
+        if getattr(service, "bm25_index", None):
+            try:
+                if Path(bm25_path).exists():
+                    service.bm25_index.load(str(bm25_path))
+                    print(f"[RAG] 已加载 Demo BM25 索引: {bm25_path}")
+            except Exception as e:
+                print(f"[RAG] Demo BM25 加载跳过: {e}")
+    return ok
 
 
 def start_session_cleanup():

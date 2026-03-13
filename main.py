@@ -314,12 +314,12 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
             chat["doc_selector"],
         ],
     )
-    # Demo 按钮：加载官方架构白皮书的静态 Demo 数据（秒开体验）
+    # Demo 按钮：加载官方架构白皮书的静态 Demo 数据（秒开体验）；全量刷新三块视图与分块数据库
     read["demo_btn"].click(
-        fn=lambda lib, stats, notes, tree: handle_load_demo(
-            lib, stats, notes, tree, rag_service
+        fn=lambda lib, stats, notes, tree, view_mode: handle_load_demo(
+            lib, stats, notes, tree, rag_service, view_mode
         ),
-        inputs=[lib_st, stats_st, notes_st, tree_st],
+        inputs=[lib_st, stats_st, notes_st, tree_st, read["view_mode"]],
         outputs=[
             lib_st,
             stats_st,
@@ -331,6 +331,8 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
             page_st,
             read["file_list_html"],
             read["upload_f"],
+            read["pdf_embed_html"],
+            read["mineru_markdown"],
         ],
     ).then(
         fn=lambda: "<span class='agent-st success'>✅ 已加载虚拟体验数据（官方架构白皮书 Demo）</span>",
@@ -589,6 +591,12 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
             wrt["write_graph_html"],
             wrt["write_node_detail"],
         ],
+    )
+    # Zen 模式：隐藏左侧栏，编辑器居中全屏
+    wrt["zen_toggle"].change(
+        fn=lambda v: gr.update(visible=not v),
+        inputs=[wrt["zen_toggle"]],
+        outputs=[wrt["write_left_col"]],
     )
 
     # ── Tab 4: Chat ──

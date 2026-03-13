@@ -484,8 +484,8 @@ def build_write_tab():
         "<div class='tip'>左侧浏览知识树/图谱，支持切换文献视图；右侧自由写作，AI 辅助续写</div>"
     )
     with gr.Row():
-        # ── Left: Knowledge Panel with Tabs ──
-        with gr.Column(scale=3, min_width=300):
+        # ── Left: Knowledge Panel with Tabs（Zen 模式下可隐藏）──
+        with gr.Column(scale=3, min_width=300, visible=True) as write_left_col:
             # Document selector
             write_doc_selector = gr.Dropdown(
                 choices=[("全部文献 (全局视图)", "__all__")],
@@ -524,6 +524,12 @@ def build_write_tab():
 
         # ── Right: Writing Area ──
         with gr.Column(scale=6, min_width=400):
+            zen_toggle = gr.Checkbox(
+                label="Zen 模式",
+                value=False,
+                info="开启后隐藏左侧栏，编辑器居中全屏",
+                elem_id="write-zen-toggle",
+            )
             gr.Markdown(
                 "### 写作区",
                 latex_delimiters=[
@@ -551,6 +557,8 @@ def build_write_tab():
             draft_file = gr.File(label="下载草稿", interactive=False)
 
     return {
+        "write_left_col": write_left_col,
+        "zen_toggle": zen_toggle,
         "write_doc_selector": write_doc_selector,
         "write_search": write_search,
         "write_search_btn": write_search_btn,

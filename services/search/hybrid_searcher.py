@@ -103,9 +103,8 @@ class HybridSearcher:
         # 1. 生成查询embedding
         query_embedding = self.embedding_model.encode(query)
 
-        # 2. 并行执行语义搜索和关键词搜索
-        # 搜索更多结果用于融合
-        search_k = max(top_k * 3, 20)
+        # 2. 并行执行语义搜索和关键词搜索（满血召回：多路 Vector + BM25，扩大候选用于 RRF）
+        search_k = max(top_k * 4, 30)
 
         semantic_results = self.vector_store.search(
             query_embedding, top_k=search_k, metadata_filter=metadata_filter

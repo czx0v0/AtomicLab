@@ -359,6 +359,84 @@ GLOBAL_JS = r"""
   };
 
   // ═══════════════════════════════════════════════════════════════
+  // RAG 对话内引用 [1] [2] 可点击 → 跳转 PDF 对应页
+  // ═══════════════════════════════════════════════════════════════
+  window.makeCitationsClickable = function() {
+    var bar = document.querySelector('.chat-citation-bar');
+    if (bar && bar.getAttribute('data-citations') && (!window.__lastCitations || !window.__lastCitations.length)) {
+      try {
+        window.__lastCitations = JSON.parse(bar.getAttribute('data-citations'));
+      } catch (e) {}
+    }
+    if (!window.__lastCitations || !window.__lastCitations.length) return;
+    var container = document.querySelector('#chat-copilot') || document.querySelector('[id*="chat-copilot"]') || document.querySelector('.chatbot');
+    if (!container) return;
+    var messages = container.querySelectorAll('.message, .bot, [class*="message"]');
+    var lastBot = null;
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].classList.contains('bot') || (messages[i].querySelector('.markdown') && !messages[i].querySelector('.user'))) {
+        lastBot = messages[i];
+        break;
+      }
+    }
+    if (!lastBot) lastBot = messages[messages.length - 1];
+    if (!lastBot) return;
+    var content = lastBot.querySelector('.markdown, [class*="markdown"], .message-content, .content');
+    if (!content) content = lastBot;
+    var html = content.innerHTML;
+    var newHtml = html.replace(/\[\s*(\d+)\s*\]/g, function(m, num) {
+      var idx = parseInt(num, 10);
+      if (idx >= 1 && idx <= window.__lastCitations.length) {
+        return '<span class="citation-link" data-citation-idx="' + idx + '" title="点击跳转 PDF" style="cursor:pointer;color:#3182ce;text-decoration:underline;">[' + num + ']</span>';
+      }
+      return m;
+    });
+    if (newHtml !== html) content.innerHTML = newHtml;
+    container.removeEventListener('click', _citationClickHandler);
+    container.addEventListener('click', _citationClickHandler);
+  };
+  function _citationClickHandler(e) {
+    var t = e.target.closest('.citation-link');
+    if (!t || !window.__lastCitations) return;
+    var idx = parseInt(t.getAttribute('data-citation-idx'), 10);
+    var c = window.__lastCitations[idx - 1];
+    if (c && c.pid) {
+      e.preventDefault();
+      jumpToSource(c.pid, c.page);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Write Tab: 一键引用 — 在写作区光标处插入 [Ref:node_id]
+  // ═══════════════════════════════════════════════════════════════
+  window.insertCitationAtCursor = function(refId) {
+    if (!refId) return;
+    var ta = document.querySelector('textarea[placeholder*="自由写作"]') || document.querySelector('#write-draft') || document.querySelector('textarea[id*="write-draft"]');
+    if (!ta) {
+      var all = document.querySelectorAll('textarea');
+      for (var i = 0; i < all.length; i++) {
+        if (all[i].placeholder && all[i].placeholder.indexOf('自由写作') >= 0) {
+          ta = all[i];
+          break;
+        }
+      }
+    }
+    if (!ta) {
+      showToast && showToast('未找到写作区，请先打开写作 Tab');
+      return;
+    }
+    var insert = '[Ref:' + refId + ']';
+    var start = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
+    var end = ta.selectionEnd != null ? ta.selectionEnd : start;
+    var v = ta.value;
+    ta.value = v.slice(0, start) + insert + v.slice(end);
+    ta.selectionStart = ta.selectionEnd = start + insert.length;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.dispatchEvent(new Event('change', { bubbles: true }));
+    if (showToast) showToast('已插入 ' + insert);
+  };
+
+  // ═══════════════════════════════════════════════════════════════
   // ECharts Auto-Initialization (MutationObserver pattern)
   // ═══════════════════════════════════════════════════════════════
   function initEChartsContainer(el) {
