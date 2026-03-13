@@ -76,6 +76,7 @@ from tabs.write import (
     handle_download,
     handle_write_search,
     handle_ai_suggest,
+    handle_polish,
     handle_write_doc_select,
     handle_write_graph_node_click,
     get_doc_choices,
@@ -564,6 +565,11 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
         fn=handle_ai_suggest,
         inputs=[wrt["draft_text"], tree_st],
         outputs=[wrt["ai_suggest_out"]],
+    )
+    wrt["polish_btn"].click(
+        fn=handle_polish,
+        inputs=[wrt["draft_text"]],
+        outputs=[wrt["draft_text"]],
     )
     # Document selector change - update tree and graph view + sync to other tabs
     wrt["write_doc_selector"].change(

@@ -322,6 +322,26 @@ def render_search_results(results) -> str:
     return _render_search_results(results, None)
 
 
+def handle_polish(draft_text: str) -> str:
+    """一键语病检查与润色：对写作区全文进行修正并返回润色后的文本。"""
+    if not draft_text or not draft_text.strip():
+        return draft_text
+    try:
+        from agents.base import call_llm
+        result = call_llm(
+            system_prompt=(
+                "你是中文写作助手。对用户输入的段落进行语病检查与润色。\n"
+                "规则：1. 修正错别字、语序和搭配不当；2. 保持原意与学术风格；3. 仅输出润色后的完整正文，不要加「润色结果：」等前缀或解释。"
+            ),
+            user_prompt=f"请对以下内容进行语病检查与润色：\n\n{draft_text.strip()}",
+            temperature=0.2,
+            max_tokens=4000,
+        ).strip()
+        return result if result else draft_text
+    except Exception as e:
+        return draft_text  # 失败时保持原文
+
+
 def handle_ai_suggest(draft_text, tree):
     """Generate AI continuation suggestion based on draft + knowledge tree.
 
@@ -522,8 +542,8 @@ def build_write_tab():
                 show_label=False,
             )
 
-        # ── Right: Writing Area ──
-        with gr.Column(scale=6, min_width=400):
+        # ── Right: Writing Area（Zen 模式下全屏扩展）──
+        with gr.Column(scale=6, min_width=400, elem_id="write-right-col"):
             zen_toggle = gr.Checkbox(
                 label="Zen 模式",
                 value=False,
@@ -546,7 +566,8 @@ def build_write_tab():
                 elem_id="write-draft",
             )
             with gr.Row():
-                ai_suggest_btn = gr.Button("AI 续写建议", size="sm", scale=2)
+                ai_suggest_btn = gr.Button("AI 续写建议", size="sm", scale=1)
+                polish_btn = gr.Button("语病/润色", size="sm", scale=1)
                 download_btn = gr.Button("导出 Markdown", variant="primary", scale=2)
             ai_suggest_out = gr.Textbox(
                 label="AI 建议",
@@ -570,5 +591,6 @@ def build_write_tab():
         "draft_file": draft_file,
         "download_btn": download_btn,
         "ai_suggest_btn": ai_suggest_btn,
+        "polish_btn": polish_btn,
         "ai_suggest_out": ai_suggest_out,
     }

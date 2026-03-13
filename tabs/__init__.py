@@ -29,6 +29,7 @@ from .write import (
     handle_download,
     handle_write_search,
     handle_ai_suggest,
+    handle_polish,
 )
 from .chat import build_chat_tab, handle_chat_send, handle_chat_clear, handle_feedback
 
@@ -53,6 +54,7 @@ __all__ = [
     "handle_download",
     "handle_write_search",
     "handle_ai_suggest",
+    "handle_polish",
     "build_chat_tab",
     "handle_chat_send",
     "handle_chat_clear",

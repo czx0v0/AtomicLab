@@ -550,7 +550,10 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
     import requests
     import re as _re
 
-    def _yield(hist, status_msg, status_ctx=0, citation_html="", refs_ui=""):
+    def _yield(hist, status_msg, status_ctx=0, citation_html="", refs_ui="", **kwargs):
+        # 允许调用方传入 citation_html/refs_ui 以在流式输出期间保持引用区显示
+        citation_html = kwargs.get("citation_html", citation_html)
+        refs_ui = kwargs.get("refs_ui", refs_ui)
         st = "retrieving" if "检索" in status_msg or "召回" in status_msg else "generating" if "评估" in status_msg or "合成" in status_msg else "complete" if "完成" in status_msg else "retrieving"
         return (
             _chat_history_to_messages(hist),
@@ -736,17 +739,19 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
         if ref_lines:
             answer_full += "\n\n---\n参考来源：\n" + "\n".join(ref_lines)
 
+        # 预渲染引用来源区，流式输出期间保持显示，避免被空字符串覆盖
+        citation_html = _render_citation_bar(citation_items)
+        refs_ui = _render_references_ui(citation_items, arxiv_refs)
+
         chunk_size = 80
         for i in range(0, len(answer_full), chunk_size):
             current = answer_full[: i + chunk_size]
             _set_bot_reply(base_text + current)
-            t = _yield(chat_history, "正在合成最终答案...")
+            t = _yield(chat_history, "正在合成最终答案...", citation_html=citation_html, refs_ui=refs_ui)
             yield t[0], t[1], t[2], t[3], t[4]
             time.sleep(0.05)
 
         _set_bot_reply(base_text + answer_full)
-        citation_html = _render_citation_bar(citation_items)
-        refs_ui = _render_references_ui(citation_items, arxiv_refs)
         yield _chat_history_to_messages(chat_history), "", _build_status(
             "complete", "多智能体合成完成", len(retrieval.chunks) if retrieval else 0
         ), citation_html, refs_ui

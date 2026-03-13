@@ -416,6 +416,23 @@ GLOBAL_JS = r"""
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // Write Tab: Zen 模式 — 全屏扩展写作区
+  // ═══════════════════════════════════════════════════════════════
+  document.body.addEventListener('change', function(e) {
+    var cb = e.target.type === 'checkbox' && e.target.closest('[id="write-zen-toggle"]');
+    if (cb) document.body.classList.toggle('write-zen-mode', e.target.checked);
+  });
+  document.body.addEventListener('click', function(e) {
+    var label = e.target.closest('label');
+    if (label && label.textContent && label.textContent.indexOf('Zen') >= 0) {
+      setTimeout(function() {
+        var inp = document.querySelector('#write-zen-toggle input[type="checkbox"]');
+        if (inp) document.body.classList.toggle('write-zen-mode', inp.checked);
+      }, 50);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
   // Write Tab: 一键引用 — 在写作区光标处插入 [Ref:node_id]
   // ═══════════════════════════════════════════════════════════════
   window.insertCitationAtCursor = function(refId) {

@@ -415,7 +415,7 @@ def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> s
     v2.5: 优先使用解析器原生章节（MinerU/Docling），避免模糊匹配章节。
     """
     if not pid or pid not in lib:
-        return "<div class='txt-empty'>选择文献后，Docling结构将在此显示</div>"
+        return "<div class='txt-empty'>选择文献后，文档结构将在此显示</div>"
 
     doc_info = lib[pid]
 
@@ -520,7 +520,7 @@ def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> s
 
     # 降级提示
     return (
-        "<div class='txt-empty'>Docling结构视图不可用，请先上传PDF并等待解析完成</div>"
+        "<div class='txt-empty'>文档结构视图不可用，请先上传PDF并等待解析完成</div>"
     )
 
 
@@ -625,13 +625,14 @@ def _render_mineru_markdown_view(pid: str, lib: dict) -> str:
 def _get_mineru_raw_markdown(pid: str, lib: dict) -> str:
     """返回当前文献的 MinerU 原始 Markdown，供 gr.Markdown 渲染（含 LaTeX、Base64 内联图片）。
 
-    内容可能包含 data:image/...;base64,... 内联图，直接返回即可，无需 /file= 协议，跨平台可加载。
+    新上传文档的 ](/file=...) 图片会在展示时转为 Base64 内联，与 Demo 一致，跨平台可加载。
     """
     if not pid or pid not in lib:
         return ""
     try:
         from services.rag_service import get_rag_service
         from core.config import RAG_CONFIG
+        from core.utils import inline_images_in_markdown
 
         rag_service = get_rag_service(RAG_CONFIG)
         parsed_doc = None
@@ -639,7 +640,13 @@ def _get_mineru_raw_markdown(pid: str, lib: dict) -> str:
             parsed_doc = rag_service.get_parsed_document(pid)
         if not parsed_doc or not (parsed_doc.content or "").strip():
             return ""
-        return (parsed_doc.content or "").strip()
+        content = (parsed_doc.content or "").strip()
+        # 新上传文档：将 ](/file=path) 转为 Base64，避免图片路径失效（与 Demo 策略一致）
+        extra = getattr(parsed_doc.metadata, "extra", None) or {}
+        cache_dir = extra.get("cache_dir", "")
+        if cache_dir:
+            content = inline_images_in_markdown(content, cache_dir)
+        return content
     except Exception:
         return ""
 
@@ -1190,11 +1197,15 @@ def handle_page_next(page_st, pid, lib):
 def handle_mode_switch(mode, pid, lib, page_st, notes=None):
     """Switch between text, PDF, and PDF highlight view modes.
 
-    v2.3: PDF高亮模式为默认，移除了Docling模式（解析功能已整合到RAG服务中）
-    v2.4: 新增Docling结构模式和分块数据库模式
+    v2.3: PDF高亮模式为默认
+    v2.4: 文档结构（原 Docling 结构）、MinerU Markdown；分块数据库已从 UI 移除
     v2.5: MinerU Markdown 使用 gr.Markdown + latex_delimiters 以支持 LaTeX 渲染
     """
     _hide_mineru_md = gr.update(visible=False)
+    if mode == "分块数据库":
+        mode = "文档结构"  # 兼容旧状态，已从选项移除
+    if mode == "Docling结构":
+        mode = "文档结构"  # 兼容旧文案
     if mode == "PDF原版":
         return (
             gr.update(visible=False),
@@ -1208,18 +1219,11 @@ def handle_mode_switch(mode, pid, lib, page_st, notes=None):
             gr.update(value=pdfjs_html, visible=True),
             _hide_mineru_md,
         )
-    elif mode == "Docling结构":
+    elif mode == "文档结构":
         docling_html = _render_docling_structure_view(pid, lib, notes or [])
         return (
             gr.update(visible=False),
             gr.update(value=docling_html, visible=True),
-            _hide_mineru_md,
-        )
-    elif mode == "分块数据库":
-        chunk_db_html = _render_chunk_database_view(pid, lib)
-        return (
-            gr.update(visible=False),
-            gr.update(value=chunk_db_html, visible=True),
             _hide_mineru_md,
         )
     elif mode == "MinerU Markdown":
@@ -1869,25 +1873,26 @@ def build_read_tab():
                     "PDF高亮",
                     "文本模式",
                     "PDF原版",
-                    "Docling结构",
+                    "文档结构",
                     "MinerU Markdown",
-                    "分块数据库",
                 ],
                 value="PDF高亮",  # v2.3: PDF高亮模式为默认
                 label="查看模式",
-                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真 | Docling:章节结构 | MinerU Markdown:解析原文 | 分块:数据库视图",
+                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真 | 文档结构:章节层级 | MinerU:解析原文",
             )
             chunk_granularity = gr.Radio(
                 choices=["细", "中", "粗"],
                 value="中",
                 label="RAG分块粒度",
                 info="细:更精细召回 | 中:平衡 | 粗:减少碎片。切换后对后续上传/重建索引生效",
+                visible=False,  # 隐藏，高级用户可通过环境变量/配置调整
             )
             chunk_mode = gr.Radio(
                 choices=["语义", "段落"],
                 value="语义",
                 label="分块模式",
                 info="语义:基于embedding相似度切割(精准) | 段落:按空行分块(快速/不调用 embedding 模型)",
+                visible=False,  # 隐藏
             )
 
         # ── Center: Reader ──

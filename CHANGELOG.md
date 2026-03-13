@@ -1,5 +1,37 @@
 # 更新日志
 
+### 2026-03-14 (read-simplify-rag-refs-write-zen)
+
+#### 🔧 改进
+
+**1. 阅读模式精简**
+
+- 「Docling结构」改名为「**文档结构**」；「**分块数据库**」选项已从查看模式中移除（兼容旧状态时自动回退为文档结构）。
+- 「RAG分块粒度」「分块模式」控件改为隐藏（`visible=False`），仍可通过环境变量/配置生效。
+
+**2. RAG 引用来源与一键跳转**
+
+- 修复「📑 当前回答引用来源」在流式输出期间被清空的问题：在合成阶段开始前预渲染 `citation_bar` 与 `refs_ui`，流式 yield 时持续传入，保证有引用时始终展示卡片并可点击跳转 PDF。
+- `_yield()` 支持传入 `citation_html` / `refs_ui` 以在打字机输出过程中保持引用区显示。
+
+**3. 写作 Tab**
+
+- **Zen 模式全屏**：开启 Zen 后为写作区右侧列添加 `#write-right-col` 全屏样式（`min-height: calc(100vh - 140px)`，写作区 textarea 同步拉高），并通过全局 JS 在勾选/取消时为 `body` 切换 `write-zen-mode` class。
+- **一键语病/润色**：新增「语病/润色」按钮与 `handle_polish(draft_text)`，对写作区全文做语病检查与润色后写回草稿框。
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `tabs/read/__init__.py` | view_mode 改为文档结构、移除分块数据库；chunk_granularity/chunk_mode 隐藏；handle_mode_switch 兼容旧选项 |
+| `tabs/chat/__init__.py` | 合成前预渲染 refs_ui/citation_html，流式循环中传入 _yield，避免引用区被清空 |
+| `tabs/write/__init__.py` | 新增 handle_polish、polish_btn；写作区列 elem_id=write-right-col |
+| `ui/global_js.py` | Zen 勾选时 body 增加 write-zen-mode class |
+| `ui/styles.py` | body.write-zen-mode 下 #write-right-col 全屏样式 |
+| `main.py` | polish_btn.click → handle_polish，更新 draft_text |
+
+---
+
 ### 2026-03-14 (demo-base64-citation-hierarchy)
 
 #### 🚀 新功能

@@ -464,6 +464,18 @@ button.stop:hover,button.secondary:hover{background:#f7fafc!important;border-col
 ::-webkit-scrollbar-thumb:hover{background:var(--text-muted);}
 
 /* ══════════════════════════════════════════════════════════════
+   Write Tab: Zen 模式 — 仅颜色区分（外圈变灰，不改变尺寸）
+   ══════════════════════════════════════════════════════════════ */
+body.write-zen-mode .gradio-container {
+  background: #e2e8f0 !important;
+}
+body.write-zen-mode #write-right-col {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ══════════════════════════════════════════════════════════════
    Hidden JS communication textboxes
    ══════════════════════════════════════════════════════════════ */
 #highlight-action-input, #translate-action-input, #translate-result-input,
