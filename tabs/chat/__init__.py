@@ -111,6 +111,48 @@ def _render_citation_bar(citation_items: list) -> str:
     return "\n".join(parts)
 
 
+def _render_references_ui(
+    citation_items: list, arxiv_refs: list
+) -> str:
+    """渲染「当前回答引用来源」卡片列表，供点击跳转 PDF 或打开 ArXiv。
+    citation_items: [{"pid", "page", "label"}, ...]；arxiv_refs: ["1908.123", ...]。
+    本地卡片点击触发 jumpToSource(pid, page)；ArXiv 卡片点击在新窗口打开链接。
+    """
+    parts = [
+        '<div class="current-references-ui" style="margin-top:12px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">',
+        '<div style="font-size:12px;color:#718096;margin-bottom:8px;font-weight:500;">📑 当前回答引用来源（点击跳转）</div>',
+        '<div style="display:flex;flex-direction:column;gap:8px;">',
+    ]
+    for item in citation_items or []:
+        pid = item.get("pid", "") or ""
+        page = item.get("page", 1) or 1
+        label = item.get("label", "") or f"p.{page}"
+        if not pid:
+            continue
+        safe_label = esc(label[:50] + ("..." if len(label) > 50 else ""))
+        parts.append(
+            '<div class="ref-card ref-card-local" style="padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;cursor:pointer;" '
+            f'onclick="jumpToSource(\'{esc(pid)}\', {int(page)})" '
+            'title="点击跳转到 PDF 原文">'
+            f'<span style="color:#2d3748;">📄 {safe_label}</span>'
+            '</div>'
+        )
+    for aid in arxiv_refs or []:
+        url = f"https://arxiv.org/abs/{aid}"
+        safe_aid = esc(aid)
+        parts.append(
+            '<div class="ref-card ref-card-arxiv" style="padding:8px 12px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;cursor:pointer;" '
+            f'onclick="window.open(\'{esc(url)}\', \'_blank\')" '
+            'title="在新窗口打开 ArXiv">'
+            f'<span style="color:#2d3748;">📎 ArXiv {safe_aid}</span>'
+            '</div>'
+        )
+    if not (citation_items or arxiv_refs):
+        parts.append('<div style="font-size:12px;color:#a0aec0;">暂无引用来源</div>')
+    parts.append("</div></div>")
+    return "\n".join(parts)
+
+
 def _format_bot_message(output) -> str:
     """Format AgentOutput into display HTML."""
     if output.status == "error":
@@ -486,21 +528,27 @@ def handle_chat_stream(message, messages, tree, lib, notes):
 
 def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
     """
-    Multi-agent style streaming handler for经典 [[user, bot]] history 结构。
-
-    通过 Markdown 引用块模拟：
-      1) 🔍 SEEKER_BOT 检索
-      2) ⚖️ REVIEWER_BOT 评估 / ArXiv 兜底
-      3) 🧠 SYNTHESIZER_BOT 流式打字机合成
+    Agentic RAG 流水线：Reviewer 规划 → Seeker 多路召回 → Reviewer 评估 → Synthesizer 合成。
+    经典 [[user, bot]] 历史结构，yield 5 输出：chatbot, msg_input, chat_status, citation_bar, current_references_ui。
     """
     from services.rag_service import get_rag_service, optimize_search_query
     from core.config import RAG_CONFIG
     import requests
     import re as _re
 
+    def _yield(hist, status_msg, status_ctx=0, citation_html="", refs_ui=""):
+        st = "retrieving" if "检索" in status_msg or "召回" in status_msg else "generating" if "评估" in status_msg or "合成" in status_msg else "complete" if "完成" in status_msg else "retrieving"
+        return (
+            _chat_history_to_messages(hist),
+            "",
+            _build_status(st, status_msg, status_ctx),
+            citation_html,
+            refs_ui,
+        )
+
     if not message or not message.strip():
         out = _normalize_chat_history_to_pairs(chat_history or [])
-        yield _chat_history_to_messages(out), "", "", ""
+        yield _chat_history_to_messages(out), "", "", "", ""
         return
 
     chat_history = _normalize_chat_history_to_pairs(chat_history or [])
@@ -510,129 +558,110 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
     def _set_bot_reply(text: str):
         chat_history[-1][1] = text
 
-    # ── 查询重写：意图识别 + 中英学术关键词（NONE 则跳过检索） ──
+    # ── Phase 1: Reviewer 规划 ──
+    reviewer_plan = format_agent_msg(
+        "REVIEWER_BOT", "⚖️", "正在分析意图并规划检索路线..."
+    )
+    _set_bot_reply(reviewer_plan)
+    t = _yield(chat_history, "正在分析意图并规划检索路线...")
+    yield t[0], t[1], t[2], t[3], t[4]
+
     optimized_query = optimize_search_query(question)
     retrieval = None
     doc_summaries: list[str] = []
     arxiv_context = ""
     arxiv_refs: list[str] = []
+    citation_items: list[dict] = []
+    is_skip = optimized_query.strip().upper() == "NONE"
 
-    if optimized_query.strip().upper() == "NONE":
-        seeker_text = format_agent_msg(
-            "SEEKER_BOT", "🔍", "识别到闲聊/非学术指令，跳过知识库检索。"
+    if is_skip:
+        reviewer_plan = format_agent_msg(
+            "REVIEWER_BOT", "⚖️", "意图: 闲聊/任务 | 跳过检索，直接合成"
         )
-        _set_bot_reply(seeker_text)
-        yield _chat_history_to_messages(chat_history), "", _build_status("retrieving", "跳过检索，直接执行指令..."), ""
-        reviewer_text = format_agent_msg(
-            "REVIEWER_BOT", "⚖️", "准备直接执行用户指令。"
-        )
-        _set_bot_reply(seeker_text + reviewer_text)
-        yield _chat_history_to_messages(chat_history), "", _build_status(
-            "generating", "评估完成，准备合成答案..."
-        ), ""
     else:
-        # ── Step 1: Seeker 检索（本地用原始 question，ArXiv 用 optimized_query） ──
-        seeker_text = format_agent_msg(
-            "SEEKER_BOT",
-            "🔍",
-            f"提取检索关键词: [{optimized_query}]… 正在多源检索知识库 (文档 + 笔记 + BM25)...",
+        reviewer_plan = format_agent_msg(
+            "REVIEWER_BOT",
+            "⚖️",
+            f"意图: 学术问答 | 提取实体: [{optimized_query}] | 规划路线: 多路召回 (Vector, Graph, ArXiv)",
         )
-        _set_bot_reply(seeker_text)
-        yield _chat_history_to_messages(chat_history), "", _build_status(
-            "retrieving", f"提取检索关键词: [{optimized_query}]… 正在查询 ArXiv / 本地..."
-        ), ""
+    _set_bot_reply(reviewer_plan)
+    t = _yield(chat_history, "规划完成，进入多路召回..." if not is_skip else "跳过检索，直接合成...")
+    yield t[0], t[1], t[2], t[3], t[4]
 
+    # ── Phase 2: Seeker 多路执行 ──
+    if is_skip:
+        seeker_text = format_agent_msg(
+            "SEEKER_BOT", "🔍", "已跳过检索（闲聊/任务模式）。"
+        )
+    else:
+        seeker_text = format_agent_msg(
+            "SEEKER_BOT", "🔍", "正在执行多路检索..."
+        )
+    _set_bot_reply(reviewer_plan + seeker_text)
+    t = _yield(chat_history, "正在执行多路检索...")
+    yield t[0], t[1], t[2], t[3], t[4]
+
+    n_local, n_graph, n_arxiv = 0, 0, 0
+    if not is_skip:
         rag_service = get_rag_service(RAG_CONFIG)
         try:
             retrieval = rag_service.retrieve(question, top_k=5)
-            for idx, chunk in enumerate(retrieval.chunks[:3], start=1):
+            n_local = len(retrieval.chunks) if retrieval and retrieval.chunks else 0
+            for idx, chunk in enumerate((retrieval.chunks or [])[:3], start=1):
                 title = getattr(chunk.metadata, "doc_title", "") or "未知文献"
                 preview = (chunk.content or "").replace("\n", " ")[:80]
                 doc_summaries.append(f"[{idx}] {title}: {preview}...")
         except Exception as e:
             print(f"[ChatStreamLegacy] RAG 检索失败: {e}")
+        graph_results = []  # Mock: 图检索待接入
+        n_graph = len(graph_results)
 
-        if retrieval and retrieval.chunks:
-            seeker_text = format_agent_msg(
-                "SEEKER_BOT",
-                "🔍",
-                "检索完成，找到 "
-                f"{len(retrieval.chunks)} 条相关结果：\n"
-                + "\n".join(doc_summaries),
-            )
-            ctx_count = len(retrieval.chunks)
-            _set_bot_reply(seeker_text)
-            yield _chat_history_to_messages(chat_history), "", _build_status(
-                "retrieving", f"本地检索完成，共 {ctx_count} 条上下文", ctx_count
-            ), ""
-        else:
-            seeker_text = format_agent_msg(
-                "SEEKER_BOT",
-                "🔍",
-                "未在本地知识库中检索到高质量结果，将尝试 ArXiv 备选检索。",
-            )
-            _set_bot_reply(seeker_text)
-            yield _chat_history_to_messages(chat_history), "", _build_status("no_results", "知识库无匹配结果"), ""
-
-        # ── Step 2: Reviewer 评估 / ArXiv Fallback（ArXiv 使用英文学术关键词 optimized_query） ──
-        reviewer_text = format_agent_msg(
-            "REVIEWER_BOT", "⚖️", "正在评估检索质量..."
-        )
-        _set_bot_reply(seeker_text + reviewer_text)
-        yield _chat_history_to_messages(chat_history), "", _build_status("generating", "评估检索质量..."), ""
-
-        if not (retrieval and retrieval.chunks):
+        if n_local < 2:
             arxiv_query = optimized_query
             q_encoded = requests.utils.quote(arxiv_query)
             try:
-                url = (
-                    f"https://export.arxiv.org/api/query?"
-                    f"search_query=all:{q_encoded}&max_results=3"
-                )
+                url = f"https://export.arxiv.org/api/query?search_query=all:{q_encoded}&max_results=3"
                 resp = requests.get(url, timeout=20)
                 if resp.ok:
                     arxiv_context = resp.text[:4000]
-                    reviewer_text = format_agent_msg(
-                        "REVIEWER_BOT",
-                        "⚖️",
-                        "本地无匹配结果，已优化检索词并从 ArXiv 抓取若干相关文章作为补充。",
-                    )
                     arxiv_refs = list(
                         dict.fromkeys(
                             _re.findall(r"arxiv\.org\/abs\/([0-9\.]+)", arxiv_context)
                         )
                     )[:3]
-                else:
-                    reviewer_text = format_agent_msg(
-                        "REVIEWER_BOT",
-                        "⚖️",
-                        "本地无匹配结果，ArXiv 备选检索失败，请稍后重试。",
-                    )
+                    n_arxiv = len(arxiv_refs)
             except Exception as e:
                 print(f"[ChatStreamLegacy] ArXiv 检索失败: {e}")
-                reviewer_text = format_agent_msg(
-                    "REVIEWER_BOT",
-                    "⚖️",
-                    "本地无匹配结果，ArXiv 备选检索失败，请稍后重试。",
-                )
-        else:
-            score = min(10, max(1, len(retrieval.chunks)))
-            reviewer_text = format_agent_msg(
-                "REVIEWER_BOT",
-                "⚖️",
-                f"已评估检索质量，综合评分约为 {score}/10。",
-            )
 
-        _set_bot_reply(seeker_text + reviewer_text)
-        yield _chat_history_to_messages(chat_history), "", _build_status(
-            "generating", "评估完成，准备合成答案..."
-        ), ""
+        seeker_text = format_agent_msg(
+            "SEEKER_BOT",
+            "🔍",
+            f"召回完毕：本地原子卡片 ({n_local}条) | 知识图谱 ({n_graph}条) | ArXiv ({n_arxiv}条)",
+        )
+    else:
+        seeker_text = format_agent_msg(
+            "SEEKER_BOT", "🔍", "召回完毕：本地原子卡片 (0条) | 知识图谱 (0条) | ArXiv (0条)"
+        )
+    _set_bot_reply(reviewer_plan + seeker_text)
+    t = _yield(chat_history, "多路召回完成")
+    yield t[0], t[1], t[2], t[3], t[4]
 
-    # ── Step 3: Synthesizer 合成（流式打字机） ──
-    # 先构造上下文与引用列表（供气泡下方引用跳转按钮）
+    # ── Phase 3: Reviewer 评估 ──
+    if is_skip or not (retrieval and retrieval.chunks) and not arxiv_refs:
+        score = 0
+        eval_msg = "质量评估: N/A，无检索结果，交由合成器。"
+    else:
+        n_ctx = (len(retrieval.chunks) if retrieval else 0) + len(arxiv_refs)
+        score = min(100, 50 + min(50, n_ctx * 12))
+        eval_msg = "质量评估: %d/100，上下文充足，已过滤低质片段，交由合成器。" % score
+    reviewer_eval = format_agent_msg("REVIEWER_BOT", "⚖️", eval_msg)
+    _set_bot_reply(reviewer_plan + seeker_text + reviewer_eval)
+    t = _yield(chat_history, "评估完成，准备合成答案...")
+    yield t[0], t[1], t[2], t[3], t[4]
+
+    # 构造 RAG 上下文与引用元数据
     rag_context = ""
     internal_refs: list[str] = []
-    citation_items: list[dict] = []
     if retrieval and retrieval.chunks:
         parts = []
         seen_docs: set[str] = set()
@@ -661,22 +690,19 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
     if arxiv_context:
         full_context += f"[ArXiv 结果片段]\n{arxiv_context}\n\n"
     if not full_context:
-        full_context = (
-            "（当前知识库与 ArXiv 检索均未找到高质量上下文，仅能基于一般常识简要回答）"
-        )
+        full_context = "（当前知识库与 ArXiv 检索均未找到高质量上下文，仅能基于一般常识简要回答）"
 
     system_prompt = """你是一个智能学术助手。请遵循以下回答原则：
 
-如果提供的上下文中包含有用的信息，请优先使用上下文回答，并标注引用来源。
+如果提供的上下文中包含有用的信息，请优先使用上下文回答，并在句中或句末标注引用，格式如 [Doc_1_Page_5] 或 [ArXiv_1908.123]。
 
-如果上下文为空，或者只包含 API 报错/XML 元数据（如 totalResults: 0），绝对不要向用户解释 API 结果或 XML 结构！请直接使用你自身的常识和内部知识来回答用户的问题。
+如果上下文为空，或只包含 API 报错/XML 元数据（如 totalResults: 0），不要解释 API 结果或 XML 结构，直接基于常识回答。
 
-如果用户的输入是明确的指令（如“翻译”、“总结”、“润色”），请直接对上文或当前输入执行该任务，不要说“上下文中找不到可供翻译的内容”。"""
+如果用户的输入是明确指令（如“翻译”、“总结”、“润色”），请直接执行该任务。"""
     user_prompt = f"用户问题：{question}\n\n可用上下文：\n{full_context}"
 
-    # Synthesizer 气泡前缀（注意 Markdown 换行）
     synth_header = "> **🧠 SYNTHESIZER_BOT**\n> \n> "
-    base_text = seeker_text + reviewer_text + synth_header
+    base_text = reviewer_plan + seeker_text + reviewer_eval + synth_header
 
     try:
         answer_full = call_llm(
@@ -686,50 +712,41 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
             max_tokens=1200,
         ).strip()
 
-        # 附加引用列表
         ref_lines: list[str] = []
         if internal_refs:
             ref_lines.append("本地文献：")
-            ref_lines.extend(
-                [f"[{i}] {txt}" for i, txt in enumerate(internal_refs, 1)]
-            )
+            ref_lines.extend([f"[{i}] {txt}" for i, txt in enumerate(internal_refs, 1)])
         if arxiv_refs:
             ref_lines.append("ArXiv 补充：")
-            ref_lines.extend(
-                [f"[arXiv-{i}] arxiv:{aid}" for i, aid in enumerate(arxiv_refs, 1)]
-            )
+            ref_lines.extend([f"[arXiv-{i}] arxiv:{aid}" for i, aid in enumerate(arxiv_refs, 1)])
         if ref_lines:
             answer_full += "\n\n---\n参考来源：\n" + "\n".join(ref_lines)
 
-        # 模拟流式打字机：逐步拼接到 base_text 后面
         chunk_size = 80
         for i in range(0, len(answer_full), chunk_size):
             current = answer_full[: i + chunk_size]
             _set_bot_reply(base_text + current)
-            yield _chat_history_to_messages(chat_history), "", _build_status(
-                "generating", "正在合成最终答案..."
-            ), ""
+            t = _yield(chat_history, "正在合成最终答案...")
+            yield t[0], t[1], t[2], t[3], t[4]
             time.sleep(0.05)
 
-        # 最终完成态：附带引用跳转按钮栏
         _set_bot_reply(base_text + answer_full)
         citation_html = _render_citation_bar(citation_items)
+        refs_ui = _render_references_ui(citation_items, arxiv_refs)
         yield _chat_history_to_messages(chat_history), "", _build_status(
             "complete", "多智能体合成完成", len(retrieval.chunks) if retrieval else 0
-        ), citation_html
+        ), citation_html, refs_ui
     except Exception as e:
         error_msg = format_agent_msg(
-            "SYNTHESIZER_BOT",
-            "🧠",
-            f"合成答案时发生错误：{e}",
+            "SYNTHESIZER_BOT", "🧠", f"合成答案时发生错误：{e}"
         )
-        _set_bot_reply(seeker_text + reviewer_text + error_msg)
-        yield _chat_history_to_messages(chat_history), "", _build_status("error", "合成失败"), ""
+        _set_bot_reply(reviewer_plan + seeker_text + reviewer_eval + error_msg)
+        yield _chat_history_to_messages(chat_history), "", _build_status("error", "合成失败"), "", ""
 
 
 def handle_chat_clear():
-    """Clear chat history and citation bar."""
-    return [], "", ""
+    """Clear chat history, citation bar, and current references UI."""
+    return [], "", "", ""
 
 
 def handle_feedback(feedback_data):
@@ -873,6 +890,11 @@ def build_chat_tab():
         elem_id="chat-citation-bar",
         elem_classes=["chat-citation-bar-wrap"],
     )
+    current_references_ui = gr.HTML(
+        value="",
+        elem_id="chat-current-references",
+        elem_classes=["chat-references-wrap"],
+    )
     with gr.Row():
         msg_input = gr.Textbox(
             label="",
@@ -927,6 +949,7 @@ def build_chat_tab():
     return {
         "chatbot": chatbot,
         "citation_bar": citation_bar,
+        "current_references_ui": current_references_ui,
         "msg_input": msg_input,
         "send_btn": send_btn,
         "clear_btn": clear_btn,

@@ -596,17 +596,17 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
     chat["send_btn"].click(
         fn=handle_chat_stream_legacy,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
-        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"], chat["current_references_ui"]],
     )
     chat["msg_input"].submit(
         fn=handle_chat_stream_legacy,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
-        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"], chat["current_references_ui"]],
     )
     chat["clear_btn"].click(
         fn=handle_chat_clear,
         inputs=[],
-        outputs=[chat["chatbot"], chat["msg_input"], chat["citation_bar"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["citation_bar"], chat["current_references_ui"]],
     )
     # Bridge: "问AI" from reading page popup → auto-send to chat
     chat["ai_ask_input"].change(

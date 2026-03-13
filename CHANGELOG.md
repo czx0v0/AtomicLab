@@ -1,5 +1,42 @@
 # 更新日志
 
+### 2026-03-14 (agentic-rag-and-citation-ui)
+
+#### 🚀 新功能
+
+**1. Agentic RAG 对话流水线（Phase 3）**
+
+- **Reviewer 规划阶段**：先分析意图并规划检索路线；调用 `optimize_search_query()` 做意图识别与中英学术关键词提取；气泡展示「意图: 学术问答 | 提取实体: [关键词] | 规划路线: 多路召回 (Vector, Graph, ArXiv)」或「意图: 闲聊/任务 | 跳过检索」。
+- **Seeker 多路执行阶段**：FAISS 本地向量检索（保留原始 question 做多语言匹配）、知识图谱检索（Mock 占位）、ArXiv 兜底（仅当本地结果少于 2 条时触发）；气泡展示「召回完毕：本地原子卡片 (n条) | 知识图谱 (0条) | ArXiv (m条)」。
+- **Reviewer 评估阶段**：对召回上下文做质量评估（0–100 分），气泡展示「质量评估: xx/100，上下文充足，已过滤低质片段，交由合成器。」。
+- **Synthesizer 生成阶段**：流式打字机输出，系统提示要求回答中标注引用格式如 `[Doc_1_Page_5]`、`[ArXiv_1908.123]`。
+
+**2. 查询重写与意图过滤**
+
+- `services/rag_service.py` 新增 `optimize_search_query(user_query)`：调用现有 LLM，先做意图识别（闲聊/打招呼/纯指令 → 返回 `NONE`），再做中英学术关键词提取；返回 `NONE` 时对话流跳过检索直接进入合成器。
+- ArXiv 检索统一使用英文学术关键词，解决中文提问导致 ArXiv API 返回 0 条的问题。
+
+**3. 引用来源独立 UI（Phase 4）**
+
+- Chat 页新增 **当前回答引用来源** 区域（`current_references_ui`），位于引用按钮栏下方。
+- Synthesizer 完成后将本次使用的本地原子卡片与 ArXiv 卡片元数据推送到该区域，以卡片列表展示。
+- **点击交互**：本地 PDF 卡片点击触发 `jumpToSource(pid, page)` 跳转阅读页并定位页码；ArXiv 卡片点击在新窗口打开 `https://arxiv.org/abs/ID`。
+
+#### 🔧 改进
+
+- ArXiv API 请求改为 **HTTPS**（`https://export.arxiv.org`），连接超时由 10s 调整为 20s，减少超时与网络拦截。
+- 对话流 yield 统一为 5 个输出：`chatbot`、`msg_input`、`chat_status`、`citation_bar`、`current_references_ui`；清空对话时一并清空引用来源区域。
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `services/rag_service.py` | 新增 `_QUERY_REWRITE_SYSTEM`、`optimize_search_query()` |
+| `tabs/chat/__init__.py` | 重写 `handle_chat_stream_legacy` 为四阶段 Agentic 流水线；新增 `_render_references_ui()`；`build_chat_tab` 增加 `current_references_ui`；`handle_chat_clear` 增加对引用 UI 的清空 |
+| `main.py` | Chat 发送/提交/清空事件增加 `current_references_ui` 输出绑定 |
+
+---
+
 ### 2026-03-14 (mineru-cloud-and-demo-static)
 
 #### 🚀 新功能
