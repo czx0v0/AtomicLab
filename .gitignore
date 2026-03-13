@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .qoder/
 .vscode/
+.cache/
+.cursor/
 nul
 image/
 data/*

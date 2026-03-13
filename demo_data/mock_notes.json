@@ -1,0 +1,14 @@
+[
+  {
+    "id": "NOTE-DOC-64656D6F-0001",
+    "type": "高亮",
+    "content": "示例笔记来自文献 demo_paper.pdf",
+    "annotation": "",
+    "translation": "",
+    "page": 1,
+    "color": "yellow",
+    "priority": 3,
+    "ts": "00:00",
+    "source_pid": "DOC-64656D6F"
+  }
+]

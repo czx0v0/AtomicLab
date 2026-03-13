@@ -159,6 +159,12 @@ API_BASE = os.environ.get("API_BASE", "https://api-inference.modelscope.cn/v1")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_BASE = os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
 
+# MinerU Cloud API（可选，用于云端解析服务）
+MINERU_API_KEY = os.environ.get("MINERU_API_KEY", "")
+# 允许通过 MINERU_API_BASE 或 MINERU_API_ENDPOINT 自定义云端地址
+MINERU_API_BASE = os.environ.get("MINERU_API_BASE", "").rstrip("/")
+MINERU_API_ENDPOINT = os.environ.get("MINERU_API_ENDPOINT", "").strip()
+
 # Primary model (user-configurable via env)
 MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen3.5-35B-A3B")
 

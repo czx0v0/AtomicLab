@@ -54,6 +54,7 @@ from tabs.read import (
     handle_highlight_action,
     handle_popup_translate,
     handle_read_note_action,
+    handle_load_demo,
 )
 from tabs.organize import (
     build_organize_tab,
@@ -295,6 +296,29 @@ with gr.Blocks(title=APP_TITLE) as demo:
             org["org_doc_selector"],
             chat["doc_selector"],
         ],
+    )
+    # Demo 按钮：加载官方架构白皮书的静态 Demo 数据（秒开体验）
+    read["demo_btn"].click(
+        fn=lambda lib, stats, notes, tree: handle_load_demo(
+            lib, stats, notes, tree, rag_service
+        ),
+        inputs=[lib_st, stats_st, notes_st, tree_st],
+        outputs=[
+            lib_st,
+            stats_st,
+            notes_st,
+            tree_st,
+            read["pdf_selector"],
+            org["stats_html"],
+            read["pdf_text_html"],
+            page_st,
+            read["file_list_html"],
+            read["upload_f"],
+        ],
+    ).then(
+        fn=lambda: "<span class='agent-st success'>✅ 已加载虚拟体验数据（官方架构白皮书 Demo）</span>",
+        inputs=[],
+        outputs=[org["agent_status"]],
     )
     read["pdf_selector"].change(
         fn=handle_select_pdf,
@@ -562,10 +586,9 @@ with gr.Blocks(title=APP_TITLE) as demo:
         inputs=[chat["ai_ask_input"], chat["chatbot"], tree_st, lib_st, notes_st],
         outputs=[chat["chatbot"], chat["msg_input"]],
     )
-    # AI回答反馈处理（点赞/点踩）
+    # AI回答反馈处理（点赞/点踩）——不显式传 inputs，保留 Gradio 默认 LikeData 注入
     chat["chatbot"].like(
         fn=handle_feedback,
-        inputs=[],
         outputs=[chat["chat_status"]],
     )
 
@@ -636,7 +659,7 @@ if __name__ == "__main__":
     launch_kwargs = {
         "server_name": "0.0.0.0",
         "server_port": 7860,
-        "theme": gr.themes.Soft(),
+        # "theme": gr.themes.Soft(),
         "css": CSS,
         "js": GLOBAL_JS,
         "head": ECHARTS_HEAD,

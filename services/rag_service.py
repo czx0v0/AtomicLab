@@ -199,24 +199,22 @@ class RAGService:
         self.parser = None
 
         if parser_backend == "mineru":
-            try:
-                from services.parser.mineru_parser import (
-                    MinerUParser,
-                    MINERU_AVAILABLE,
-                    MINERU_IMPORT_ERROR,
-                )
+            # 仅使用 MinerU Cloud，不再调用本地 CLI 解析器
+            from core.config import MINERU_API_KEY
 
-                if MINERU_AVAILABLE:
-                    self.parser = MinerUParser(
-                        parse_method=self.config.mineru_parse_method
+            try:
+                if not (MINERU_API_KEY or "").strip():
+                    raise RuntimeError(
+                        "MinerU Cloud API 未配置：MINERU_API_KEY 为空，无法使用 mineru 解析后端"
                     )
-                    print("✓ MinerU解析器初始化成功 (高精度模式)")
-                else:
-                    raise ImportError(
-                        f"MinerU不可用: {MINERU_IMPORT_ERROR or 'unknown reason'}"
-                    )
-            except ImportError as e:
-                print(f"⚠️ MinerU解析器不可用: {e}")
+
+                from services.parser.mineru_cloud_parser import MinerUCloudParser
+
+                # 当前 MinerUCloudParser 自身管理解析策略，不接受额外参数
+                self.parser = MinerUCloudParser()
+                print("✓ MinerU Cloud 解析器初始化成功 (HTTP API)")
+            except Exception as e:
+                print(f"⚠️ MinerU Cloud 解析器不可用: {e}")
                 print("  回退到Docling解析器...")
                 parser_backend = "docling"
 
@@ -1110,6 +1108,23 @@ def get_active_sessions() -> list:
     """获取所有活跃会话ID"""
     with _session_rag_lock:
         return list(_session_rag_services.keys())
+
+
+def load_demo_index_from_path(index_dir: str) -> bool:
+    """
+    从指定目录加载 Demo 向量索引，而不重新进行 embedding。
+
+    设计用于 Demo 场景：index_dir 通常为 demo_data/faiss_index。
+    """
+    service = get_rag_service()
+    if not getattr(service, "vector_store", None):
+        print("[RAG] Demo 索引加载失败：vector_store 不可用")
+        return False
+
+    path = Path(index_dir)
+    service.vector_store.storage_path = path
+    print(f"[RAG] 正在从 Demo 索引目录加载 FAISS: {path}")
+    return service.vector_store.load()
 
 
 def start_session_cleanup():

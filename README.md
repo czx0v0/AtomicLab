@@ -386,3 +386,39 @@ rank-bm25>=0.2.2
 - [Docling](https://github.com/DS4SD/docling) - MIT
 - [FAISS](https://github.com/facebookresearch/faiss) - MIT
 - [Sentence-Transformers](https://www.sbert.net/) - Apache 2.0
+
+
+## Demo 体验与 MinerU Cloud 集成
+
+### Demo 静态数据（秒开体验）
+
+为了在本地和 ModelScope 创空间中提供「秒开级」体验，本项目在根目录下约定了 `demo_data/` 目录，用于存放预生成的 Demo 数据：
+
+- `demo_data/demo_paper.pdf`：官方架构白皮书或示例论文 PDF；
+- `demo_data/mock_library.json`：预计算好的文献库状态（对应 `lib_st` + `stats_st`）；
+- `demo_data/mock_notes.json`：预置的原子知识卡片列表（对应 `notes_st`）；
+- `demo_data/faiss_index/`：预构建好的向量索引（`index.faiss` + `metadata.pkl`）。
+
+阅读页左侧上传区域提供按钮：
+
+- `🎁 体验: 加载官方架构白皮书`
+
+点击后，系统**只会加载上述静态数据**，不会触发任何新的解析或 embedding，保证在只读或资源受限环境中也能即时体验完整 RAG 流程。
+
+### 生成 Demo 数据（离线脚本）
+
+当你更新解析算法或 RAG 配置时，可以在本地运行离线脚本，重新生成 Demo 所需的静态数据：
+
+```bash
+python -m scripts.generate_demo_mock
+```
+
+脚本会执行以下步骤：
+
+1. 使用 `demo_data/demo_paper.pdf` 作为输入文档；
+2. 调用真实 `RAGService` 与 `handle_upload()`，走完解析 → 分块 → 向量化 → 索引全流程；
+3. 将向量索引保存到 `demo_data/faiss_index/`，同时将文献库与笔记状态写入：
+   - `demo_data/mock_library.json`
+   - `demo_data/mock_notes.json`
+
+生成完成后，重新启动应用并点击 Demo 按钮，即可在任意环境中获得与真实流程一致的 Demo 体验。**

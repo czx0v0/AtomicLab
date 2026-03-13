@@ -1,5 +1,42 @@
 # 更新日志
 
+### 2026-03-14 (mineru-cloud-and-demo-static)
+
+#### 🚀 新功能
+
+**1. MinerU Cloud 解析后端**
+
+- 新增 `MinerUCloudParser`，基于 MinerU Cloud API v4 实现高精度 PDF 解析；
+- 通过 `PARSER_BACKEND=mineru` 与 `MINERU_API_KEY` 环境变量启用云端解析；
+- 统一路由到云端解析器，不再调用本地 `mineru.EXE` CLI，云端不可用时自动回退至 Docling。
+
+**2. Demo 静态数据秒开体验**
+
+- `tabs/read` 中新增「🎁 体验: 加载官方架构白皮书」按钮；
+- 新增 `demo_data/` 目录约定：`demo_paper.pdf`、`mock_library.json`、`mock_notes.json`、`faiss_index/`；
+- Demo 加载逻辑改为优先读取静态 JSON 和预构建向量索引，绝不触发实时解析与 embedding；
+- 当静态文件缺失时，自动注入最小化内存 Mock 数据，保证 UI 不崩溃。
+
+**3. Demo 数据离线生成脚本**
+
+- 新增 `scripts/generate_demo_mock.py` 脚本；
+- 支持从 `demo_data/demo_paper.pdf` 出发，调用真实 `RAGService` 生成向量索引与状态快照；
+- 自动将向量索引保存到 `demo_data/faiss_index/`，并输出 `mock_library.json` / `mock_notes.json`；
+- 可作为端到端回归测试的辅助工具，方便在算法更新后一键刷新 Demo 数据。
+
+#### 📝 代码变更
+
+| 文件                                      | 变更描述                                         |
+| ----------------------------------------- | ------------------------------------------------ |
+| `core/config.py`                          | 新增 MinerU Cloud 相关配置项                     |
+| `services/parser/mineru_cloud_parser.py`  | MinerU Cloud v4 解析实现与 ZIP 结果解析          |
+| `services/rag_service.py`                 | 解析器路由切换为 MinerU Cloud，新增 Demo 索引加载 |
+| `tabs/read/__init__.py`                  | Demo 按钮与静态 Demo 加载逻辑                     |
+| `scripts/generate_demo_mock.py`           | Demo 静态数据与向量索引离线生成脚本               |
+| `README.md`                               | 新增 Demo 体验与 MinerU Cloud 集成说明           |
+
+---
+
 ### 2026-03-10 (mineru-deepseek-chunk)
 
 #### 🚀 新功能

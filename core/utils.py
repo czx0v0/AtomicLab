@@ -8,6 +8,7 @@ import json
 import re
 import hashlib
 import html as html_lib
+from pathlib import Path
 
 
 def esc(text: str) -> str:
@@ -116,3 +117,15 @@ def read_txt(filepath: str) -> str:
             return f.read()
     except Exception as e:
         return f"[READ ERROR] {e}"
+
+
+def get_demo_data_path() -> Path:
+    """
+    获取 demo_data 目录的绝对路径。
+
+    采用相对 core/utils.py 文件位置的方式定位，兼容 ModelScope 容器环境：
+    project_root / "demo_data"
+    """
+    # core/utils.py -> core/ -> project_root
+    project_root = Path(__file__).resolve().parent.parent
+    return project_root / "demo_data"

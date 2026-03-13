@@ -231,19 +231,17 @@ def handle_chat_clear():
     return [], ""
 
 
-def handle_feedback(feedback_data, chat_history=None):
+def handle_feedback(feedback_data):
     """Handle user feedback on AI responses.
 
-    Gradio 4.x like事件传递的参数格式:
-    - LikeData对象包含: index, value ('like'/'dislike')
-
-    同时保存反馈数据用于RAG模型微调。
+    在 Gradio 6.x 中，Chatbot.like 会自动注入 LikeData/EventData，
+    因此这里只接收一个参数，避免 inputs=[] 覆盖默认事件数据。
     """
     if not feedback_data:
         return ""
 
     try:
-        # Gradio 4.x使用.value属性
+        # 兼容 Gradio 不同版本的 LikeData 结构
         if hasattr(feedback_data, "value"):
             action = feedback_data.value
             index = getattr(feedback_data, "index", "?")
@@ -254,8 +252,8 @@ def handle_feedback(feedback_data, chat_history=None):
             action = str(feedback_data)
             index = "?"
 
-        # 保存反馈数据用于模型微调
-        _save_feedback_for_training(action, index, chat_history)
+        # 保存反馈数据用于模型微调（当前无法直接拿到完整 chat_history，因此传入 None）
+        _save_feedback_for_training(action, index, None)
 
         if action == "like":
             print(f"[Chat] 用户对第 {index} 条回答点赞")

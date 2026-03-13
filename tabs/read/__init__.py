@@ -21,7 +21,7 @@ import time
 import json
 import gradio as gr
 
-from core.utils import phash, extract_pdf, read_txt, esc
+from core.utils import phash, extract_pdf, read_txt, esc, get_demo_data_path
 from core.state import next_note_id
 from agents.base import call_llm
 from ui.renderers import (
@@ -854,6 +854,183 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
     )
 
 
+def handle_load_demo(lib, stats, notes, tree, rag_service=None):
+    """
+    加载静态 Demo 数据（秒开体验）。
+
+    行为：
+    - 从 demo_data/ 目录读取:
+      - demo_paper.pdf (原始文档，仅供渲染使用)
+      - mock_library.json (lib / stats 等状态)
+      - mock_notes.json (notes 状态)
+    - 绝不调用 RAG 解析或 embedding，仅通知 rag_service
+      从 demo_data/faiss_index/ 加载现有索引
+    """
+    try:
+        demo_dir = get_demo_data_path()
+        lib_path = demo_dir / "mock_library.json"
+        notes_path = demo_dir / "mock_notes.json"
+
+        if not lib_path.exists():
+            print(f"[Demo] mock_library.json 不存在于 {lib_path}，使用内存 Mock 数据。")
+            # 最小化内存 Mock，防止 UI 崩溃，同时不触发任何解析。
+            mock_lib = {
+                "DEMO-MOCK": {
+                    "name": "Demo (No Data)",
+                    "text": "Mock 数据未生成，请先在本地运行 scripts/generate_demo_mock.py。",
+                    "notes": [],
+                    "annotations": [],
+                    "filepath": "",
+                    "rag_indexed": False,
+                }
+            }
+            mock_stats = {
+                "docs": 1,
+                "notes": 0,
+                "nodes": len(tree.nodes) if tree else 0,
+            }
+            active_pid = "DEMO-MOCK"
+            page = 1
+            pdf_html = render_pdf_text(active_pid, mock_lib, page)
+            file_list_html = _render_file_list(mock_lib, active_pid)
+
+            # 不加载任何索引，也不调用 RAG 解析。
+            return (
+                mock_lib,
+                mock_stats,
+                [],  # notes
+                tree,
+                gr.update(value=active_pid),
+                render_stats(mock_stats),
+                pdf_html,
+                page,
+                file_list_html,
+                gr.update(),  # upload_f
+            )
+
+        with open(lib_path, "r", encoding="utf-8") as f:
+            lib_data = json.load(f)
+
+        if notes_path.exists():
+            with open(notes_path, "r", encoding="utf-8") as f:
+                notes_data = json.load(f)
+        else:
+            notes_data = []
+
+        new_lib = lib_data.get("lib", lib_data if isinstance(lib_data, dict) else {})
+        new_stats = lib_data.get("stats", stats or {"docs": 0, "notes": 0, "nodes": 0})
+        new_notes = notes_data if isinstance(notes_data, list) else notes
+
+        # 若 stats 中未包含 docs/notes 统计，可基于数据补全
+        if isinstance(new_stats, dict):
+            new_stats.setdefault("docs", len(new_lib))
+            new_stats.setdefault("notes", len(new_notes))
+
+        # 选取第一个文献作为当前激活文献
+        active_pid = next(iter(new_lib.keys())) if new_lib else ""
+        page = 1
+        pdf_html = render_pdf_text(active_pid or None, new_lib, page)
+        file_list_html = _render_file_list(new_lib, active_pid)
+
+        # 尝试让 RAG 服务从 demo_data/faiss_index 目录加载现成索引，
+        # 并将 ParsedDocument 恢复到 RAGService 的内存缓存中，避免“索引不在内存中”提示。
+        try:
+            from services.rag_service import load_demo_index_from_path, get_rag_service
+            from core.config import RAG_CONFIG
+            from models.parse_result import (
+                ParsedDocument,
+                ParsedSection,
+                ParsedTable,
+                ParsedFigure,
+                ParsedFormula,
+                DocumentMetadata,
+            )
+
+            # 加载向量索引
+            load_demo_index_from_path(str(demo_dir / "faiss_index"))
+
+            # 恢复 ParsedDocument 到全局 RAG 服务
+            service = rag_service or get_rag_service(RAG_CONFIG)
+            if service is not None:
+                for doc_id, info in new_lib.items():
+                    pd_data = info.get("parsed_document")
+                    if not pd_data:
+                        continue
+
+                    meta_raw = pd_data.get("metadata", {}) or {}
+                    metadata = DocumentMetadata(
+                        page_count=meta_raw.get("page_count", 0),
+                        keywords=meta_raw.get("keywords", []),
+                        extra={
+                            "title": info.get(
+                                "name", meta_raw.get("title", doc_id)
+                            ),
+                            "parser": "mineru_cloud_demo",
+                        },
+                    )
+
+                    sections = [
+                        ParsedSection(**s_dict)
+                        for s_dict in pd_data.get("sections", []) or []
+                    ]
+                    tables = [
+                        ParsedTable(**t_dict)
+                        for t_dict in pd_data.get("tables", []) or []
+                    ]
+                    figures = [
+                        ParsedFigure(**f_dict)
+                        for f_dict in pd_data.get("figures", []) or []
+                    ]
+                    formulas = [
+                        ParsedFormula(**fo_dict)
+                        for fo_dict in pd_data.get("formulas", []) or []
+                    ]
+
+                    parsed_doc = ParsedDocument(
+                        doc_id=pd_data.get("doc_id", doc_id),
+                        title=pd_data.get(
+                            "title", info.get("name", meta_raw.get("title", doc_id))
+                        ),
+                        content=pd_data.get("content", ""),
+                        sections=sections,
+                        tables=tables,
+                        figures=figures,
+                        formulas=formulas,
+                        metadata=metadata,
+                        parse_confidence=pd_data.get("parse_confidence", 1.0),
+                    )
+                    service.parsed_docs[parsed_doc.doc_id] = parsed_doc
+        except Exception as e:  # pragma: no cover - demo 辅助逻辑
+            print(f"[Demo] 加载 Demo 索引或恢复解析缓存失败: {e}")
+
+        return (
+            new_lib,
+            new_stats,
+            new_notes,
+            tree,
+            gr.update(value=active_pid or ""),
+            render_stats(new_stats),
+            pdf_html,
+            page,
+            file_list_html,
+            gr.update(value=None),  # upload_f
+        )
+    except Exception as e:
+        print(f"[Demo] 加载 Demo 数据异常: {e}")
+        return (
+            lib,
+            stats,
+            notes,
+            tree,
+            gr.update(),
+            render_stats(stats),
+            render_pdf_text(None, lib),
+            1,
+            _render_file_list(lib),
+            gr.update(),
+        )
+
+
 def handle_select_pdf(pid, lib, notes):
     """Handle PDF selection — reset to page 1 and filter notes.
 
@@ -1530,6 +1707,13 @@ def build_read_tab():
                     file_count="multiple",
                     scale=4,
                 )
+                # Demo 按钮：加载官方架构白皮书的预置体验数据
+                demo_btn = gr.Button(
+                    "🎁 体验: 加载官方架构白皮书",
+                    scale=2,
+                    size="sm",
+                    variant="secondary",
+                )
                 # 重置按钮 - 清空所有状态
                 reset_btn = gr.Button(
                     "🔄 重置", scale=1, size="sm", variant="secondary"
@@ -1631,4 +1815,5 @@ def build_read_tab():
         "translate_result_tb": translate_result_tb,
         "note_action_tb": note_action_tb,
         "reset_btn": reset_btn,
+        "demo_btn": demo_btn,
     }
