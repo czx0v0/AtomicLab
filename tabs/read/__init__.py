@@ -623,7 +623,10 @@ def _render_mineru_markdown_view(pid: str, lib: dict) -> str:
 
 
 def _get_mineru_raw_markdown(pid: str, lib: dict) -> str:
-    """返回当前文献的 MinerU 原始 Markdown，供 gr.Markdown 渲染（含 LaTeX）。"""
+    """返回当前文献的 MinerU 原始 Markdown，供 gr.Markdown 渲染（含 LaTeX、Base64 内联图片）。
+
+    内容可能包含 data:image/...;base64,... 内联图，直接返回即可，无需 /file= 协议，跨平台可加载。
+    """
     if not pid or pid not in lib:
         return ""
     try:
@@ -885,6 +888,12 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
     - 绝不调用 RAG 解析或 embedding，仅通知 rag_service
       从 demo_data/faiss_index/ 加载现有索引
     - view_mode: 当前阅读模式，用于全量刷新 pdf_text/html、pdf_embed、mineru_markdown 三块视图
+
+    全量 Output 更新（与 main.py demo_btn.click 的 outputs 一致）：
+    - markdown_view: read["mineru_markdown"]，显示含 Base64 内联图的正文
+    - tree_view: tree_st，五级层级图谱（Domain -> Document -> Section -> Note/Summary -> Atomic Knowledge）
+    - pdf_viewer: read["pdf_selector"] + read["pdf_embed_html"]，原始 PDF
+    - 以及 lib_st, stats_st, notes_st, page_st, file_list_html, upload_f, pdf_text_html, org["stats_html"]
     """
     try:
         demo_dir = get_demo_data_path()

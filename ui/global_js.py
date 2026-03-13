@@ -358,6 +358,15 @@ GLOBAL_JS = r"""
     }, 500);
   };
 
+  // 全局引用跳转：供 RAG 回答内 [1][2] 等 citation-link 的 onclick 调用（PDF 锚点联动）
+  window.jumpToPdf = function(pageNumOrIndex, textSnippet) {
+    var idx = parseInt(pageNumOrIndex, 10);
+    if (idx >= 1 && window.__lastCitations && window.__lastCitations[idx - 1]) {
+      var c = window.__lastCitations[idx - 1];
+      if (c && c.pid) jumpToSource(c.pid, c.page);
+    }
+  };
+
   // ═══════════════════════════════════════════════════════════════
   // RAG 对话内引用 [1] [2] 可点击 → 跳转 PDF 对应页
   // ═══════════════════════════════════════════════════════════════
@@ -387,7 +396,7 @@ GLOBAL_JS = r"""
     var newHtml = html.replace(/\[\s*(\d+)\s*\]/g, function(m, num) {
       var idx = parseInt(num, 10);
       if (idx >= 1 && idx <= window.__lastCitations.length) {
-        return '<span class="citation-link" data-citation-idx="' + idx + '" title="点击跳转 PDF" style="cursor:pointer;color:#3182ce;text-decoration:underline;">[' + num + ']</span>';
+        return '<a href="javascript:void(0);" onclick="jumpToPdf(\'' + idx + '\', \'\')" class="citation-link" data-citation-idx="' + idx + '" title="点击跳转 PDF" style="cursor:pointer;color:#3182ce;text-decoration:underline;">[' + num + ']</a>';
       }
       return m;
     });

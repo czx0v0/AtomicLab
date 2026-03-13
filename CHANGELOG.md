@@ -1,5 +1,41 @@
 # 更新日志
 
+### 2026-03-14 (demo-base64-citation-hierarchy)
+
+#### 🚀 新功能
+
+**1. Demo 图片 Base64 内联（跨平台加载）**
+
+- `scripts/generate_demo_mock.py` 生成 Mock 数据时，将解析结果中的图片由路径引用改为 Base64 内联；
+- 支持 `](/file=path)`（MinerU 产出）与 `](path.png)` 相对路径，统一替换为 `](data:image/xxx;base64,...)`；
+- 生成的 `mock_library.json` 在 ModelScope / 本地均可 100% 加载图片，无跨平台路径失效问题。
+
+**2. 全局引用跳转（PDF 锚点联动）**
+
+- 新增全局 `window.jumpToPdf(pageNumOrIndex, textSnippet)`，供 RAG 回答内 [1][2] 等引用点击跳转；
+- 对话内引用由 `makeCitationsClickable` 包装为 `<a class="citation-link" onclick="jumpToPdf(...)">[1]</a>`；
+- 继续使用隐藏 `gr.Textbox(elem_id="jump-request-input")` 与 `handle_jump_request` 实现跨 Tab 跳转阅读页并定位页码。
+
+**3. 五级层级与 Demo 全量输出**
+
+- 知识树层级确认为：**Domain → Document → Section → Note/Summary → Atomic Knowledge**（Atomic 为 Note 子节点）；
+- `handle_load_demo` 全量更新：`markdown_view`（mineru_markdown）、`tree_view`（tree_st）、`pdf_viewer`（pdf_selector + pdf_embed_html）、分块数据库等，加载 Demo 后前端三块视图与状态同步刷新。
+
+#### 🔧 改进
+
+- 阅读区 `_get_mineru_raw_markdown` 明确支持 Base64 内联图，无需 `/file=` 协议即可在 `gr.Markdown` 中显示；
+- `handle_load_demo` 增加 `view_mode` 入参，按当前阅读模式刷新 pdf_text / pdf_embed / mineru_markdown，避免「后端有数据、前端不刷新」。
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `scripts/generate_demo_mock.py` | 新增 `inline_images_in_markdown()`，生成时图片 Base64 内联 |
+| `tabs/read/__init__.py` | `_get_mineru_raw_markdown` 文档说明 Base64；`handle_load_demo` 文档补充全量 outputs |
+| `ui/global_js.py` | 新增 `jumpToPdf()`；`makeCitationsClickable` 引用改为 `<a onclick="jumpToPdf(...)">` |
+
+---
+
 ### 2026-03-14 (agentic-rag-and-citation-ui)
 
 #### 🚀 新功能

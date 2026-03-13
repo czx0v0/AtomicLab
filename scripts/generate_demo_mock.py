@@ -20,13 +20,82 @@ Generate Demo Mock Data
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+import re
 from pathlib import Path
 
 from core.config import RAG_CONFIG
 from core.utils import get_demo_data_path
 from services.rag_service import RAGService
+
+
+# 图片扩展名 -> data URL MIME
+_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+}
+
+
+def _image_path_to_base64_data_url(image_path: Path) -> str | None:
+    """读取图片文件并转为 data URL；路径不存在或读失败时返回 None。"""
+    if not image_path.is_file():
+        return None
+    try:
+        raw = image_path.read_bytes()
+        b64 = base64.b64encode(raw).decode("ascii")
+        ext = image_path.suffix.lower()
+        mime = _IMAGE_MIME.get(ext, "image/png")
+        return f"data:{mime};base64,{b64}"
+    except Exception:
+        return None
+
+
+def inline_images_in_markdown(
+    content: str,
+    base_dir: Path,
+) -> str:
+    """
+    将 Markdown 中的图片引用改为 Base64 内联，便于跨平台（ModelScope/本地）100% 加载。
+
+    支持：
+    - ](/file=/absolute/path/to/img.png)  （MinerU 解析器产出）
+    - ](images/xxx.png) 或 ](./fig/fig1.jpg)  （相对路径，相对 base_dir）
+    """
+    if not content or not content.strip():
+        return content
+
+    base_dir = Path(base_dir).resolve()
+
+    # 1. ](/file=absolute_path) — MinerU 解析器产出
+    def repl_file(m: re.Match) -> str:
+        path_str = m.group(1).strip()
+        path = Path(path_str)
+        data_url = _image_path_to_base64_data_url(path)
+        return f"]({data_url})" if data_url else m.group(0)
+    content = re.sub(r"\]\(/file=([^)]+)\)", repl_file, content)
+
+    # 2. ](relative_or_absolute path with image extension)
+    def repl_rel(m: re.Match) -> str:
+        path_str = m.group(1).strip()
+        if path_str.startswith("data:"):
+            return m.group(0)
+        path = (base_dir / path_str).resolve() if not Path(path_str).is_absolute() else Path(path_str)
+        data_url = _image_path_to_base64_data_url(path)
+        return f"]({data_url})" if data_url else m.group(0)
+    content = re.sub(
+        r"\]\(([^)]+\.(?:png|jpg|jpeg|gif|webp|svg))\)",
+        repl_rel,
+        content,
+        flags=re.IGNORECASE,
+    )
+
+    return content
 
 
 def main() -> None:
@@ -61,11 +130,19 @@ def main() -> None:
     if not parsed:
         raise RuntimeError("未在 RAGService 中找到对应的 ParsedDocument 缓存。")
 
+    # 将 Markdown 中的图片路径改为 Base64 内联，确保跨平台（ModelScope/本地）100% 加载
+    extra = getattr(parsed.metadata, "extra", None) or {}
+    cache_dir_str = extra.get("cache_dir", "")
+    content_base = Path(cache_dir_str) if cache_dir_str and Path(cache_dir_str).is_dir() else demo_dir
+    inlined_content = inline_images_in_markdown(parsed.content, content_base)
+    parsed_dict = parsed.to_dict()
+    parsed_dict["content"] = inlined_content
+
     # 构造 lib/stats 状态，兼容在线 Demo 加载逻辑
     lib: dict = {
         result.doc_id: {
             "name": demo_pdf.name,
-            "text": parsed.content,
+            "text": inlined_content,
             "notes": [],
             "annotations": [],
             "filepath": str(demo_pdf),
@@ -75,7 +152,7 @@ def main() -> None:
             "rag_progress": 100,
             "chunk_count": result.chunk_count,
             "parse_confidence": result.confidence,
-            "parsed_document": parsed.to_dict(),
+            "parsed_document": parsed_dict,
         }
     }
     stats = {"docs": 1, "notes": 0, "nodes": 0}

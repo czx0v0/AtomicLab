@@ -1,4 +1,4 @@
-# Atomic Lab — 原子化科研工作站
+# Atomic Lab — 沉浸式科研工作站
 
 > Read · Organize · Write
 
@@ -171,7 +171,7 @@ Atomic Lab 是一款面向研究者的 AI 辅助科研工作站。围绕「阅�
 
 ### 知识树结构
 
-四层层级：`domain → document → note → tag`，支持 `contains`、`tagged_with`、`references` 三种边关系。
+五级层级：`Domain → Document → Section → Note/Summary → Atomic Knowledge`（Atomic 为原子解构后的知识卡片，挂在 Note 下）。支持 `contains`、`tagged_with`、`references` 三种边关系。
 
 ## 技术栈
 
@@ -427,5 +427,6 @@ python -m scripts.generate_demo_mock
 3. 将向量索引保存到 `demo_data/faiss_index/`，同时将文献库与笔记状态写入：
    - `demo_data/mock_library.json`
    - `demo_data/mock_notes.json`
+4. 将 Markdown 中的图片引用转为 Base64 内联并写入 `mock_library.json`，确保 ModelScope / 本地跨平台 100% 加载图片。
 
-生成完成后，重新启动应用并点击 Demo 按钮，即可在任意环境中获得与真实流程一致的 Demo 体验。**
+生成完成后，重新启动应用并点击 Demo 按钮，即可在任意环境中获得与真实流程一致的 Demo 体验。RAG 回答中的引用 [1][2] 可点击，通过全局 `jumpToPdf` 跳转阅读页并定位到对应 PDF 页码。
