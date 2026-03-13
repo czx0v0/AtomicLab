@@ -1022,6 +1022,39 @@ _session_rag_lock = Lock()
 # 全局共享服务（本地开发 / 无 session_id 场景）
 _shared_rag_service: Optional[RAGService] = None
 
+# 查询重写 System Prompt：意图识别 + 中英学术关键词
+_QUERY_REWRITE_SYSTEM = """你是一个学术查询优化器。用户的输入可能是一段中文提问或闲聊。
+任务 1 (意图识别)：如果这是普通的日常聊天、打招呼，或如"帮我翻译"等指令，请直接输出 "NONE"。
+任务 2 (中英翻译)：如果这是一个学术问题，请提取核心实体，并将其翻译为标准的英文学术搜索关键词。
+只输出最终的英文关键词字符串，不要包含任何解释、引号或多余的话语。例如，输入"什么是原子知识？"，输出"Atomic Knowledge"。
+"""
+
+
+def optimize_search_query(user_query: str) -> str:
+    """
+    大模型查询重写：意图识别 + 中英学术关键词提取。
+    - 闲聊/打招呼/纯指令（如「帮我翻译」）→ 返回 "NONE"，调用方应跳过检索。
+    - 学术问题 → 返回英文学术搜索关键词，用于 ArXiv 等检索。
+    """
+    if not user_query or not user_query.strip():
+        return "NONE"
+    try:
+        from agents.base import call_llm
+
+        out = call_llm(
+            system_prompt=_QUERY_REWRITE_SYSTEM,
+            user_prompt=user_query.strip(),
+            temperature=0.1,
+            max_tokens=120,
+        )
+        s = (out or "").strip()
+        if s.upper() == "NONE":
+            return "NONE"
+        return s
+    except Exception as e:
+        print(f"[RAG] optimize_search_query 失败: {e}")
+        return user_query.strip()
+
 
 def get_rag_service(
     config: Optional[RAGConfig] = None, session_id: Optional[str] = None

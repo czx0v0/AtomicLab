@@ -153,6 +153,23 @@ button.stop,button.secondary{
 }
 button.stop:hover,button.secondary:hover{background:#f7fafc!important;border-color:#cbd5e0!important;}
 
+/* 阅读区「加载官方体验白皮书」按钮：更高、背景醒目 */
+#read-demo-btn{
+  min-height:48px!important;
+  padding:12px 20px!important;
+  background:linear-gradient(135deg, var(--accent-orange-dim) 0%, var(--accent-blue-dim) 100%)!important;
+  border:2px solid var(--accent-orange)!important;
+  color:var(--accent-orange)!important;
+  font-weight:600!important;
+  border-radius:var(--radius)!important;
+}
+#read-demo-btn:hover{
+  background:linear-gradient(135deg, rgba(240,136,62,.2) 0%, rgba(91,141,239,.15) 100%)!important;
+  border-color:var(--accent-blue)!important;
+  color:var(--accent-blue)!important;
+  box-shadow:var(--shadow-md)!important;
+}
+
 /* ══════════════════════════════════════════════════════════════
    PDF Text Reader
    ══════════════════════════════════════════════════════════════ */
@@ -450,7 +467,7 @@ button.stop:hover,button.secondary:hover{background:#f7fafc!important;border-col
    Hidden JS communication textboxes
    ══════════════════════════════════════════════════════════════ */
 #highlight-action-input, #translate-action-input, #translate-result-input,
-#pdf-selector-hidden, #ai-ask-input, #selected-node-input, #write-graph-node-input{
+#pdf-selector-hidden, #ai-ask-input, #jump-request-input, #selected-node-input, #write-graph-node-input{
   position:absolute!important;width:1px!important;height:1px!important;
   overflow:hidden!important;opacity:0!important;pointer-events:none!important;
   padding:0!important;margin:0!important;border:0!important;
@@ -605,6 +622,8 @@ mark[data-note-id].highlight-focus{animation:highlight-pulse 1s ease-in-out 2;bo
 .chat-toolbar .gradio-dropdown{min-width:120px;}
 #chat-model-status{font-size:.75em;color:var(--text-muted);margin-left:8px;}
 .chat-toolbar label{font-size:.75em;color:var(--text-muted);margin-bottom:2px;}
+.chat-citation-bar-wrap{margin-top:0;}
+.citation-jump-btn:hover{background:var(--accent-blue-dim)!important;border-color:var(--accent-blue)!important;}
 
 /* Model status badges */
 .model-status{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}

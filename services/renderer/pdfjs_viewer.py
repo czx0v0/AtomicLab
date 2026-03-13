@@ -85,8 +85,9 @@ class PDFJSViewer:
         doc_id: str,
         highlights: List[HighlightData] = None,
         doc_name: str = "",
+        initial_page: int = 1,
     ) -> str:
-        """生成PDF.js查看器HTML"""
+        """生成PDF.js查看器HTML。initial_page: 打开时定位到的页码（1-based）。"""
         # 读取PDF为base64
         try:
             with open(pdf_path, "rb") as f:
@@ -99,9 +100,10 @@ class PDFJSViewer:
             return f"<div class='txt-empty'>PDF过大 ({file_size_mb:.1f}MB)，建议使用文本模式</div>"
 
         highlights_json = json.dumps([h.to_dict() for h in (highlights or [])])
+        initial_page = max(1, int(initial_page) if initial_page else 1)
 
         return self._generate_iframe_html(
-            pdf_base64, doc_id, doc_name, file_size_mb, highlights_json
+            pdf_base64, doc_id, doc_name, file_size_mb, highlights_json, initial_page
         )
 
     def _generate_iframe_html(
@@ -111,12 +113,13 @@ class PDFJSViewer:
         doc_name: str,
         file_size_mb: float,
         highlights_json: str,
+        initial_page: int = 1,
     ) -> str:
         """生成包含iframe的HTML，iframe内嵌完整PDF.js viewer"""
 
         # 生成内部HTML文档
         inner_html = self._generate_inner_html(
-            pdf_base64, doc_id, doc_name, file_size_mb, highlights_json
+            pdf_base64, doc_id, doc_name, file_size_mb, highlights_json, initial_page
         )
 
         # 转义HTML用于srcdoc属性
@@ -141,8 +144,9 @@ class PDFJSViewer:
         doc_name: str,
         file_size_mb: float,
         highlights_json: str,
+        initial_page: int = 1,
     ) -> str:
-        """生成PDF.js viewer的完整HTML文档 - v2.4版：缩放控制+工具栏固定+视觉反馈"""
+        """生成PDF.js viewer的完整HTML文档 - v2.4版：缩放控制+工具栏固定+视觉反馈；支持 initial_page 跳转"""
 
         return f"""<!DOCTYPE html>
 <html>
@@ -457,11 +461,11 @@ class PDFJSViewer:
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/{self.PDFJS_VERSION}/pdf.worker.min.js';
         
-        // 全局状态
+        // 全局状态（initial_page 用于从搜索/笔记/引用跳转定位）
         const state = {{
             docId: '{doc_id}',
             pdf: null,
-            page: 1,
+            page: {initial_page},
             total: 0,
             scale: 1.0,  // 默认100%缩放
             baseScale: 1.0,  // PDF基础缩放

@@ -210,7 +210,7 @@ class MinerUCloudParser:
         def _replace_markdown_img(match: re.Match) -> str:
             original_path = match.group(1)
             absolute_path = (md_dir / original_path).resolve()
-            return f"]({absolute_path})"
+            return f"](/file={absolute_path})"
 
         img_pattern = re.compile(
             r"\]\(([^)]+\.(?:png|jpg|jpeg|svg|gif|webp))\)", flags=re.IGNORECASE
@@ -221,7 +221,7 @@ class MinerUCloudParser:
         def _replace_html_img(match: re.Match) -> str:
             original_path = match.group(1)
             absolute_path = (md_dir / original_path).resolve()
-            return f'src="{absolute_path}"'
+            return f'src="/file={absolute_path}"'
 
         html_img_pattern = re.compile(
             r'src="([^"]+\.(?:png|jpg|jpeg|svg|gif|webp))"', flags=re.IGNORECASE

@@ -151,15 +151,14 @@ def _render_pdf_embed(pid: str, lib: dict) -> str:
     )
 
 
-def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str:
+def _render_pdfjs_highlight_view(
+    pid: str, lib: dict, notes: list = None, initial_page: int = 1
+) -> str:
     """
     Render PDF with PDF.js - supports highlighting and RAG integration.
 
     v2.3: 统一的保真渲染 + 高亮交互模式
-    - PDF.js保真渲染（公式、表格、图片完整显示）
-    - 文本层选择和高亮
-    - 与RAG chunk坐标映射
-    - 高亮数据持久化
+    initial_page: 打开时定位到的页码（用于跳转联动）
     """
     if not pid or pid not in lib:
         return "<div class='txt-empty'>选择文献后，PDF 将在此显示</div>"
@@ -217,13 +216,14 @@ def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str
                     )
                 )
 
-    # 使用PDF.js渲染器
+    # 使用PDF.js渲染器（支持 initial_page 供全局跳转）
     viewer = PDFJSViewer()
     return viewer.render_viewer(
         pdf_path=fp,
         doc_id=pid,
         highlights=highlights,
         doc_name=doc_info.get("name", "未命名文档"),
+        initial_page=max(1, initial_page),
     )
 
 
@@ -622,6 +622,25 @@ def _render_mineru_markdown_view(pid: str, lib: dict) -> str:
         return "<div class='txt-empty'>MinerU Markdown视图渲染失败，请查看日志</div>"
 
 
+def _get_mineru_raw_markdown(pid: str, lib: dict) -> str:
+    """返回当前文献的 MinerU 原始 Markdown，供 gr.Markdown 渲染（含 LaTeX）。"""
+    if not pid or pid not in lib:
+        return ""
+    try:
+        from services.rag_service import get_rag_service
+        from core.config import RAG_CONFIG
+
+        rag_service = get_rag_service(RAG_CONFIG)
+        parsed_doc = None
+        if hasattr(rag_service, "get_parsed_document"):
+            parsed_doc = rag_service.get_parsed_document(pid)
+        if not parsed_doc or not (parsed_doc.content or "").strip():
+            return ""
+        return (parsed_doc.content or "").strip()
+    except Exception:
+        return ""
+
+
 def _render_chunk_database_view(pid: str, lib: dict) -> str:
     """Render chunk database view showing text chunks.
 
@@ -921,6 +940,18 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None):
         new_stats = lib_data.get("stats", stats or {"docs": 0, "notes": 0, "nodes": 0})
         new_notes = notes_data if isinstance(notes_data, list) else notes
 
+        # 规范化 filepath，避免 mock 数据中残留 Windows 绝对路径在 Linux 环境下失效
+        for doc_id, info in new_lib.items():
+            fp = info.get("filepath", "")
+            name = info.get("name", "")
+            # 如果 filepath 不存在或是明显的 Windows 盘符路径，则尝试用 demo_data 目录重建
+            if (isinstance(fp, str) and fp and not os.path.exists(fp)) or (
+                isinstance(fp, str) and len(fp) >= 2 and fp[1] == ":"
+            ):
+                candidate = demo_dir / name if name else demo_dir / "demo_paper.pdf"
+                if candidate.exists():
+                    info["filepath"] = str(candidate.resolve())
+
         # 若 stats 中未包含 docs/notes 统计，可基于数据补全
         if isinstance(new_stats, dict):
             new_stats.setdefault("docs", len(new_lib))
@@ -1031,6 +1062,61 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None):
         )
 
 
+def jump_to_pdf_context(
+    pid: str,
+    page: int,
+    text_to_highlight: str = "",
+    lib: dict = None,
+    notes: list = None,
+) -> tuple:
+    """
+    通用 PDF 跳转：更新页码与阅读区视图，供搜索、笔记卡片、RAG 引用等复用。
+
+    Args:
+        pid: 文档 ID
+        page: 目标页码（1-based）
+        text_to_highlight: 预留，当前无 BBox 时仅做页码跳转
+        lib: 文献库
+        notes: 笔记列表（用于高亮视图）
+
+    Returns:
+        (page_st, pdf_text_html, pdf_embed_html)
+        用于更新 page_st、pdf_text_html、pdf_embed_html 三个组件。
+    """
+    lib = lib or {}
+    notes = notes or []
+    page = max(1, int(page) if page else 1)
+    if not pid or pid not in lib:
+        return (
+            1,
+            render_pdf_text(None, lib, 1),
+            gr.update(),  # 不破坏当前 embed 视图
+        )
+    return (
+        page,
+        render_pdf_text(pid, lib, page),
+        gr.update(
+            value=_render_pdfjs_highlight_view(pid, lib, notes, initial_page=page),
+            visible=True,
+        ),
+    )
+
+
+def handle_jump_request(payload: str, lib: dict, notes: list) -> tuple:
+    """
+    处理「跳转到 PDF 上下文」请求（由隐藏输入 jump_request_tb 触发）。
+    payload 格式: "pid|page" 或 "pid|page|text_to_highlight"。
+    返回 (page_st, pdf_text_html, pdf_embed_html)。
+    """
+    if not payload or "|" not in payload:
+        return 1, gr.update(), gr.update()
+    parts = payload.strip().split("|", 2)
+    pid = (parts[0] or "").strip()
+    page = int(parts[1]) if len(parts) > 1 and parts[1].strip().isdigit() else 1
+    text = (parts[2] or "").strip() if len(parts) > 2 else ""
+    return jump_to_pdf_context(pid, page, text, lib, notes)
+
+
 def handle_select_pdf(pid, lib, notes):
     """Handle PDF selection — reset to page 1 and filter notes.
 
@@ -1068,44 +1154,49 @@ def handle_mode_switch(mode, pid, lib, page_st, notes=None):
 
     v2.3: PDF高亮模式为默认，移除了Docling模式（解析功能已整合到RAG服务中）
     v2.4: 新增Docling结构模式和分块数据库模式
+    v2.5: MinerU Markdown 使用 gr.Markdown + latex_delimiters 以支持 LaTeX 渲染
     """
+    _hide_mineru_md = gr.update(visible=False)
     if mode == "PDF原版":
         return (
             gr.update(visible=False),
             gr.update(value=_render_pdf_embed(pid, lib), visible=True),
+            _hide_mineru_md,
         )
     elif mode == "PDF高亮":
-        # PDF高亮模式：保真渲染 + 高亮交互（默认模式）
         pdfjs_html = _render_pdfjs_highlight_view(pid, lib, notes or [])
         return (
             gr.update(visible=False),
             gr.update(value=pdfjs_html, visible=True),
+            _hide_mineru_md,
         )
     elif mode == "Docling结构":
-        # Docling结构模式：显示章节层级结构
         docling_html = _render_docling_structure_view(pid, lib, notes or [])
         return (
             gr.update(visible=False),
             gr.update(value=docling_html, visible=True),
+            _hide_mineru_md,
         )
     elif mode == "分块数据库":
-        # 分块数据库模式：显示文本分块数据库
         chunk_db_html = _render_chunk_database_view(pid, lib)
         return (
             gr.update(visible=False),
             gr.update(value=chunk_db_html, visible=True),
+            _hide_mineru_md,
         )
     elif mode == "MinerU Markdown":
-        md_html = _render_mineru_markdown_view(pid, lib)
+        raw_md = _get_mineru_raw_markdown(pid, lib)
         return (
             gr.update(visible=False),
-            gr.update(value=md_html, visible=True),
+            gr.update(visible=False),
+            gr.update(value=raw_md or "选择文献后，MinerU Markdown 将在此显示（支持 LaTeX 公式）", visible=True),
         )
     else:
         # 文本模式
         return (
             gr.update(visible=True),
             gr.update(visible=False),
+            _hide_mineru_md,
         )
 
 
@@ -1707,18 +1798,25 @@ def build_read_tab():
                     file_count="multiple",
                     scale=4,
                 )
-                # Demo 按钮：加载官方架构白皮书的预置体验数据
+                # Demo 按钮：加载官方架构白皮书的预置体验数据（高且醒目）
                 demo_btn = gr.Button(
                     "🎁 体验: 加载官方架构白皮书",
                     scale=2,
-                    size="sm",
+                    size="lg",
                     variant="secondary",
+                    elem_id="read-demo-btn",
                 )
                 # 重置按钮 - 清空所有状态
                 reset_btn = gr.Button(
                     "🔄 重置", scale=1, size="sm", variant="secondary"
                 )
-            gr.Markdown("### 文献列表")
+            gr.Markdown(
+                "### 文献列表",
+                latex_delimiters=[
+                    {"left": "$$", "right": "$$", "display": True},
+                    {"left": "$", "right": "$", "display": False},
+                ],
+            )
             file_list_html = gr.HTML("<div class='nc-empty'>上传文献后显示</div>")
             # Hidden textbox for programmatic value setting
             # visible=True but CSS-hidden to ensure DOM is rendered
@@ -1768,10 +1866,25 @@ def build_read_tab():
                 "<div class='txt-empty'>选择文献后，PDF 将在此显示</div>",
                 visible=True,  # 默认显示，PDF高亮模式
             )
+            # MinerU Markdown 专用：gr.Markdown 支持 LaTeX 公式渲染（$...$ / $$...$$）
+            mineru_markdown = gr.Markdown(
+                value="",
+                visible=False,
+                latex_delimiters=[
+                    {"left": "$$", "right": "$$", "display": True},
+                    {"left": "$", "right": "$", "display": False},
+                ],
+            )
 
         # ── Right: Notes (always visible) ──
         with gr.Column(scale=3, min_width=240):
-            gr.Markdown("### 阅读笔记")
+            gr.Markdown(
+                "### 阅读笔记",
+                latex_delimiters=[
+                    {"left": "$$", "right": "$$", "display": True},
+                    {"left": "$", "right": "$", "display": False},
+                ],
+            )
             notes_html = gr.HTML(render_note_cards([]))
 
     # Hidden textboxes for JS ↔ Python communication
@@ -1797,6 +1910,13 @@ def build_read_tab():
         visible=True,
         container=False,
     )
+    # 全局跳转：搜索/笔记/RAG 引用点击时传入 "pid|page" 或 "pid|page|text"
+    jump_request_tb = gr.Textbox(
+        elem_id="jump-request-input",
+        value="",
+        visible=True,
+        container=False,
+    )
 
     return {
         "upload_f": upload_f,
@@ -1807,6 +1927,7 @@ def build_read_tab():
         "chunk_mode": chunk_mode,
         "pdf_text_html": pdf_text_html,
         "pdf_embed_html": pdf_embed_html,
+        "mineru_markdown": mineru_markdown,
         "notes_html": notes_html,
         "prev_btn": prev_btn,
         "next_btn": next_btn,
@@ -1814,6 +1935,7 @@ def build_read_tab():
         "translate_action_tb": translate_action_tb,
         "translate_result_tb": translate_result_tb,
         "note_action_tb": note_action_tb,
+        "jump_request_tb": jump_request_tb,
         "reset_btn": reset_btn,
         "demo_btn": demo_btn,
     }

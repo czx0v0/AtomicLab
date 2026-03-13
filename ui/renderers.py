@@ -329,10 +329,12 @@ def render_note_cards(
         if is_long and collapsible:
             expand_btn = f'<span class="nt-expand-btn" onclick="toggleNoteExpand(this)" data-note-id="{note_id}">展开 ▼</span>'
 
+        page_num = n.get("page", 1)
+        page_click = f"jumpToSource('{source_pid}', {page_num})" if source_pid and page_num else f"scrollToHighlight('{note_id}')"
         h += f"""<div class="nt {collapsed_class}" data-note-id="{note_id}"{color_bar}>
   <div class="nt-top">
     <span class="{badge_cls}">{badge_text}</span>{priority_html}
-    <span class="nt-page" onclick="scrollToHighlight('{note_id}')" style="cursor:pointer" title="点击定位">p.{n.get('page', '?')}</span>
+    <span class="nt-page" onclick="{page_click}" style="cursor:pointer" title="点击跳转到原文">p.{n.get('page', '?')}</span>
     <span class="nt-ts">{esc(n.get('ts', ''))}</span>
     {expand_btn}
   </div>

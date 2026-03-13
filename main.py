@@ -13,6 +13,8 @@ Architecture:
 
 import os
 import shutil
+import inspect
+from pathlib import Path
 import gradio as gr
 
 from core.config import APP_TITLE, MODEL_DISPLAY_NAMES
@@ -55,6 +57,7 @@ from tabs.read import (
     handle_popup_translate,
     handle_read_note_action,
     handle_load_demo,
+    handle_jump_request,
 )
 from tabs.organize import (
     build_organize_tab,
@@ -84,6 +87,8 @@ from tabs.chat import (
     handle_chat_clear,
     handle_ai_ask,
     handle_feedback,
+    handle_chat_stream,
+    handle_chat_stream_legacy,
 )
 
 # RAG服务集成
@@ -179,7 +184,19 @@ def _handle_chunk_mode_change(mode_label: str):
 # GRADIO APP
 # ══════════════════════════════════════════════════════════════
 
-with gr.Blocks(title=APP_TITLE) as demo:
+mathjax_head = """
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
+    displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']]
+  }
+};
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+"""
+
+with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
     # ── Shared State ──
     # 注意: Gradio的State在每个会话中独立，但刷新页面可能会保持会话
     # 如果需要完全重置，用户需要清除浏览器Cookie或打开新标签页
@@ -340,6 +357,16 @@ with gr.Blocks(title=APP_TITLE) as demo:
         inputs=[read["pdf_selector"]],
         outputs=[wrt["write_doc_selector"]],
     )
+    # 全局跳转：搜索/笔记/RAG 引用通过 jump_request_tb 传入 "pid|page"，更新页码与 PDF 视图
+    read["jump_request_tb"].change(
+        fn=handle_jump_request,
+        inputs=[read["jump_request_tb"], lib_st, notes_st],
+        outputs=[page_st, read["pdf_text_html"], read["pdf_embed_html"]],
+    ).then(
+        fn=lambda: "",  # 清空 jump_request 避免重复触发
+        inputs=[],
+        outputs=[read["jump_request_tb"]],
+    )
     read["prev_btn"].click(
         fn=handle_page_prev,
         inputs=[page_st, read["pdf_selector"], lib_st],
@@ -353,7 +380,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
     read["view_mode"].change(
         fn=handle_mode_switch,
         inputs=[read["view_mode"], read["pdf_selector"], lib_st, page_st, notes_st],
-        outputs=[read["pdf_text_html"], read["pdf_embed_html"]],
+        outputs=[read["pdf_text_html"], read["pdf_embed_html"], read["mineru_markdown"]],
     )
     read["chunk_granularity"].change(
         fn=_handle_chunk_granularity_change,
@@ -565,20 +592,21 @@ with gr.Blocks(title=APP_TITLE) as demo:
     )
 
     # ── Tab 4: Chat ──
+    # 统一使用经典 [[user, bot]] 历史结构，通过 Markdown 模拟多 Agent 组会；引用栏用于跳转 PDF。
     chat["send_btn"].click(
-        fn=handle_chat_send,
+        fn=handle_chat_stream_legacy,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
-        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"]],
     )
     chat["msg_input"].submit(
-        fn=handle_chat_send,
+        fn=handle_chat_stream_legacy,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
-        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"]],
     )
     chat["clear_btn"].click(
         fn=handle_chat_clear,
         inputs=[],
-        outputs=[chat["chatbot"], chat["msg_input"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["citation_bar"]],
     )
     # Bridge: "问AI" from reading page popup → auto-send to chat
     chat["ai_ask_input"].change(
@@ -663,6 +691,6 @@ if __name__ == "__main__":
         "css": CSS,
         "js": GLOBAL_JS,
         "head": ECHARTS_HEAD,
-        "allowed_paths": ["image"],
+        "allowed_paths": [str(Path(".cache").resolve()), "image"],
     }
     demo.launch(**launch_kwargs)

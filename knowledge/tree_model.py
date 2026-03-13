@@ -99,6 +99,7 @@ class KnowledgeNode:
         if cat:
             tooltip_lines.append(f"分类: {cat}")
 
+        page = self.metadata.get("page_start") or self.metadata.get("page")
         node = {
             "id": self.id,
             "name": self.label[:24] + ("..." if len(self.label) > 24 else ""),
@@ -107,6 +108,8 @@ class KnowledgeNode:
             "category": self.type,
             "itemStyle": {"color": color},
             "label": {"show": self.type in ("domain", "document")},
+            "source_pid": self.source_pid or "",
+            "page": page if page is not None else 1,
         }
         if highlight:
             node["itemStyle"] = {

@@ -336,7 +336,9 @@ GLOBAL_JS = r"""
       showToast('无法定位：缺少文档信息');
       return;
     }
-    
+    var pageNum = (page && parseInt(page, 10)) || 1;
+    if (pageNum < 1) pageNum = 1;
+
     // Switch to 阅读 tab
     var tabs = document.querySelectorAll('button[role="tab"]');
     for (var i = 0; i < tabs.length; i++) {
@@ -345,15 +347,15 @@ GLOBAL_JS = r"""
         break;
       }
     }
-    
-    // Set the document selector to switch to the document
+
+    // 先切换文献，再发跳转请求（pid|page）以定位到具体页码
     setTimeout(function() {
       setGradioValue('#pdf-selector-hidden', sourcePid);
-      showToast('正在跳转到文档 (第' + page + '页)');
-      
-      // TODO: After document loads, navigate to specific page
-      // This would require storing page number and triggering page navigation
-    }, 300);
+      showToast('正在跳转到文档 (第' + pageNum + '页)');
+    }, 200);
+    setTimeout(function() {
+      setGradioValue('#jump-request-input', sourcePid + '|' + pageNum);
+    }, 500);
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -380,16 +382,19 @@ GLOBAL_JS = r"""
       var clickType = el.getAttribute('data-click') || '';
       if (clickType === 'node-select') {
         chart.on('click', function(params) {
-          var nodeId = (params.data && params.data.id) ? params.data.id : '';
+          var data = params.data || {};
+          var nodeId = data.id || '';
+          var sourcePid = data.source_pid;
+          var page = data.page;
           if (nodeId) {
-            // Check which graph this is by container ID
             var containerId = el.id || '';
             if (containerId.indexOf('write-graph') >= 0) {
-              // Write tab graph - use write-specific input
               setGradioValue('#write-graph-node-input', nodeId);
             } else {
-              // Organize tab graph - use default input
               setGradioValue('#selected-node-input', nodeId);
+            }
+            if (sourcePid && (page !== undefined && page !== null)) {
+              jumpToSource(sourcePid, page);
             }
           }
         });

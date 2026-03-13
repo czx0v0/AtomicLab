@@ -524,7 +524,13 @@ def build_write_tab():
 
         # ── Right: Writing Area ──
         with gr.Column(scale=6, min_width=400):
-            gr.Markdown("### 写作区")
+            gr.Markdown(
+                "### 写作区",
+                latex_delimiters=[
+                    {"left": "$$", "right": "$$", "display": True},
+                    {"left": "$", "right": "$", "display": False},
+                ],
+            )
             gr.HTML(_TOOLBAR_HTML)
             draft_text = gr.TextArea(
                 label="",

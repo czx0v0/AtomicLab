@@ -2,7 +2,7 @@
   "lib": {
     "DOC-64656D6F": {
       "name": "demo_paper.pdf",
-      "text": "# Atomic Lab: A Technical Whitepaper on Agentic RAG and Atomic Knowledge Workflows\n\nInterstellar Office Team Product R&D Division\n\nMarch 14, 2026\n\n# Abstract\n\nWelcome to Atomic Lab. This document serves as both a technical whitepaper and an interactive demo file for our system. The exponential growth of scientific literature presents a dual crisis: the fragmentation of reading inspirations and the difficulty of tracing citations during writing. Atomic Lab solves this by deconstructing literature into ”Atomic Knowledge” and leveraging an Agentic RAG (Retrieval-Augmented Generation) architecture. This manual outlines our core technical implementations.\n\n# 1 Introduction to Atomic Knowledge\n\nTraditional document-centric reading models trap knowledge within isolated PDFs. We advocate for ”Knowledge Atomization.” Every core argument, experimental result, or methodology is extracted as a semantically self-consistent ”Atomic Card.”\n\nBy passing extracted text through our Crusher Agent, non-structured text is automatically categorized into seven domains (Method, Formula, Image, Definition, Viewpoint, Data, Other) and tagged with AIgenerated keywords.\n\n# 2 Core Technologies\n\n# 2.1 Multi-modal Deep Parsing\n\nAcademic literature parsing is notoriously difficult due to dual-column layouts and complex mathematical embeddings. Atomic Lab integrates the advanced MinerU parsing engine.\n\nAs demonstrated in Table 1, this approach guarantees the purity of the data fed into our Large Language Models (LLMs), reconstructing cross-page tables into HTML and formulas into LaTeX.\n\nTable 1: Parsing capabilities comparison.   \n\n<table><tr><td>Challenge</td><td>StandardOCR</td><td>Atomic Lab(MinerU)</td></tr><tr><td>Math Formulas</td><td>Garbledcharacters</td><td>100% LaTeXrecovery</td></tr><tr><td>Layouts</td><td>Reading or-oder errors</td><td>Logical blockanalysis</td></tr><tr><td>Citations</td><td>Ignored superscripts</td><td>Exact coordi-nate mapping</td></tr></table>\n\n# 2.2 Hybrid Retrieval & RRF Fusion\n\nTo balance retrieval precision (finding specific terms) and breadth (understanding context), Atomic Lab utilizes a Hybrid Retrieval architecture. We combine dense semantic vectors (FAISS HNSW) with sparse lexical search (BM25).\n\nTo fuse these ranking systems equitably, we apply the Reciprocal Rank Fusion (RRF) algorithm. For a document $d$ in a set of rank lists $R$ , the score is calculated as:\n\n$$\nR R F (d) = \\sum_ {r \\in R} \\frac {1}{k + r (d)} \\tag {1}\n$$\n\nwhere $k = 6 0$ acts as a smoothing constant. This ensures that only knowledge atoms ranking high across multiple strategies are presented to the user.\n\n# 2.3 GraphRAG & 1-Hop Expansion\n\nKnowledge in Atomic Lab is not flat. Atoms are stored in a dual-track architecture. When a user queries a concept, the system retrieves direct matches and performs a ”1-hop expansion” along the knowledge graph (e.g., following shared tags or citation links) to uncover hidden academic causality.\n\n# 3 The Agentic RAG Workflow\n\nThe chat interface of Atomic Lab is not a simple Q&A bot; it simulates a multi-agent ”virtual research group” meeting:\n\n• Seeker: Executes multi-source retrieval, pulling evidence from document vectors, note cards, and external fallback APIs (e.g., arXiv).   \n• Reviewer: Critically evaluates the retrieved context. If the evidence is insufficient, it rewrites the query and triggers a secondary search.   \n• Synthesizer: Generates the final, logically coherent response, embedding precise, verifiable citations.\n\n# 4 Conclusion\n\nBy integrating deep document parsing, GraphRAG, and Agentic workflows, Atomic Lab provides a seamless Read-Organize-Write loop. We invite you to explore the system by highlighting texts, asking questions, and generating your own verifiable academic insights.",
+      "text": "# Atomic Lab: A Technical Whitepaper on Agentic RAG and Atomic Knowledge Workflows\n\nInterstellar Office Team Product R&D Division\n\nMarch 14, 2026\n\n# Abstract\n\nWelcome to Atomic Lab. This document serves as both a technical whitepaper and an interactive demo file for our system. The exponential growth of scientific literature presents a dual crisis: the fragmentation of reading inspirations and the difficulty of tracing citations during writing. Atomic Lab solves this by deconstructing literature into ”Atomic Knowledge” and leveraging an Agentic RAG (Retrieval-Augmented Generation) architecture. This manual outlines our core technical implementations.\n\n# 1 Introduction to Atomic Knowledge\n\nTraditional document-centric reading models trap knowledge within isolated PDFs. We advocate for ”Knowledge Atomization.” Every core argument, experimental result, or methodology is extracted as a semantically self-consistent ”Atomic Card.”\n\nBy passing extracted text through our Crusher Agent, non-structured text is automatically categorized into seven domains (Method, Formula, Image, Definition, Viewpoint, Data, Other) and tagged with AIgenerated keywords.\n\n# 2 Core Technologies\n\n# 2.1 Multi-modal Deep Parsing\n\nAcademic literature parsing is notoriously difficult due to dual-column layouts and complex mathematical embeddings. Atomic Lab integrates the advanced MinerU parsing engine.\n\n![](/file=D:\\Coding\\agent\\AI_Hackathon\\.cache\\parsed_docs\\DOC-64656D6F\\images\\d531b7bf9cc53f8a2137051f5c1fe7f26f6fd5f453c0f8969ff447b76715fe34.jpg)  \nFigure 1: Atomic Lab\n\nAs demonstrated in Table 1, this approach guarantees the purity of the data fed into our Large Language Models (LLMs), reconstructing cross-page tables into HTML and formulas into LaTeX.\n\nTable 1: Parsing capabilities comparison.   \n\n<table><tr><td>Challenge</td><td>StandardOCR</td><td>Atomic Lab(MinerU)</td></tr><tr><td>Math Formulas</td><td>Garbledcharacters</td><td>100% LaTeXrecovery</td></tr><tr><td>Layouts</td><td>Reading or-oder errors</td><td>Logical blockanalysis</td></tr><tr><td>Citations</td><td>Ignored superscripts</td><td>Exact coordi-nate mapping</td></tr></table>\n\n# 2.2 Hybrid Retrieval & RRF Fusion\n\nTo balance retrieval precision (finding specific terms) and breadth (understanding context), Atomic Lab utilizes a Hybrid Retrieval architecture. We combine dense semantic vectors (FAISS HNSW) with sparse lexical search (BM25).\n\nTo fuse these ranking systems equitably, we apply the Reciprocal Rank Fusion (RRF) algorithm. For a document $d$ in a set of rank lists $R$ , the score is calculated as:\n\n$$\nR R F (d) = \\sum_ {r \\in R} \\frac {1}{k + r (d)} \\tag {1}\n$$\n\nwhere $k = 6 0$ acts as a smoothing constant. This ensures that only knowledge atoms ranking high across multiple strategies are presented to the user.\n\n# 2.3 GraphRAG & 1-Hop Expansion\n\nKnowledge in Atomic Lab is not flat. Atoms are stored in a dual-track architecture. When a user queries a concept, the system retrieves direct matches and performs a ”1-hop expansion” along the knowledge graph (e.g., following shared tags or citation links) to uncover hidden academic causality.\n\n# 3 The Agentic RAG Workflow\n\nThe chat interface of Atomic Lab is not a simple Q&A bot; it simulates a multi-agent ”virtual research group” meeting:\n\n• Seeker: Executes multi-source retrieval, pulling evidence from document vectors, note cards, and external fallback APIs (e.g., arXiv).   \n• Reviewer: Critically evaluates the retrieved context. If the evidence is insufficient, it rewrites the query and triggers a secondary search.   \n• Synthesizer: Generates the final, logically coherent response, embedding precise, verifiable citations.\n\n# 4 Conclusion\n\nBy integrating deep document parsing, GraphRAG, and Agentic workflows, Atomic Lab provides a seamless Read-Organize-Write loop. We invite you to explore the system by highlighting texts, asking questions, and generating your own verifiable academic insights.",
       "notes": [],
       "annotations": [],
       "filepath": "D:\\Coding\\agent\\AI_Hackathon\\demo_data\\demo_paper.pdf",
@@ -15,7 +15,7 @@
       "parsed_document": {
         "doc_id": "DOC-64656D6F",
         "title": "full",
-        "content": "# Atomic Lab: A Technical Whitepaper on Agentic RAG and Atomic Knowledge Workflows\n\nInterstellar Office Team Product R&D Division\n\nMarch 14, 2026\n\n# Abstract\n\nWelcome to Atomic Lab. This document serves as both a technical whitepaper and an interactive demo file for our system. The exponential growth of scientific literature presents a dual crisis: the fragmentation of reading inspirations and the difficulty of tracing citations during writing. Atomic Lab solves this by deconstructing literature into ”Atomic Knowledge” and leveraging an Agentic RAG (Retrieval-Augmented Generation) architecture. This manual outlines our core technical implementations.\n\n# 1 Introduction to Atomic Knowledge\n\nTraditional document-centric reading models trap knowledge within isolated PDFs. We advocate for ”Knowledge Atomization.” Every core argument, experimental result, or methodology is extracted as a semantically self-consistent ”Atomic Card.”\n\nBy passing extracted text through our Crusher Agent, non-structured text is automatically categorized into seven domains (Method, Formula, Image, Definition, Viewpoint, Data, Other) and tagged with AIgenerated keywords.\n\n# 2 Core Technologies\n\n# 2.1 Multi-modal Deep Parsing\n\nAcademic literature parsing is notoriously difficult due to dual-column layouts and complex mathematical embeddings. Atomic Lab integrates the advanced MinerU parsing engine.\n\nAs demonstrated in Table 1, this approach guarantees the purity of the data fed into our Large Language Models (LLMs), reconstructing cross-page tables into HTML and formulas into LaTeX.\n\nTable 1: Parsing capabilities comparison.   \n\n<table><tr><td>Challenge</td><td>StandardOCR</td><td>Atomic Lab(MinerU)</td></tr><tr><td>Math Formulas</td><td>Garbledcharacters</td><td>100% LaTeXrecovery</td></tr><tr><td>Layouts</td><td>Reading or-oder errors</td><td>Logical blockanalysis</td></tr><tr><td>Citations</td><td>Ignored superscripts</td><td>Exact coordi-nate mapping</td></tr></table>\n\n# 2.2 Hybrid Retrieval & RRF Fusion\n\nTo balance retrieval precision (finding specific terms) and breadth (understanding context), Atomic Lab utilizes a Hybrid Retrieval architecture. We combine dense semantic vectors (FAISS HNSW) with sparse lexical search (BM25).\n\nTo fuse these ranking systems equitably, we apply the Reciprocal Rank Fusion (RRF) algorithm. For a document $d$ in a set of rank lists $R$ , the score is calculated as:\n\n$$\nR R F (d) = \\sum_ {r \\in R} \\frac {1}{k + r (d)} \\tag {1}\n$$\n\nwhere $k = 6 0$ acts as a smoothing constant. This ensures that only knowledge atoms ranking high across multiple strategies are presented to the user.\n\n# 2.3 GraphRAG & 1-Hop Expansion\n\nKnowledge in Atomic Lab is not flat. Atoms are stored in a dual-track architecture. When a user queries a concept, the system retrieves direct matches and performs a ”1-hop expansion” along the knowledge graph (e.g., following shared tags or citation links) to uncover hidden academic causality.\n\n# 3 The Agentic RAG Workflow\n\nThe chat interface of Atomic Lab is not a simple Q&A bot; it simulates a multi-agent ”virtual research group” meeting:\n\n• Seeker: Executes multi-source retrieval, pulling evidence from document vectors, note cards, and external fallback APIs (e.g., arXiv).   \n• Reviewer: Critically evaluates the retrieved context. If the evidence is insufficient, it rewrites the query and triggers a secondary search.   \n• Synthesizer: Generates the final, logically coherent response, embedding precise, verifiable citations.\n\n# 4 Conclusion\n\nBy integrating deep document parsing, GraphRAG, and Agentic workflows, Atomic Lab provides a seamless Read-Organize-Write loop. We invite you to explore the system by highlighting texts, asking questions, and generating your own verifiable academic insights.",
+        "content": "# Atomic Lab: A Technical Whitepaper on Agentic RAG and Atomic Knowledge Workflows\n\nInterstellar Office Team Product R&D Division\n\nMarch 14, 2026\n\n# Abstract\n\nWelcome to Atomic Lab. This document serves as both a technical whitepaper and an interactive demo file for our system. The exponential growth of scientific literature presents a dual crisis: the fragmentation of reading inspirations and the difficulty of tracing citations during writing. Atomic Lab solves this by deconstructing literature into ”Atomic Knowledge” and leveraging an Agentic RAG (Retrieval-Augmented Generation) architecture. This manual outlines our core technical implementations.\n\n# 1 Introduction to Atomic Knowledge\n\nTraditional document-centric reading models trap knowledge within isolated PDFs. We advocate for ”Knowledge Atomization.” Every core argument, experimental result, or methodology is extracted as a semantically self-consistent ”Atomic Card.”\n\nBy passing extracted text through our Crusher Agent, non-structured text is automatically categorized into seven domains (Method, Formula, Image, Definition, Viewpoint, Data, Other) and tagged with AIgenerated keywords.\n\n# 2 Core Technologies\n\n# 2.1 Multi-modal Deep Parsing\n\nAcademic literature parsing is notoriously difficult due to dual-column layouts and complex mathematical embeddings. Atomic Lab integrates the advanced MinerU parsing engine.\n\n![](/file=D:\\Coding\\agent\\AI_Hackathon\\.cache\\parsed_docs\\DOC-64656D6F\\images\\d531b7bf9cc53f8a2137051f5c1fe7f26f6fd5f453c0f8969ff447b76715fe34.jpg)  \nFigure 1: Atomic Lab\n\nAs demonstrated in Table 1, this approach guarantees the purity of the data fed into our Large Language Models (LLMs), reconstructing cross-page tables into HTML and formulas into LaTeX.\n\nTable 1: Parsing capabilities comparison.   \n\n<table><tr><td>Challenge</td><td>StandardOCR</td><td>Atomic Lab(MinerU)</td></tr><tr><td>Math Formulas</td><td>Garbledcharacters</td><td>100% LaTeXrecovery</td></tr><tr><td>Layouts</td><td>Reading or-oder errors</td><td>Logical blockanalysis</td></tr><tr><td>Citations</td><td>Ignored superscripts</td><td>Exact coordi-nate mapping</td></tr></table>\n\n# 2.2 Hybrid Retrieval & RRF Fusion\n\nTo balance retrieval precision (finding specific terms) and breadth (understanding context), Atomic Lab utilizes a Hybrid Retrieval architecture. We combine dense semantic vectors (FAISS HNSW) with sparse lexical search (BM25).\n\nTo fuse these ranking systems equitably, we apply the Reciprocal Rank Fusion (RRF) algorithm. For a document $d$ in a set of rank lists $R$ , the score is calculated as:\n\n$$\nR R F (d) = \\sum_ {r \\in R} \\frac {1}{k + r (d)} \\tag {1}\n$$\n\nwhere $k = 6 0$ acts as a smoothing constant. This ensures that only knowledge atoms ranking high across multiple strategies are presented to the user.\n\n# 2.3 GraphRAG & 1-Hop Expansion\n\nKnowledge in Atomic Lab is not flat. Atoms are stored in a dual-track architecture. When a user queries a concept, the system retrieves direct matches and performs a ”1-hop expansion” along the knowledge graph (e.g., following shared tags or citation links) to uncover hidden academic causality.\n\n# 3 The Agentic RAG Workflow\n\nThe chat interface of Atomic Lab is not a simple Q&A bot; it simulates a multi-agent ”virtual research group” meeting:\n\n• Seeker: Executes multi-source retrieval, pulling evidence from document vectors, note cards, and external fallback APIs (e.g., arXiv).   \n• Reviewer: Critically evaluates the retrieved context. If the evidence is insufficient, it rewrites the query and triggers a secondary search.   \n• Synthesizer: Generates the final, logically coherent response, embedding precise, verifiable citations.\n\n# 4 Conclusion\n\nBy integrating deep document parsing, GraphRAG, and Agentic workflows, Atomic Lab provides a seamless Read-Organize-Write loop. We invite you to explore the system by highlighting texts, asking questions, and generating your own verifiable academic insights.",
         "sections": [
           {
             "section_id": "DOC-64656D6F-SEC-000",
@@ -27,12 +27,12 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "该白皮书由星际办公团队研发部发布，系统阐述了原子化知识工作流（Atomic Knowledge Workflows）与代理式检索增强生成（Agentic RAG）的技术架构。文章深入探讨了如何通过将复杂任务分解为原子级操作单元，以显著提升智能体在动态环境中的推理精度与执行可靠性。",
+            "summary": "本文档《Atomic Lab》由星际办公团队产品研发部发布，系统阐述了代理式检索增强生成（Agentic RAG）与原子化知识工作流的架构设计。该研究提出了一种将复杂知识任务分解为独立原子操作的新范式，旨在通过自主智能体协作提升信息处理的精度与效率。",
             "key_points": [
-              "提出原子化知识工作流框架，将复杂认知任务解耦为可独立验证的原子操作序列。",
-              "设计代理式RAG机制，实现多步推理过程中的动态检索与上下文自适应更新。",
-              "通过实验验证表明，该架构在减少幻觉现象及提升长链条任务完成率方面显著优于传统方法。",
-              "构建了标准化的技术接口规范，支持异构大模型在原子化流程中的无缝集成与协同。"
+              "提出了基于原子化分解的复杂知识任务处理框架，以替代传统的线性检索流程。",
+              "设计了多智能体协同机制，实现动态规划、执行与验证闭环的自动化知识工作流。",
+              "论证了该架构在减少幻觉、提升长上下文理解及复杂推理任务中的显著优势。",
+              "提供了从理论模型到工程落地的技术实施路径与性能评估基准。"
             ]
           },
           {
@@ -45,12 +45,12 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章节介绍了Atomic Lab系统，旨在通过解构文献为“原子知识”并利用代理式检索增强生成（Agentic RAG）架构，解决科学文献爆炸带来的灵感碎片化与引文追踪困难问题。该文档兼具技术白皮书与交互式演示文件的双重属性，详细阐述了系统的核心实现方案。",
+            "summary": "本章节介绍了Atomic Lab系统，旨在通过解构文献为“原子知识”并利用代理式检索增强生成（Agentic RAG）架构，解决科学文献爆炸引发的灵感碎片化与引文追踪困难问题。该文档兼具技术白皮书与交互式演示文件的双重属性，详细阐述了系统的核心实现方案。",
             "key_points": [
-              "应对科学文献增长引发的阅读灵感碎片化及写作引文追踪难题",
+              "应对科学文献指数级增长带来的阅读灵感碎片化与写作引文追踪难题",
               "提出将文献解构为“原子知识”的核心方法论",
               "采用基于代理的检索增强生成（Agentic RAG）架构作为技术基础",
-              "文档兼具技术白皮书说明与交互式演示功能"
+              "文档兼具技术白皮书深度与交互式演示功能"
             ]
           },
           {
@@ -63,12 +63,12 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章提出了一种超越传统文档中心阅读模式的“知识原子化”范式，旨在将核心论点、实验结果及方法论提取为语义自洽的独立单元。通过引入Crusher Agent，非结构化文本被自动分类并标记，从而构建出结构化的知识体系。",
+            "summary": "本章提出了一种超越传统文档中心阅读模式的“知识原子的化”（Knowledge Atomization）范式，旨在将核心论点、实验结果及方法论提取为语义自洽的原子卡片。通过引入Crusher Agent，该框架能够自动对非结构化文本进行深度解析与分类，并辅以AI生成的关键词标签，从而实现知识的精细化重组。",
             "key_points": [
-              "批判传统基于PDF的孤立阅读模式，倡导知识原子化策略。",
-              "将核心学术内容（如论点、方法、数据）转化为语义自洽的“原子卡片”。",
-              "利用Crusher Agent实现非结构化文本的自动化处理与七域分类。",
-              "结合AI生成关键词技术，提升知识条目的可检索性与结构化程度。"
+              "批判传统基于PDF的孤立阅读模式，倡导将知识解构为独立的原子单元。",
+              "定义“原子卡片”概念，确保每个核心论证或数据点具备语义自洽性。",
+              "利用Crusher Agent实现非结构化文本的自动化处理与七域分类（方法、公式、图像等）。",
+              "结合AI生成技术为原子化知识添加语义标签，提升检索与关联效率。"
             ]
           },
           {
@@ -88,18 +88,17 @@
             "section_id": "DOC-64656D6F-SEC-004",
             "heading": "2.1 Multi-modal Deep Parsing",
             "level": 1,
-            "content": "Academic literature parsing is notoriously difficult due to dual-column layouts and complex mathematical embeddings. Atomic Lab integrates the advanced MinerU parsing engine.\n\nAs demonstrated in Table 1, this approach guarantees the purity of the data fed into our Large Language Models (LLMs), reconstructing cross-page tables into HTML and formulas into LaTeX.\n\nTable 1: Parsing capabilities comparison.\n\n<table><tr><td>Challenge</td><td>StandardOCR</td><td>Atomic Lab(MinerU)</td></tr><tr><td>Math Formulas</td><td>Garbledcharacters</td><td>100% LaTeXrecovery</td></tr><tr><td>Layouts</td><td>Reading or-oder errors</td><td>Logical blockanalysis</td></tr><tr><td>Citations</td><td>Ignored superscripts</td><td>Exact coordi-nate mapping</td></tr></table>",
-            "word_count": 66,
+            "content": "Academic literature parsing is notoriously difficult due to dual-column layouts and complex mathematical embeddings. Atomic Lab integrates the advanced MinerU parsing engine.\n\n![](/file=D:\\Coding\\agent\\AI_Hackathon\\.cache\\parsed_docs\\DOC-64656D6F\\images\\d531b7bf9cc53f8a2137051f5c1fe7f26f6fd5f453c0f8969ff447b76715fe34.jpg)\n\nFigure 1: Atomic Lab\n\nAs demonstrated in Table 1, this approach guarantees the purity of the data fed into our Large Language Models (LLMs), reconstructing cross-page tables into HTML and formulas into LaTeX.\n\nTable 1: Parsing capabilities comparison.\n\n<table><tr><td>Challenge</td><td>StandardOCR</td><td>Atomic Lab(MinerU)</td></tr><tr><td>Math Formulas</td><td>Garbledcharacters</td><td>100% LaTeXrecovery</td></tr><tr><td>Layouts</td><td>Reading or-oder errors</td><td>Logical blockanalysis</td></tr><tr><td>Citations</td><td>Ignored superscripts</td><td>Exact coordi-nate mapping</td></tr></table>",
+            "word_count": 71,
             "page_start": 0,
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "该章节介绍了Atomic Lab系统采用先进的MinerU解析引擎，以解决学术文献中双栏布局和复杂数学公式嵌入带来的解析难题。通过逻辑块分析与精确坐标映射，该方法能够重建跨页表格为HTML格式并将公式转换为LaTeX，从而确保输入大语言模型的数据纯净度。",
+            "summary": "该章节阐述了Atomic Lab利用先进的MinerU解析引擎，有效解决了学术文献中双栏布局与复杂数学公式嵌入带来的解析难题。通过重构跨页表格为HTML格式并将公式转换为LaTeX，该方法确保了输入大语言模型的数据纯度与结构完整性。",
             "key_points": [
-              "集成MinerU引擎有效克服了双栏布局与复杂数学公式的解析障碍",
-              "实现100%的LaTeX公式恢复及跨页表格的HTML重构",
-              "采用逻辑块分析替代传统OCR，消除阅读顺序错误",
-              "通过精确坐标映射保留引用上标等关键元数据"
+              "采用MinerU引擎克服双栏布局及复杂数学公式的解析挑战",
+              "实现100%的LaTeX公式恢复，避免标准OCR导致的乱码问题",
+              "通过逻辑块分析解决阅读顺序错误，并精确映射引用坐标"
             ]
           },
           {
@@ -112,12 +111,12 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "Atomic Lab 采用混合检索架构，通过结合稠密语义向量（FAISS HNSW）与稀疏词汇搜索（BM25）来平衡检索的精确度与上下文广度。系统利用倒数排名融合（RRF）算法对多路召回结果进行公平融合，公式中平滑常数 k 设为 60，以确保仅向用户呈现在多种策略下均排名靠前的知识原子。",
+            "summary": "Atomic Lab 采用混合检索架构，通过结合稠密语义向量（FAISS HNSW）与稀疏词汇搜索（BM25），在检索精度与上下文广度之间取得平衡。该架构利用倒数排名融合（RRF）算法对多路排序结果进行公平整合，公式中设定平滑常数 k=60 以优化评分计算。最终机制确保仅向用户呈现在多种策略下均获得高排名的知识原子。",
             "key_points": [
-              "采用混合检索架构以兼顾术语精确性与上下文理解能力",
-              "融合稠密语义向量（FAISS HNSW）与稀疏词汇搜索（BM25）技术",
-              "应用倒数排名融合（RRF）算法实现多路排序结果的公平整合",
-              "设定平滑常数 k=60 以优化最终排名并过滤低质量结果"
+              "采用混合检索架构，融合稠密语义向量与稀疏词汇搜索以平衡精度与广度。",
+              "应用倒数排名融合（RRF）算法实现不同排序系统的公平整合。",
+              "设定平滑常数 k=60 用于 RRF 评分计算，优化排名稳定性。",
+              "筛选机制优先展示在多路策略中均表现优异的知识原子。"
             ]
           },
           {
@@ -130,12 +129,12 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "该章节阐述了Atomic Lab中知识的双轨存储架构，强调其非扁平化的特性。系统通过检索直接匹配项并结合知识图谱的“一跳扩展”机制，有效挖掘潜在的学术因果关系。这种策略利用共享标签或引用链接等路径，显著提升了概念查询的深度与广度。",
+            "summary": "该章节阐述了Atomic Lab中知识的双轨存储架构，强调其非扁平化的特性。系统通过检索直接匹配项并结合知识图谱的“一跳扩展”机制（如共享标签或引用链接），有效挖掘潜在的学术因果关系。",
             "key_points": [
-              "采用双轨存储架构以管理非扁平化的原子知识库",
-              "实施基于知识图谱的“一跳扩展”策略以增强检索能力",
-              "利用共享标签和引用链接揭示隐藏的学术因果关系",
-              "结合直接匹配与关联扩展优化用户查询体验"
+              "采用双轨架构存储原子化知识，打破传统扁平结构",
+              "查询过程包含直接匹配与知识图谱的一跳扩展两个阶段",
+              "利用共享标签和引用链接等关系进行路径遍历",
+              "旨在揭示用户查询背后隐藏的学术因果逻辑"
             ]
           },
           {
@@ -148,12 +147,12 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章阐述了Atomic Lab中基于多智能体协作的RAG工作流，该机制模拟虚拟研究组的会议模式以超越传统问答系统。通过引入搜索者、审查者和综合者三个角色，系统实现了从多源证据检索、上下文批判性评估到生成可验证回答的闭环流程。",
+            "summary": "本章阐述了Atomic Lab中基于多智能体协作的代理式RAG工作流，该机制模拟虚拟研究组的会议模式以增强检索与生成的质量。通过引入搜索者、审查者和合成者三个角色，系统实现了从多源证据获取、上下文批判性评估到最终逻辑连贯且可验证回答生成的全流程自动化。",
             "key_points": [
-              "构建模拟虚拟研究组的多智能体协作架构，替代单一问答模式。",
+              "构建模拟虚拟研究组的多智能体协作架构，超越传统问答机器人功能。",
               "搜索者（Seeker）负责执行跨文档向量、笔记卡及外部API的多源检索。",
-              "审查者（Reviewer）对证据进行批判性评估，并在不足时重写查询触发二次搜索。",
-              "综合者（Synthesizer）生成逻辑连贯的最终响应并嵌入精确的可验证引用。"
+              "审查者（Reviewer）对检索结果进行批判性评估，并在证据不足时重写查询触发二次搜索。",
+              "合成者（Synthesizer）生成逻辑严密且包含精确可验证引用的最终响应。"
             ]
           },
           {
@@ -166,12 +165,12 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章总结了Atomic Lab系统通过整合深度文档解析、GraphRAG及智能体工作流，成功构建了无缝的‘阅读-组织-写作’闭环。该系统旨在赋能用户通过高亮文本、提问交互及生成可验证学术见解等方式，深入探索其功能与应用潜力。",
+            "summary": "本章总结了Atomic Lab系统通过整合深度文档解析、GraphRAG及智能体工作流，成功构建了无缝的‘阅读-组织-写作’闭环。该系统旨在赋能用户通过高亮文本、提问交互及生成可验证学术见解，实现高效的学术研究流程。",
             "key_points": [
               "集成深度文档解析、GraphRAG与智能体工作流三大核心技术",
-              "构建了高效的‘阅读-组织-写作’（Read-Organize-Write）学术工作闭环",
-              "支持用户通过文本高亮与问答交互进行深度内容探索",
-              "具备生成可验证学术见解的能力"
+              "构建并实现了‘阅读-组织-写作’的无缝学术工作闭环",
+              "支持用户通过文本高亮与问答交互进行知识探索",
+              "致力于生成可验证且高质量的学术洞察"
             ]
           }
         ],
@@ -185,7 +184,7 @@
           "keywords": []
         },
         "parse_confidence": 0.95,
-        "parse_time": "2026-03-14T03:29:26.511318"
+        "parse_time": "2026-03-14T04:28:26.915602"
       }
     }
   },
