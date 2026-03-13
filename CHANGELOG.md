@@ -1,5 +1,31 @@
 # 更新日志
 
+### 2026-03-14 (readme-structure-env)
+
+#### 📝 文档
+
+- **README**：核心功能按四 Tab（阅读 / 整理 / 写作 / AI 助手）重写；阅读模式表更新为五种（文档结构、去掉分块数据库）；密码保护相关描述与环境变量已去除；环境变量表增加 MinerU 相关（`MINERU_API_KEY`、`MINERU_API_BASE`、`MINERU_API_ENDPOINT`、`MINERU_PARSE_METHOD`）；项目结构更新（core/utils 内联、parser/mineru_cloud_parser、tabs 与 scripts 描述）；Multi-Agent 架构改为「整理/写作侧」与「AI 助手 RAG 流水线」四阶段分块表述。
+
+---
+
+### 2026-03-14 (zen-color-mineru-inline)
+
+#### 🔧 改进
+
+- **Zen 模式**：改为仅颜色区分，不再改变布局尺寸。开启后外圈（`.gradio-container`）变灰（`#e2e8f0`），写作区保持白底卡片并带圆角/阴影，便于专注写作。
+- **新上传文档图片**：MinerU Markdown 视图在展示时对 `](/file=...)` 做 Base64 内联（与 Demo 策略一致），新上传文档的图片在任意环境均可正常显示。内联逻辑抽到 `core.utils.inline_images_in_markdown`，供 Demo 脚本与阅读区共用；`_get_mineru_raw_markdown` 在存在 `cache_dir` 时自动内联。
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `ui/styles.py` | Zen 模式仅设外圈灰底与写作区卡片样式，移除全屏 min-height |
+| `core/utils.py` | 新增 `inline_images_in_markdown`、`image_path_to_base64_data_url` |
+| `tabs/read/__init__.py` | `_get_mineru_raw_markdown` 展示时调用内联，新上传文档图片可加载 |
+| `scripts/generate_demo_mock.py` | 改为从 `core.utils` 引入 `inline_images_in_markdown` |
+
+---
+
 ### 2026-03-14 (read-simplify-rag-refs-write-zen)
 
 #### 🔧 改进
@@ -16,7 +42,7 @@
 
 **3. 写作 Tab**
 
-- **Zen 模式全屏**：开启 Zen 后为写作区右侧列添加 `#write-right-col` 全屏样式（`min-height: calc(100vh - 140px)`，写作区 textarea 同步拉高），并通过全局 JS 在勾选/取消时为 `body` 切换 `write-zen-mode` class。
+- **Zen 模式**：开启后隐藏左侧栏，外圈变灰、写作区保持卡片样式（后改为仅颜色区分，见 `zen-color-mineru-inline`）。
 - **一键语病/润色**：新增「语病/润色」按钮与 `handle_polish(draft_text)`，对写作区全文做语病检查与润色后写回草稿框。
 
 #### 📝 代码变更
@@ -27,7 +53,7 @@
 | `tabs/chat/__init__.py` | 合成前预渲染 refs_ui/citation_html，流式循环中传入 _yield，避免引用区被清空 |
 | `tabs/write/__init__.py` | 新增 handle_polish、polish_btn；写作区列 elem_id=write-right-col |
 | `ui/global_js.py` | Zen 勾选时 body 增加 write-zen-mode class |
-| `ui/styles.py` | body.write-zen-mode 下 #write-right-col 全屏样式 |
+| `ui/styles.py` | body.write-zen-mode 下 #write-right-col 样式（后改为仅颜色） |
 | `main.py` | polish_btn.click → handle_polish，更新 draft_text |
 
 ---
