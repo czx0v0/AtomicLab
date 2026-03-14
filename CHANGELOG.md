@@ -1,5 +1,23 @@
 # 更新日志
 
+### 2026-03-14 (ref-context-bridge-and-refresh)
+
+#### 🔧 修复
+
+**引用来源面板与点击跳转**
+
+- **上下文同步**：在 Synthesizer 开始生成前（多路召回完成后）即从 `retrieval.chunks` 构建 `citation_items`（pid、page、label）并渲染 `refs_ui`，保证 [1] 与列表第 1 项一致；Phase 3「评估完成，准备合成答案...」的 yield 即传入 `refs_ui`，避免中间步骤用空字符串覆盖。
+- **强制刷新**：流式结束后对同一 5 元组（history、status、citation_bar、current_references_ui）再 yield 一次，解决 Gradio 6.2 异步下「当前回答引用来源」仍显示「暂无引用来源」的问题。
+- **点击跳转**：引用卡片已带 `onclick="jumpToSource(pid, page)"`，与全局 `jumpToSource` 一致，点击后切到阅读 Tab 并定位 PDF 页码，无需额外 Python 绑定。
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `tabs/chat/__init__.py` | 检索后即构建 citation_items/refs_ui；Phase 3 yield 传入 refs_ui；RAG 上下文循环不再重复 append citation_items；结束双 yield 强制刷新引用面板 |
+
+---
+
 ### 2026-03-14 (ultimate-sprint-graph-rag)
 
 #### 🚀 新功能

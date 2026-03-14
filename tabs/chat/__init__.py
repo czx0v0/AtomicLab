@@ -702,6 +702,23 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
     t = _yield(chat_history, "多路召回完成")
     yield t[0], t[1], t[2], t[3], t[4]
 
+    # ── 引用上下文同步：在 Synthesizer 开始前即构建 citation_items / refs_ui，保证 [1] 与列表一致 ──
+    if retrieval and retrieval.chunks:
+        for idx, chunk in enumerate(retrieval.chunks):
+            ref_label = str(idx + 1) if idx < 5 else f"G{idx - 4}"
+            title = getattr(chunk.metadata, "doc_title", "") or "未知文献"
+            page = getattr(chunk, "page_number", None) or 1
+            if page is None:
+                page = 1
+            pid = getattr(chunk, "doc_id", "") or ""
+            if pid:
+                citation_items.append({
+                    "pid": pid,
+                    "page": page,
+                    "label": f"引用 [{ref_label}]: {title} p.{page}",
+                })
+    refs_ui = _render_references_ui(citation_items, arxiv_refs)
+
     # ── Phase 3: Reviewer 评估 ──
     if is_skip or not (retrieval and retrieval.chunks) and not arxiv_refs:
         score = 0
@@ -712,10 +729,10 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
         eval_msg = "质量评估: %d/100，上下文充足，已过滤低质片段，交由合成器。" % score
     reviewer_eval = format_agent_msg("REVIEWER_BOT", "⚖️", eval_msg)
     _set_bot_reply(reviewer_plan + seeker_text + reviewer_eval)
-    t = _yield(chat_history, "评估完成，准备合成答案...")
+    t = _yield(chat_history, "评估完成，准备合成答案...", refs_ui=refs_ui)
     yield t[0], t[1], t[2], t[3], t[4]
 
-    # 构造 RAG 上下文与引用元数据（前 5 为向量 [1]-[5]，之后为图谱 [G1]-[Gk]）
+    # 构造 RAG 上下文（citation_items 已在检索后构建，此处仅 parts / internal_refs）
     rag_context = ""
     internal_refs: list[str] = []
     if retrieval and retrieval.chunks:
@@ -728,13 +745,6 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
                 page = 1
             preview = (chunk.content or "").strip()
             parts.append(f"[{ref_label}] {title} p.{page}\n{preview}")
-            pid = getattr(chunk, "doc_id", "") or ""
-            if pid:
-                citation_items.append({
-                    "pid": pid,
-                    "page": page,
-                    "label": f"引用 [{ref_label}]: {title} p.{page}",
-                })
             internal_refs.append(f"[{ref_label}] {title} p.{page}")
         rag_context = "\n\n".join(parts)
 
@@ -802,9 +812,18 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
             time.sleep(0.05)
 
         _set_bot_reply(base_text + answer_full)
-        yield _chat_history_to_messages(chat_history), "", _build_status(
-            "complete", "多智能体合成完成", len(retrieval.chunks) if retrieval else 0
-        ), citation_html, refs_ui
+        final_tuple = (
+            _chat_history_to_messages(chat_history),
+            "",
+            _build_status(
+                "complete", "多智能体合成完成", len(retrieval.chunks) if retrieval else 0
+            ),
+            citation_html,
+            refs_ui,
+        )
+        yield final_tuple
+        # 强制刷新引用面板：Gradio 6.2 异步下再 yield 一次，确保 current_references_ui 状态一致
+        yield final_tuple
     except Exception as e:
         error_msg = format_agent_msg(
             "SYNTHESIZER_BOT", "🧠", f"合成答案时发生错误：{e}"
