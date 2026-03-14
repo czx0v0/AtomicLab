@@ -1908,7 +1908,7 @@ def build_read_tab():
             view_mode = gr.Radio(
                 choices=[
                     "PDF高亮",
-                    "文本高亮（移动端适配）",
+                    "文本高亮",
                     "PDF原版",
                     "文档结构",
                     "MinerU Markdown",

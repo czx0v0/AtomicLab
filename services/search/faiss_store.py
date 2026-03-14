@@ -94,7 +94,12 @@ class FAISSVectorStore:
                 if len(chunk.embedding) == self.dimension:
                     embeddings.append(chunk.embedding)
                     valid_chunks.append(chunk)
-                    self.metadata_store[chunk.chunk_id] = chunk.metadata.to_dict()
+                    # 保存完整元数据供恢复与引用摘要：含 content / doc_id / chunk_type
+                    meta = dict(chunk.metadata.to_dict())
+                    meta["doc_id"] = getattr(chunk, "doc_id", "")
+                    meta["content"] = getattr(chunk, "content", "") or ""
+                    meta["chunk_type"] = getattr(chunk, "chunk_type", "paragraph")
+                    self.metadata_store[chunk.chunk_id] = meta
                 else:
                     print(f"警告: chunk {chunk.chunk_id} 维度不匹配,跳过")
 
