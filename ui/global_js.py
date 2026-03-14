@@ -109,15 +109,19 @@ GLOBAL_JS = r"""
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // Organize Tab: Tree Expand/Collapse
+  // Organize Tab / 写作 Tab 知识树: 展开/折叠（用兄弟节点定位，避免多 Tab 同 ID 冲突）
   // ═══════════════════════════════════════════════════════════════
   window.toggleOrgTree = function(rowEl, targetId) {
-    var content = document.getElementById(targetId);
+    // 优先用「当前行的下一个兄弟」作为内容块，保证写作 Tab / 整理 Tab 多实例时都正确
+    var content = rowEl.nextElementSibling;
+    if (!content || !content.classList.contains('org-domain-content') && !content.classList.contains('org-doc-content') && !content.classList.contains('org-section-content')) {
+      content = document.getElementById(targetId);
+    }
     if (!content) return;
-    
+
     var toggle = rowEl.querySelector('.org-toggle');
     var isCollapsed = content.style.display === 'none';
-    
+
     if (isCollapsed) {
       content.style.display = 'block';
       if (toggle) toggle.textContent = '▼';
