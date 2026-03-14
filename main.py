@@ -336,6 +336,7 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
             read["upload_f"],
             read["pdf_embed_html"],
             read["mineru_markdown"],
+            read["graphrag_html"],
         ],
     ).then(
         fn=lambda: "<span class='agent-st success'>✅ 已加载虚拟体验数据（官方架构白皮书 Demo）</span>",
@@ -354,6 +355,7 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
             read["pdf_text_html"],
             read["file_list_html"],
             read["notes_html"],
+            read["graphrag_html"],
         ],
     ).then(
         # Sync to organize tab (convert empty to __all__)

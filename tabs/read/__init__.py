@@ -523,6 +523,27 @@ def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> s
     return "<div class='txt-empty'>文档结构视图不可用，请先上传PDF并等待解析完成</div>"
 
 
+def _render_graphrag_html(pid: str) -> str:
+    """根据当前文献 pid 从 RAG 的 parsed_docs 取 edges，渲染 GraphRAG 三元组图。"""
+    if not pid:
+        from ui.echarts_graph import generate_empty_graph_html
+        return generate_empty_graph_html("请先选择文献", height=320)
+    try:
+        from services.rag_service import get_rag_service
+        from core.config import RAG_CONFIG
+        service = get_rag_service(RAG_CONFIG)
+        if not service or not getattr(service, "parsed_docs", None):
+            from ui.echarts_graph import generate_empty_graph_html
+            return generate_empty_graph_html("RAG 服务未就绪", height=320)
+        parsed = service.parsed_docs.get(pid)
+        edges = getattr(parsed, "edges", None) or [] if parsed else []
+        from ui.echarts_graph import generate_graphrag_html
+        return generate_graphrag_html(edges, height=320)
+    except Exception as e:
+        from ui.echarts_graph import generate_empty_graph_html
+        return generate_empty_graph_html(f"加载失败: {str(e)[:30]}", height=320)
+
+
 def _render_mineru_markdown_view(pid: str, lib: dict) -> str:
     """Render MinerU Markdown view.
 
@@ -899,6 +920,43 @@ def handle_upload(files, lib, stats, tree, rag_service=None):
     )
 
 
+def _sync_tree_from_demo_sections(tree, lib: dict, demo_doc_ids: set):
+    """从 mock_library 的 parsed_document.sections 同步知识树（Document + Section + summary），便于加载 Demo 后看到章节摘要。"""
+    if not tree or not getattr(tree, "nodes", None) or not lib:
+        return
+    for doc_id in demo_doc_ids:
+        info = lib.get(doc_id)
+        if not info:
+            continue
+        pd_data = info.get("parsed_document") or {}
+        sections = pd_data.get("sections") or []
+        if not sections:
+            continue
+        doc_name = info.get("name", doc_id)
+        doc_node = tree.find_document_node(doc_id)
+        if not doc_node:
+            domain_node = tree.find_domain_node("Demo")
+            if not domain_node:
+                domain_node = tree.create_domain_node("Demo", doc_id)
+            doc_node = tree.create_document_node(doc_name, doc_id, domain_node.id)
+        for sec in sections:
+            heading = sec.get("heading", "未知章节")
+            if not heading:
+                continue
+            section_node = tree.create_section_node(
+                section_heading=heading,
+                source_pid=doc_id,
+                doc_node_id=doc_node.id,
+                level=int(sec.get("level", 1)),
+                page_start=sec.get("page_start"),
+                page_end=sec.get("page_end"),
+            )
+            if sec.get("summary"):
+                section_node.metadata["summary"] = sec["summary"]
+            if sec.get("key_points"):
+                section_node.metadata["key_points"] = sec["key_points"]
+
+
 def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
     """
     加载静态 Demo 数据（秒开体验）。
@@ -964,6 +1022,7 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
                 gr.update(),  # upload_f
                 embed_upd,
                 mineru_upd,
+                _render_graphrag_html(active_pid or ""),
             )
 
         with open(lib_path, "r", encoding="utf-8") as f:
@@ -1076,6 +1135,12 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
                         for fo_dict in pd_data.get("formulas", []) or []
                     ]
 
+                    raw_edges = pd_data.get("edges") or []
+                    edge_chunk_ids = list(pd_data.get("edge_chunk_ids") or [])
+                    edges = [
+                        (e[0], e[1], e[2]) if isinstance(e, (list, tuple)) and len(e) >= 3 else ("", "", "")
+                        for e in raw_edges
+                    ]
                     parsed_doc = ParsedDocument(
                         doc_id=pd_data.get("doc_id", doc_id),
                         title=pd_data.get(
@@ -1088,8 +1153,13 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
                         formulas=formulas,
                         metadata=metadata,
                         parse_confidence=pd_data.get("parse_confidence", 1.0),
+                        edges=edges,
+                        edge_chunk_ids=edge_chunk_ids,
                     )
                     service.parsed_docs[parsed_doc.doc_id] = parsed_doc
+                # 从 mock_library 的 parsed_document.sections 同步知识树，使「章节摘要」等在整理页可见
+                if tree and demo_lib:
+                    _sync_tree_from_demo_sections(tree, new_lib, demo_doc_ids)
                 # 上下文切换：使分块显示等前端能在内存中找到当前文档
                 if active_pid and active_pid == parsed_doc.doc_id:
                     service.set_active_document(active_pid)
@@ -1102,6 +1172,8 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
                         getattr(tree, "ensure_section_summary_heuristic", lambda _: 0)(
                             node.id
                         )
+            if tree and new_stats is not None:
+                new_stats["nodes"] = len(getattr(tree, "nodes", {}))
         except Exception as e:  # pragma: no cover - demo 辅助逻辑
             print(f"[Demo] 加载 Demo 索引或恢复解析缓存失败: {e}")
 
@@ -1118,6 +1190,7 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
             gr.update(value=None),  # upload_f
             embed_upd,
             mineru_upd,
+            _render_graphrag_html(active_pid or ""),
         )
     except Exception as e:
         print(f"[Demo] 加载 Demo 数据异常: {e}")
@@ -1139,6 +1212,7 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
             gr.update(),
             embed_upd,
             mineru_upd,
+            _render_graphrag_html(""),
         )
 
 
@@ -1206,13 +1280,14 @@ def handle_select_pdf(pid, lib, notes):
         notes: All notes list
 
     Returns:
-        (page, pdf_html, file_list_html, notes_html)
+        (page, pdf_html, file_list_html, notes_html, graphrag_html)
     """
     return (
         1,
         render_pdf_text(pid, lib, 1),
         _render_file_list(lib, pid),
         render_note_cards(notes, filter_pid=pid),
+        _render_graphrag_html(pid or ""),
     )
 
 
@@ -1931,6 +2006,11 @@ def build_read_tab():
                 info="语义:基于embedding相似度切割(精准) | 段落:按空行分块(快速/不调用 embedding 模型)",
                 visible=False,  # 隐藏
             )
+            with gr.Accordion("GraphRAG 知识图谱", open=False):
+                graphrag_html = gr.HTML(
+                    value=_render_graphrag_html(""),
+                    elem_id="read-graphrag-html",
+                )
 
         # ── Center: Reader ──
         with gr.Column(scale=5, min_width=400):
@@ -2018,4 +2098,5 @@ def build_read_tab():
         "jump_request_tb": jump_request_tb,
         "reset_btn": reset_btn,
         "demo_btn": demo_btn,
+        "graphrag_html": graphrag_html,
     }
