@@ -520,9 +520,7 @@ def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> s
         traceback.print_exc()
 
     # 降级提示
-    return (
-        "<div class='txt-empty'>文档结构视图不可用，请先上传PDF并等待解析完成</div>"
-    )
+    return "<div class='txt-empty'>文档结构视图不可用，请先上传PDF并等待解析完成</div>"
 
 
 def _render_mineru_markdown_view(pid: str, lib: dict) -> str:
@@ -950,7 +948,9 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
                 view_mode or "PDF高亮", active_pid, mock_lib, page, []
             )
             if txt_upd.get("visible", False):
-                txt_upd = gr.update(value=render_pdf_text(active_pid, mock_lib, page), visible=True)
+                txt_upd = gr.update(
+                    value=render_pdf_text(active_pid, mock_lib, page), visible=True
+                )
             return (
                 mock_lib,
                 mock_stats,
@@ -1005,7 +1005,11 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
             new_stats["nodes"] = len(tree.nodes)
 
         # 激活文献：优先选中本次追加的 Demo 文档（即 demo_lib 的第一个 key）
-        active_pid = next(iter(demo_lib.keys()), "") if demo_lib else (next(iter(new_lib.keys()), "") if new_lib else "")
+        active_pid = (
+            next(iter(demo_lib.keys()), "")
+            if demo_lib
+            else (next(iter(new_lib.keys()), "") if new_lib else "")
+        )
         page = 1
         file_list_html = _render_file_list(new_lib, active_pid)
         # 按当前 view_mode 全量刷新三块视图（文本/PDF嵌入/分块数据库/MinerU Markdown）
@@ -1013,7 +1017,9 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
             view_mode or "PDF高亮", active_pid, new_lib, page, new_notes
         )
         if txt_upd.get("visible", False):
-            txt_upd = gr.update(value=render_pdf_text(active_pid or None, new_lib, page), visible=True)
+            txt_upd = gr.update(
+                value=render_pdf_text(active_pid or None, new_lib, page), visible=True
+            )
 
         # 尝试让 RAG 服务从 demo_data/faiss_index 目录加载现成索引，
         # 并将 ParsedDocument 恢复到 RAGService 的内存缓存中，避免“索引不在内存中”提示。
@@ -1048,9 +1054,7 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
                         page_count=meta_raw.get("page_count", 0),
                         keywords=meta_raw.get("keywords", []),
                         extra={
-                            "title": info.get(
-                                "name", meta_raw.get("title", doc_id)
-                            ),
+                            "title": info.get("name", meta_raw.get("title", doc_id)),
                             "parser": "mineru_cloud_demo",
                         },
                     )
@@ -1095,7 +1099,9 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
             if tree:
                 for node in list(getattr(tree, "nodes", {}).values()):
                     if getattr(node, "type", None) == "document":
-                        getattr(tree, "ensure_section_summary_heuristic", lambda _: 0)(node.id)
+                        getattr(tree, "ensure_section_summary_heuristic", lambda _: 0)(
+                            node.id
+                        )
         except Exception as e:  # pragma: no cover - demo 辅助逻辑
             print(f"[Demo] 加载 Demo 索引或恢复解析缓存失败: {e}")
 
@@ -1260,7 +1266,11 @@ def handle_mode_switch(mode, pid, lib, page_st, notes=None):
         return (
             gr.update(visible=False),
             gr.update(visible=False),
-            gr.update(value=raw_md or "选择文献后，MinerU Markdown 将在此显示（支持 LaTeX 公式）", visible=True),
+            gr.update(
+                value=raw_md
+                or "选择文献后，MinerU Markdown 将在此显示（支持 LaTeX 公式）",
+                visible=True,
+            ),
         )
     else:
         # 文本模式
@@ -1898,14 +1908,14 @@ def build_read_tab():
             view_mode = gr.Radio(
                 choices=[
                     "PDF高亮",
-                    "文本模式",
+                    "文本高亮（移动端适配）",
                     "PDF原版",
                     "文档结构",
                     "MinerU Markdown",
                 ],
                 value="PDF高亮",  # v2.3: PDF高亮模式为默认
                 label="查看模式",
-                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真 | 文档结构:章节层级 | MinerU:解析原文",
+                info="PDF高亮:保真+高亮+截图 | 文本高亮:可高亮 | PDF原版:保真 | 文档结构:章节层级 | MinerU:解析原文",
             )
             chunk_granularity = gr.Radio(
                 choices=["细", "中", "粗"],

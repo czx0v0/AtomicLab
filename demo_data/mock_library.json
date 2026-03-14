@@ -27,11 +27,11 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章节介绍了基于智能体的RAG（检索增强生成）技术与原子知识工作流的设计与实现，旨在提升知识管理与任务自动化的效率。",
+            "summary": "本文档由Interstellar Office Team产品研发中心于2026年3月14日发布，介绍了Atomic Lab的技术白皮书，重点探讨了基于智能代理的检索增强生成（Agentic RAG）和原子化知识工作流程的设计与实现。",
             "key_points": [
-              "提出了一种基于智能体的RAG架构，支持动态知识检索与生成。",
-              "原子知识工作流被设计为可组合、可扩展的最小任务单元。",
-              "该技术应用于Interstellar Office团队研发的下一代办公自动化系统。"
+              "提出了一种结合智能代理与检索增强生成技术的新型知识处理框架。",
+              "引入‘原子化知识工作流程’概念，以提升知识管理的效率与模块化水平。",
+              "展示了该技术在实际产品研发中的应用潜力与技术优势。"
             ]
           },
           {
@@ -44,12 +44,11 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章节介绍了Atomic Lab系统，旨在应对科学文献快速增长所带来的阅读灵感碎片化和引用追踪困难的双重危机。通过将文献解构为‘原子知识’并采用基于代理的RAG架构，系统提供创新性的解决方案。",
+            "summary": "本文档既是技术白皮书，也是Atomic Lab系统的交互式演示文件。它针对科学文献指数级增长带来的阅读灵感碎片化和写作中引用追踪困难的问题，提出通过将文献解构为‘原子知识’并采用智能代理增强检索生成（Agentic RAG）架构的解决方案。",
             "key_points": [
-              "Atomic Lab既是技术白皮书也是交互式演示文件。",
-              "科学文献的指数增长导致阅读与引用的挑战。",
-              "系统通过‘原子知识’解构文献并采用Agentic RAG架构。",
-              "本手册概述了系统的核心技术实现。"
+              "科学文献快速增长引发阅读与引用管理双重挑战",
+              "Atomic Lab系统基于‘原子知识’概念解构文献内容",
+              "采用Agentic RAG架构实现高效的知识检索与生成"
             ]
           },
           {
@@ -62,11 +61,11 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章节介绍了‘知识原子化’的概念，旨在突破传统以文档为中心的阅读模式，将文献中的核心论点、实验结果或方法提取为语义自洽的‘原子卡片’。",
+            "summary": "本章节介绍了传统以文档为中心的阅读模式在知识组织上的局限性，并提出了“知识原子化”的新方法。通过将核心论点、实验结果和方法提取为语义自洽的‘原子卡片’，并利用 Crusher Agent 对非结构化文本进行分类与标签生成，实现知识的系统化管理。",
             "key_points": [
-              "提出‘知识原子化’方法，以提升知识的可重用性和跨文档整合能力",
-              "开发了Crusher Agent用于自动化处理非结构化文本",
-              "文本被分类为七个领域（方法、公式、图像、定义、观点、数据及其他）并附以AI生成关键词"
+              "传统文档中心模型限制了知识的可访问性和重用性",
+              "提出‘知识原子化’概念，将知识分解为独立的‘原子卡片’",
+              "Crusher Agent 自动将文本分为七个领域并附加AI生成关键词"
             ]
           },
           {
@@ -92,11 +91,11 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本节介绍了Atomic Lab如何通过集成先进的MinerU解析引擎，有效解决因双栏布局和复杂数学公式嵌入导致的学术文献解析难题。该方法能够高质量地将表格和公式分别重建为HTML和LaTeX格式，确保输入大型语言模型的数据纯净性。",
+            "summary": "本章节介绍了Atomic Lab中用于学术文献解析的多模态深度解析方法，重点解决了双栏布局和复杂数学公式的嵌入问题。通过集成先进的MinerU解析引擎，该方法能够确保高质量数据输入到大型语言模型中，并有效重构跨页表格和公式。",
             "key_points": [
-              "Atomic Lab集成了MinerU解析引擎以应对学术文献的复杂布局。",
-              "该方法实现了跨页表格的HTML重建和数学公式的LaTeX还原。",
-              "与标准OCR相比，Atomic Lab在处理数学公式、文档布局和引用标注方面表现更优。"
+              "Atomic Lab利用MinerU解析引擎处理学术文献中的复杂布局和数学公式。",
+              "该方法将跨页表格转换为HTML格式，公式转换为LaTeX格式，保证数据纯度。",
+              "与标准OCR相比，Atomic Lab在数学公式、布局分析和引用处理方面表现出显著优势。"
             ]
           },
           {
@@ -109,11 +108,11 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章节介绍了Atomic Lab采用的混合检索架构，通过结合密集语义向量与稀疏词法搜索，以平衡检索的精确性与广度。为公平融合多种排序机制，该架构应用了倒数排名融合算法。",
+            "summary": "本章节介绍了Atomic Lab采用的混合检索架构，结合了密集语义向量（FAISS HNSW）和稀疏词法搜索（BM25），以平衡检索的精确性和上下文理解能力。为了公平融合不同排序系统的输出结果，采用了互惠排名融合（RRF）算法。",
             "key_points": [
-              "采用Hybrid Retrieval架构以兼顾检索的精确性与上下文理解。",
-              "结合FAISS HNSW的密集语义向量与BM25的稀疏词法搜索技术。",
-              "使用Reciprocal Rank Fusion (RRF)算法融合不同排序结果，公式中平滑常数k设为60。"
+              "混合检索架构结合了密集语义向量与稀疏词法搜索",
+              "使用RRF算法进行多策略排序结果的融合",
+              "RRF公式中引入平滑常数 $k = 60$ 以优化文档得分计算"
             ]
           },
           {
@@ -126,11 +125,11 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本节介绍了Atomic Lab中知识的非扁平化存储结构及其检索机制。系统采用双轨架构存储知识单元，并在用户查询时不仅检索直接匹配结果，还通过知识图谱进行‘1跳扩展’，以揭示潜在的学术因果关系。",
+            "summary": "本章节介绍了GraphRAG与1-Hop扩展机制，用于处理Atomic Lab中非扁平化的知识结构。系统采用双轨架构存储原子知识，并通过1-Hop扩展在知识图谱上进行关联检索，以揭示潜在的学术因果关系。",
             "key_points": [
-              "知识以非扁平化结构存储于双轨架构中",
-              "查询时系统检索直接匹配结果",
-              "采用1-hop扩展沿知识图谱探索潜在关联"
+              "Atomic Lab的知识结构是非扁平化的",
+              "系统采用双轨架构存储原子知识单元",
+              "1-Hop扩展通过知识图谱（如共享标签或引用链接）增强查询结果"
             ]
           },
           {
@@ -143,11 +142,11 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章节介绍了Atomic Lab的智能检索增强生成（Agentic RAG）工作流程，该流程通过模拟多智能体的‘虚拟研究小组’协作机制，实现高效、严谨的信息检索与回答。",
+            "summary": "本章节介绍了Atomic Lab聊天界面中基于代理的RAG（检索增强生成）工作流程，该流程模拟了一个多代理的“虚拟研究小组”会议，通过协作完成信息检索、评估与合成。",
             "key_points": [
-              "Seeker负责从文档向量、笔记卡片及外部API（如arXiv）进行多源检索。",
-              "Reviewer对检索结果进行批判性评估，必要时重写查询并触发二次搜索。",
-              "Synthesizer整合信息，生成逻辑连贯且包含可验证引用的最终回答。"
+              "Seeker代理负责从多种来源（如文档向量、笔记卡和外部API）进行多源检索。",
+              "Reviewer代理对检索到的信息进行批判性评估，并在必要时重新构造查询以触发二次搜索。",
+              "Synthesizer代理整合经过验证的信息，生成逻辑连贯且包含精确引用的最终响应。"
             ]
           },
           {
@@ -160,11 +159,11 @@
             "page_end": 0,
             "parent_id": null,
             "children_ids": [],
-            "summary": "本章节介绍了Atomic Lab如何通过整合深度文档解析、GraphRAG和Agentic工作流，实现从阅读到组织再到写作的无缝闭环。作者鼓励读者通过标注文本、提出问题和生成可验证的学术见解来探索该系统。",
+            "summary": "本章节总结了Atomic Lab系统通过整合深度文档解析、GraphRAG和智能代理工作流，实现了无缝的阅读-整理-写作循环。作者鼓励用户通过高亮文本、提问和生成可验证的学术见解来探索该系统。",
             "key_points": [
-              "Atomic Lab集成了深度文档解析、GraphRAG和Agentic工作流。",
-              "系统实现了高效的Read-Organize-Write闭环。",
-              "用户可通过标注、提问和生成见解来探索系统功能。"
+              "Atomic Lab结合了深度文档解析、GraphRAG和Agentic工作流技术。",
+              "系统支持一个完整的Read-Organize-Write循环流程。",
+              "用户可通过互动方式（如高亮、提问）生成可验证的学术洞察。"
             ]
           }
         ],
@@ -178,112 +177,102 @@
           "keywords": []
         },
         "parse_confidence": 0.95,
-        "parse_time": "2026-03-14T09:21:59.842615",
+        "parse_time": "2026-03-14T16:22:41.155493",
         "edges": [
           [
             "Atomic Lab",
-            "包含",
-            "Agentic RAG 架构"
+            "解决",
+            "碎片化阅读灵感"
           ],
           [
             "Atomic Lab",
             "解决",
-            "科学文献碎片化问题"
+            "引用追踪困难"
           ],
           [
             "Atomic Lab",
-            "解决",
-            "引用追踪困难问题"
+            "采用",
+            "Agentic RAG架构"
           ],
           [
-            "Agentic RAG",
-            "包含",
-            "Retrieval-Augmented Generation"
+            "Agentic RAG架构",
+            "基于",
+            "Atomic Knowledge解构文献"
           ],
           [
-            "Atomic Knowledge",
-            "属于",
-            "文献解构结果"
+            "Traditional document-centric reading models",
+            "trap",
+            "knowledge"
           ],
           [
-            "Transformer",
-            "包含",
-            "自注意力机制"
+            "We",
+            "advocate for",
+            "Knowledge Atomization"
           ],
           [
-            "Atomic Knowledge",
-            "提出",
-            "知识原子化"
+            "Every core argument",
+            "is extracted as",
+            "Atomic Card"
           ],
           [
-            "知识原子化",
-            "目标",
-            "从传统以文档为中心的阅读模型中提取知识"
+            "Every experimental result",
+            "is extracted as",
+            "Atomic Card"
           ],
           [
-            "Atomic Card",
-            "包含",
-            "核心论点"
-          ],
-          [
-            "Atomic Card",
-            "包含",
-            "实验结果"
-          ],
-          [
-            "Atomic Card",
-            "包含",
-            "方法论"
-          ],
-          [
-            "Atomic Card",
-            "特性",
-            "语义自洽"
+            "Every methodology",
+            "is extracted as",
+            "Atomic Card"
           ],
           [
             "Crusher Agent",
-            "提取",
-            "非结构化文本"
+            "处理",
+            "提取的文本"
           ],
           [
             "非结构化文本",
-            "分类为",
-            "方法"
+            "被分类为",
+            "七个领域"
+          ],
+          [
+            "七个领域",
+            "包括",
+            "Method"
+          ],
+          [
+            "七个领域",
+            "包括",
+            "Formula"
+          ],
+          [
+            "七个领域",
+            "包括",
+            "Image"
+          ],
+          [
+            "七个领域",
+            "包括",
+            "Definition"
+          ],
+          [
+            "七个领域",
+            "包括",
+            "Viewpoint"
+          ],
+          [
+            "七个领域",
+            "包括",
+            "Data"
+          ],
+          [
+            "七个领域",
+            "包括",
+            "Other"
           ],
           [
             "非结构化文本",
-            "分类为",
-            "公式"
-          ],
-          [
-            "非结构化文本",
-            "分类为",
-            "图像"
-          ],
-          [
-            "非结构化文本",
-            "分类为",
-            "定义"
-          ],
-          [
-            "非结构化文本",
-            "分类为",
-            "观点"
-          ],
-          [
-            "非结构化文本",
-            "分类为",
-            "数据"
-          ],
-          [
-            "非结构化文本",
-            "分类为",
-            "其他"
-          ],
-          [
-            "Crusher Agent",
-            "标注",
-            "AI生成关键词"
+            "被标记为",
+            "AI生成的关键词"
           ],
           [
             "Academic literature parsing",
@@ -301,178 +290,123 @@
             "MinerU parsing engine"
           ],
           [
-            "MinerU parsing engine",
-            "is",
-            "advanced"
+            "this approach",
+            "guarantees",
+            "the purity of the data"
           ],
           [
-            "Large Language Models",
-            "接收",
-            "纯净数据"
+            "this approach",
+            "reconstructs",
+            "cross-page tables"
           ],
           [
-            "Large Language Models",
-            "接收",
-            "数据"
+            "this approach",
+            "reconstructs",
+            "formulas"
           ],
           [
-            "数据",
-            "被重构为",
-            "HTML"
-          ],
-          [
-            "数据",
-            "被重构为",
-            "LaTeX"
-          ],
-          [
-            "方法",
-            "保证",
-            "数据纯净性"
-          ],
-          [
-            "方法",
-            "重构",
-            "跨页表格"
-          ],
-          [
-            "方法",
-            "重构",
-            "公式"
-          ],
-          [
-            "Math Formulas",
-            "识别结果",
+            "StandardOCR",
+            "导致",
             "Garbled characters"
           ],
           [
-            "Math Formulas",
-            "识别结果",
+            "Atomic Lab(MinerU)",
+            "实现",
             "100% LaTeX recovery"
           ],
           [
-            "Layouts",
-            "识别结果",
+            "StandardOCR",
+            "存在",
             "Reading order errors"
           ],
           [
-            "Layouts",
-            "识别结果",
+            "Atomic Lab(MinerU)",
+            "使用",
             "Logical block analysis"
           ],
           [
-            "Citations",
-            "识别结果",
+            "StandardOCR",
+            "忽略",
             "Ignored superscripts"
           ],
           [
-            "Citations",
-            "识别结果",
+            "Atomic Lab(MinerU)",
+            "提供",
             "Exact coordinate mapping"
           ],
           [
-            "StandardOCR",
-            "评估指标",
-            "Math Formulas"
-          ],
-          [
-            "StandardOCR",
-            "评估指标",
-            "Layouts"
-          ],
-          [
-            "StandardOCR",
-            "评估指标",
-            "Citations"
-          ],
-          [
-            "Atomic Lab(MinerU)",
-            "评估指标",
-            "Math Formulas"
-          ],
-          [
-            "Atomic Lab(MinerU)",
-            "评估指标",
-            "Layouts"
-          ],
-          [
-            "Atomic Lab(MinerU)",
-            "评估指标",
-            "Citations"
+            "Atomic Lab",
+            "utilizes",
+            "Hybrid Retrieval"
           ],
           [
             "Hybrid Retrieval",
-            "使用",
+            "combine",
+            "dense semantic vectors"
+          ],
+          [
+            "Hybrid Retrieval",
+            "combine",
+            "sparse lexical search"
+          ],
+          [
+            "dense semantic vectors",
+            "use",
             "FAISS HNSW"
           ],
           [
-            "Hybrid Retrieval",
-            "使用",
+            "sparse lexical search",
+            "use",
             "BM25"
           ],
           [
-            "FAISS HNSW",
-            "属于",
-            "稠密语义向量"
-          ],
-          [
-            "BM25",
-            "属于",
-            "稀疏词法搜索"
-          ],
-          [
-            "Hybrid Retrieval",
-            "目标",
-            "平衡检索精度与广度"
-          ],
-          [
-            "Hybrid Retrieval",
-            "目标",
-            "查找特定术语"
-          ],
-          [
-            "Hybrid Retrieval",
-            "目标",
-            "理解上下文"
+            "Transformer",
+            "包含",
+            "自注意力机制"
           ],
           [
             "Reciprocal Rank Fusion",
-            "应用于",
-            "排名系统融合"
+            "应用",
+            "ranking systems"
           ],
           [
-            "RRF",
+            "RRF (d)",
             "计算",
-            "文档得分"
+            "score"
           ],
           [
-            "文档",
-            "属于",
-            "排名列表集合"
+            "score",
+            "由公式计算",
+            "$\\sum_ {r \\in R} \\frac {1}{k + r (d)}$"
           ],
           [
-            "公式1",
-            "表示",
-            "RRF计算方法"
-          ],
-          [
-            "Atomic Lab",
-            "包含",
-            "知识原子"
-          ],
-          [
-            "Atomic Lab",
+            "GraphRAG",
             "使用",
-            "双轨架构"
+            "1-Hop Expansion"
+          ],
+          [
+            "Atomic Lab",
+            "存储",
+            "atoms"
+          ],
+          [
+            "1-Hop Expansion",
+            "发现",
+            "隐藏的学术因果关系"
+          ],
+          [
+            "系统",
+            "检索",
+            "直接匹配"
           ],
           [
             "系统",
             "执行",
-            "1-hop扩展"
+            "1-hop expansion"
           ],
           [
-            "1-hop扩展",
-            "基于",
+            "1-Hop Expansion",
+            "沿着",
             "知识图谱"
           ],
           [
@@ -486,207 +420,252 @@
             "引用链接"
           ],
           [
-            "1-hop扩展",
-            "用于",
-            "发现学术因果关系"
+            "Atomic Lab",
+            "包含",
+            "chat interface"
           ],
           [
-            "Atomic Lab",
+            "chat interface",
+            "不是",
+            "Q&A bot"
+          ],
+          [
+            "chat interface",
+            "模拟",
+            "virtual research group meeting"
+          ],
+          [
+            "virtual research group meeting",
             "包含",
             "Seeker"
           ],
           [
-            "Atomic Lab",
-            "包含",
-            "Reviewer"
-          ],
-          [
-            "Atomic Lab",
-            "包含",
-            "Synthesizer"
-          ],
-          [
             "Seeker",
             "执行",
-            "多源检索"
+            "multi-source retrieval"
           ],
           [
-            "Seeker",
-            "检索来源",
-            "文档向量"
+            "multi-source retrieval",
+            "拉取",
+            "document vectors"
           ],
           [
-            "Seeker",
-            "检索来源",
-            "笔记卡片"
+            "multi-source retrieval",
+            "拉取",
+            "note cards"
           ],
           [
-            "Seeker",
-            "检索来源",
-            "外部备用API"
+            "multi-source retrieval",
+            "拉取",
+            "external fallback APIs"
           ],
           [
-            "外部备用API",
+            "external fallback APIs",
             "例如",
             "arXiv"
           ],
           [
+            "virtual research group meeting",
+            "包含",
+            "Reviewer"
+          ],
+          [
             "Reviewer",
             "评估",
-            "检索到的上下文"
+            "retrieved context"
           ],
           [
-            "Reviewer",
-            "条件判断",
-            "证据不足"
+            "retrieved context",
+            "被评估",
+            "Reviewer"
           ],
           [
-            "Reviewer",
-            "操作",
-            "重写查询"
-          ],
-          [
-            "Reviewer",
-            "触发",
-            "二次搜索"
-          ],
-          [
-            "Synthesizer",
-            "生成",
-            "最终"
+            "evidence",
+            "不足时",
+            "query 被重写"
           ],
           [
             "Atomic Lab",
             "提供",
-            "Read-Organize-Write循环"
+            "Read-Organize-Write loop"
           ],
           [
-            "Atomic Lab",
+            "Read-Organize-Write loop",
             "集成",
-            "深度文档解析"
+            "deep document parsing"
           ],
           [
-            "Atomic Lab",
+            "Read-Organize-Write loop",
             "集成",
             "GraphRAG"
           ],
           [
-            "Atomic Lab",
+            "Read-Organize-Write loop",
             "集成",
-            "Agentic工作流程"
+            "Agentic workflows"
           ],
           [
-            "基于智能体的RAG技术",
-            "设计与实现",
-            "原子知识工作流"
+            "Atomic Lab",
+            "是",
+            "技术白皮书"
           ],
           [
-            "原子知识工作流",
-            "旨在提升",
-            "知识管理效率"
+            "Atomic Lab",
+            "由",
+            "Interstellar Office Team产品研发中心发布"
           ],
           [
-            "原子知识工作流",
-            "旨在提升",
-            "任务自动化效率"
+            "Atomic Lab",
+            "发布日期",
+            "2026年3月14日"
+          ],
+          [
+            "Atomic Lab",
+            "重点探讨",
+            "Agentic RAG"
+          ],
+          [
+            "Agentic RAG",
+            "全称",
+            "检索增强生成"
+          ],
+          [
+            "Agentic RAG",
+            "基于",
+            "智能代理"
+          ],
+          [
+            "Atomic Lab",
+            "重点探讨",
+            "原子化知识工作流程"
+          ],
+          [
+            "原子化知识工作流程",
+            "包括",
+            "设计"
+          ],
+          [
+            "原子化知识工作流程",
+            "包括",
+            "实现"
+          ],
+          [
+            "本文档",
+            "是",
+            "技术白皮书"
+          ],
+          [
+            "本文档",
+            "是",
+            "交互式演示文件"
           ],
           [
             "Atomic Lab系统",
-            "旨在应对",
-            "科学文献快速增长"
-          ],
-          [
-            "Atomic Lab系统",
-            "解决",
+            "针对",
             "阅读灵感碎片化"
           ],
           [
             "Atomic Lab系统",
-            "解决",
+            "针对",
             "引用追踪困难"
           ],
           [
             "Atomic Lab系统",
+            "提出",
+            "解决方案"
+          ],
+          [
+            "解决方案",
+            "基于",
+            "文献解构为‘原子知识’"
+          ],
+          [
+            "解决方案",
             "采用",
-            "基于代理的RAG架构"
+            "Agentic RAG架构"
           ],
           [
-            "Atomic Lab系统",
-            "提供",
-            "创新性解决方案"
-          ],
-          [
-            "文献",
-            "解构为",
-            "原子知识"
+            "传统以文档为中心的阅读模式",
+            "存在",
+            "局限性"
           ],
           [
             "知识原子化",
             "是",
-            "核心论点"
+            "新方法"
           ],
           [
-            "知识原子化",
-            "是",
-            "实验结果"
-          ],
-          [
-            "知识原子化",
-            "是",
-            "方法"
-          ],
-          [
-            "知识原子化",
-            "突破",
-            "传统以文档为中心的阅读模式"
-          ],
-          [
-            "文献",
-            "包含",
+            "核心论点",
+            "被提取为",
             "原子卡片"
           ],
           [
+            "实验结果",
+            "被提取为",
+            "原子卡片"
+          ],
+          [
+            "方法",
+            "被提取为",
+            "原子卡片"
+          ],
+          [
+            "Crusher Agent",
+            "用于",
+            "分类"
+          ],
+          [
+            "Crusher Agent",
+            "用于",
+            "标签生成"
+          ],
+          [
+            "知识",
+            "实现",
+            "系统化管理"
+          ],
+          [
+            "2.1 Multi-modal Deep Parsing",
+            "介绍了",
+            "Atomic Lab"
+          ],
+          [
             "Atomic Lab",
+            "使用",
+            "多模态深度解析方法"
+          ],
+          [
+            "多模态深度解析方法",
+            "解决了",
+            "双栏布局"
+          ],
+          [
+            "多模态深度解析方法",
+            "解决了",
+            "复杂数学公式的嵌入问题"
+          ],
+          [
+            "多模态深度解析方法",
             "集成",
             "MinerU解析引擎"
           ],
           [
-            "Multi-modal Deep Parsing",
-            "解决",
-            "学术文献解析难题"
-          ],
-          [
             "MinerU解析引擎",
-            "处理",
-            "双栏布局"
-          ],
-          [
-            "MinerU解析引擎",
-            "处理",
-            "复杂数学公式嵌入"
-          ],
-          [
-            "该方法",
-            "重建",
-            "表格为HTML格式"
-          ],
-          [
-            "该方法",
-            "重建",
-            "公式为LaTeX格式"
-          ],
-          [
-            "该方法",
             "确保",
-            "数据纯净性"
+            "高质量数据输入"
           ],
           [
-            "Hybrid Retrieval & RRF Fusion",
-            "介绍",
-            "Atomic Lab"
+            "MinerU解析引擎",
+            "有效重构",
+            "跨页表格"
           ],
           [
-            "Hybrid Retrieval & RRF Fusion",
+            "MinerU解析引擎",
+            "有效重构",
+            "公式"
+          ],
+          [
+            "Atomic Lab",
             "采用",
             "混合检索架构"
           ],
@@ -701,6 +680,16 @@
             "稀疏词法搜索"
           ],
           [
+            "密集语义向量",
+            "使用",
+            "FAISS HNSW"
+          ],
+          [
+            "稀疏词法搜索",
+            "使用",
+            "BM25"
+          ],
+          [
             "混合检索架构",
             "平衡",
             "检索的精确性"
@@ -708,194 +697,181 @@
           [
             "混合检索架构",
             "平衡",
-            "检索的广度"
+            "上下文理解能力"
           ],
           [
-            "混合检索架构",
-            "应用",
-            "倒数排名融合算法"
+            "为了公平融合",
+            "采用",
+            "互惠排名融合算法"
           ],
           [
-            "Atomic Lab",
+            "互惠排名融合",
+            "缩写",
+            "RRF"
+          ],
+          [
+            "GraphRAG",
+            "用于处理",
+            "非扁平化的知识结构"
+          ],
+          [
+            "GraphRAG",
             "采用",
             "双轨架构"
           ],
           [
-            "双轨架构",
-            "存储",
-            "知识单元"
-          ],
-          [
             "系统",
-            "包含",
-            "检索机制"
+            "存储",
+            "原子知识"
           ],
           [
-            "检索机制",
-            "包括",
-            "直接匹配结果"
+            "1-Hop扩展",
+            "进行",
+            "关联检索"
           ],
           [
-            "检索机制",
-            "包括",
-            "1跳扩展"
-          ],
-          [
-            "1跳扩展",
-            "基于",
-            "知识图谱"
-          ],
-          [
-            "1跳扩展",
+            "关联检索",
             "揭示",
             "潜在的学术因果关系"
           ],
           [
-            "3 The Agentic RAG Workflow",
-            "介绍了",
-            "Atomic Lab的智能检索增强生成（Agentic RAG）工作流程"
+            "Atomic Lab聊天界面",
+            "包含",
+            "基于代理的RAG工作流程"
           ],
           [
-            "Atomic Lab的智能检索增强生成（Agentic RAG）工作流程",
-            "通过",
-            "模拟多智能体的‘虚拟研究小组’协作机制"
+            "基于代理的RAG工作流程",
+            "模拟",
+            "多代理的“虚拟研究小组”会议"
           ],
           [
-            "Agentic RAG工作流程",
-            "实现",
-            "高效的信息检索与回答"
+            "多代理的“虚拟研究小组”会议",
+            "完成",
+            "信息检索"
           ],
           [
-            "Agentic RAG工作流程",
-            "实现",
-            "严谨的信息检索与回答"
+            "多代理的“虚拟研究小组”会议",
+            "完成",
+            "评估"
           ],
           [
-            "Atomic Lab",
+            "多代理的“虚拟研究小组”会议",
+            "完成",
+            "合成"
+          ],
+          [
+            "Atomic Lab系统",
             "整合",
             "深度文档解析"
           ],
           [
-            "Atomic Lab",
+            "Atomic Lab系统",
             "整合",
             "GraphRAG"
           ],
           [
-            "Atomic Lab",
+            "Atomic Lab系统",
             "整合",
-            "Agentic工作流"
+            "智能代理工作流"
           ],
           [
-            "Atomic Lab",
+            "Atomic Lab系统",
             "实现",
-            "阅读"
-          ],
-          [
-            "Atomic Lab",
-            "实现",
-            "组织"
-          ],
-          [
-            "Atomic Lab",
-            "实现",
-            "写作"
+            "阅读-整理-写作循环"
           ],
           [
             "作者",
             "鼓励",
-            "标注文本"
+            "用户探索系统"
           ],
           [
-            "作者",
-            "鼓励",
-            "提出问题"
+            "用户",
+            "可以高亮",
+            "文本"
           ],
           [
-            "作者",
-            "鼓励",
-            "生成可验证的学术见解"
+            "用户",
+            "可以进行",
+            "提问"
+          ],
+          [
+            "用户",
+            "可以生成",
+            "学术见解"
           ]
         ],
         "edge_chunk_ids": [
-          "DOC-64656D6F_pcff5d32a",
-          "DOC-64656D6F_pcff5d32a",
-          "DOC-64656D6F_pcff5d32a",
-          "DOC-64656D6F_pcff5d32a",
-          "DOC-64656D6F_pcff5d32a",
-          "DOC-64656D6F_pcff5d32a",
-          "DOC-64656D6F_p1c8f7c1d",
-          "DOC-64656D6F_p1c8f7c1d",
-          "DOC-64656D6F_p1c8f7c1d",
-          "DOC-64656D6F_p1c8f7c1d",
-          "DOC-64656D6F_p1c8f7c1d",
-          "DOC-64656D6F_p1c8f7c1d",
-          "DOC-64656D6F_p45a149d1",
-          "DOC-64656D6F_p45a149d1",
-          "DOC-64656D6F_p45a149d1",
-          "DOC-64656D6F_p45a149d1",
-          "DOC-64656D6F_p45a149d1",
-          "DOC-64656D6F_p45a149d1",
-          "DOC-64656D6F_p45a149d1",
-          "DOC-64656D6F_p45a149d1",
-          "DOC-64656D6F_p45a149d1",
-          "DOC-64656D6F_p67e9ffcf",
-          "DOC-64656D6F_p67e9ffcf",
-          "DOC-64656D6F_p67e9ffcf",
-          "DOC-64656D6F_p67e9ffcf",
-          "DOC-64656D6F_pe87725cc",
-          "DOC-64656D6F_pe87725cc",
-          "DOC-64656D6F_pe87725cc",
-          "DOC-64656D6F_pe87725cc",
-          "DOC-64656D6F_pe87725cc",
-          "DOC-64656D6F_pe87725cc",
-          "DOC-64656D6F_pe87725cc",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_p650a574f",
-          "DOC-64656D6F_pbe641400",
-          "DOC-64656D6F_pbe641400",
-          "DOC-64656D6F_pbe641400",
-          "DOC-64656D6F_pbe641400",
-          "DOC-64656D6F_pbe641400",
-          "DOC-64656D6F_pbe641400",
-          "DOC-64656D6F_pbe641400",
-          "DOC-64656D6F_p3b62a67d",
-          "DOC-64656D6F_p3b62a67d",
-          "DOC-64656D6F_p3b62a67d",
-          "DOC-64656D6F_p3b62a67d",
-          "DOC-64656D6F_p823bc570",
-          "DOC-64656D6F_p823bc570",
-          "DOC-64656D6F_p823bc570",
-          "DOC-64656D6F_p823bc570",
-          "DOC-64656D6F_p823bc570",
-          "DOC-64656D6F_p823bc570",
-          "DOC-64656D6F_p823bc570",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p527a0512",
-          "DOC-64656D6F_p87ddb2e1",
-          "DOC-64656D6F_p87ddb2e1",
-          "DOC-64656D6F_p87ddb2e1",
-          "DOC-64656D6F_p87ddb2e1",
+          "DOC-64656D6F_pe3fbc5de",
+          "DOC-64656D6F_pe3fbc5de",
+          "DOC-64656D6F_pe3fbc5de",
+          "DOC-64656D6F_pe3fbc5de",
+          "DOC-64656D6F_pe1c5485c",
+          "DOC-64656D6F_pe1c5485c",
+          "DOC-64656D6F_pe1c5485c",
+          "DOC-64656D6F_pe1c5485c",
+          "DOC-64656D6F_pe1c5485c",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p8f813ad4",
+          "DOC-64656D6F_p1971001e",
+          "DOC-64656D6F_p1971001e",
+          "DOC-64656D6F_p1971001e",
+          "DOC-64656D6F_p035c6a28",
+          "DOC-64656D6F_p035c6a28",
+          "DOC-64656D6F_p035c6a28",
+          "DOC-64656D6F_p1b34aeef",
+          "DOC-64656D6F_p1b34aeef",
+          "DOC-64656D6F_p1b34aeef",
+          "DOC-64656D6F_p1b34aeef",
+          "DOC-64656D6F_p1b34aeef",
+          "DOC-64656D6F_p1b34aeef",
+          "DOC-64656D6F_pad7c7a43",
+          "DOC-64656D6F_pad7c7a43",
+          "DOC-64656D6F_pad7c7a43",
+          "DOC-64656D6F_pad7c7a43",
+          "DOC-64656D6F_pad7c7a43",
+          "DOC-64656D6F_p045faebf",
+          "DOC-64656D6F_p045faebf",
+          "DOC-64656D6F_p045faebf",
+          "DOC-64656D6F_p045faebf",
+          "DOC-64656D6F_p6fcfa212",
+          "DOC-64656D6F_p6fcfa212",
+          "DOC-64656D6F_p6fcfa212",
+          "DOC-64656D6F_p6fcfa212",
+          "DOC-64656D6F_p6fcfa212",
+          "DOC-64656D6F_p6fcfa212",
+          "DOC-64656D6F_p6fcfa212",
+          "DOC-64656D6F_p6fcfa212",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p3188a5c0",
+          "DOC-64656D6F_p2031ca49",
+          "DOC-64656D6F_p2031ca49",
+          "DOC-64656D6F_p2031ca49",
+          "DOC-64656D6F_p2031ca49",
+          "DOC-64656D6F-SEC-000-SUMMARY",
+          "DOC-64656D6F-SEC-000-SUMMARY",
+          "DOC-64656D6F-SEC-000-SUMMARY",
+          "DOC-64656D6F-SEC-000-SUMMARY",
+          "DOC-64656D6F-SEC-000-SUMMARY",
+          "DOC-64656D6F-SEC-000-SUMMARY",
           "DOC-64656D6F-SEC-000-SUMMARY",
           "DOC-64656D6F-SEC-000-SUMMARY",
           "DOC-64656D6F-SEC-000-SUMMARY",
@@ -905,11 +881,16 @@
           "DOC-64656D6F-SEC-001-SUMMARY",
           "DOC-64656D6F-SEC-001-SUMMARY",
           "DOC-64656D6F-SEC-001-SUMMARY",
+          "DOC-64656D6F-SEC-001-SUMMARY",
           "DOC-64656D6F-SEC-002-SUMMARY",
           "DOC-64656D6F-SEC-002-SUMMARY",
           "DOC-64656D6F-SEC-002-SUMMARY",
           "DOC-64656D6F-SEC-002-SUMMARY",
           "DOC-64656D6F-SEC-002-SUMMARY",
+          "DOC-64656D6F-SEC-002-SUMMARY",
+          "DOC-64656D6F-SEC-002-SUMMARY",
+          "DOC-64656D6F-SEC-002-SUMMARY",
+          "DOC-64656D6F-SEC-004-SUMMARY",
           "DOC-64656D6F-SEC-004-SUMMARY",
           "DOC-64656D6F-SEC-004-SUMMARY",
           "DOC-64656D6F-SEC-004-SUMMARY",
@@ -924,8 +905,8 @@
           "DOC-64656D6F-SEC-005-SUMMARY",
           "DOC-64656D6F-SEC-005-SUMMARY",
           "DOC-64656D6F-SEC-005-SUMMARY",
-          "DOC-64656D6F-SEC-006-SUMMARY",
-          "DOC-64656D6F-SEC-006-SUMMARY",
+          "DOC-64656D6F-SEC-005-SUMMARY",
+          "DOC-64656D6F-SEC-005-SUMMARY",
           "DOC-64656D6F-SEC-006-SUMMARY",
           "DOC-64656D6F-SEC-006-SUMMARY",
           "DOC-64656D6F-SEC-006-SUMMARY",
@@ -935,7 +916,7 @@
           "DOC-64656D6F-SEC-007-SUMMARY",
           "DOC-64656D6F-SEC-007-SUMMARY",
           "DOC-64656D6F-SEC-007-SUMMARY",
-          "DOC-64656D6F-SEC-008-SUMMARY",
+          "DOC-64656D6F-SEC-007-SUMMARY",
           "DOC-64656D6F-SEC-008-SUMMARY",
           "DOC-64656D6F-SEC-008-SUMMARY",
           "DOC-64656D6F-SEC-008-SUMMARY",

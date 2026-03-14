@@ -1306,6 +1306,8 @@ def load_demo_index_from_path(index_dir: str) -> bool:
                     print(f"[RAG] 已加载 Demo BM25 索引: {bm25_path}")
             except Exception as e:
                 print(f"[RAG] Demo BM25 加载跳过: {e}")
+        # 加载完 Demo 后立即把写入路径改回默认，确保后续上传触发的 save() 只写 storage/faiss，不写 demo_data
+        service.vector_store.storage_path = Path(f"{service.config.storage_path}/faiss")
     return ok
 
 
