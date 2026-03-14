@@ -460,11 +460,18 @@ class RAGService:
             # 3. 分块
             chunks = self._chunk_document(parsed)
 
-            # 4. 生成章节摘要（可选），只处理 level==1 的一级标题章节
+            # 4. 生成章节摘要（可选）；标题降级：若全文仅一个一级标题，则将 ## 视作独立 Section
             if self.summarizer and parsed.sections:
-                print("\n生成章节摘要 (仅一级标题)...")
+                h1_count = sum(1 for s in parsed.sections if s.level == 1)
+                use_h2_as_section = h1_count <= 1
+                if use_h2_as_section:
+                    print("\n生成章节摘要 (一级+二级标题，因仅一个一级标题)...")
+                else:
+                    print("\n生成章节摘要 (仅一级标题)...")
                 level1_sections = [
-                    s for s in parsed.sections if s.level == 1 and s.content.strip()
+                    s for s in parsed.sections
+                    if (s.level == 1 or (use_h2_as_section and s.level == 2))
+                    and s.content.strip()
                 ]
                 if level1_sections:
                     sections_data = [
@@ -509,6 +516,9 @@ class RAGService:
                         f"章节摘要生成完成: {len(summaries)} 个章节, "
                         f"新增 {len(summary_chunks)} 个摘要chunks"
                     )
+
+            # 4b. 轻量级图抽取：从 chunk 文本中提取主-谓-宾关系
+            self._extract_relation_edges(parsed, chunks)
 
             # 5. 生成embeddings（含摘要chunk）
             self._generate_embeddings(chunks)
@@ -684,6 +694,44 @@ class RAGService:
             self.bm25_index.add_documents(chunks)
             self.bm25_index.save()
 
+    def _extract_relation_edges(self, parsed: ParsedDocument, chunks: List[TextChunk]):
+        """从 chunk 文本中轻量级抽取主-谓-宾关系，写入 parsed.edges / edge_chunk_ids。"""
+        if not chunks:
+            return
+        try:
+            from agents.base import call_llm
+        except ImportError:
+            return
+        prompt = """从下面这段学术文本中抽取知识关系三元组，格式为：主词 | 谓语 | 宾语。每行一个三元组，仅输出三元组，不要解释。
+例如：Transformer | 包含 | 自注意力机制
+文本：
+"""
+        # 限制处理数量，避免耗时过长
+        max_chunks = min(30, len(chunks))
+        for i, chunk in enumerate(chunks[:max_chunks]):
+            if not (chunk.content and chunk.content.strip()):
+                continue
+            text = (chunk.content or "").strip()[:600]
+            try:
+                out = call_llm(
+                    system_prompt="你是知识图谱抽取器。仅输出「主词|谓语|宾语」形式的三元组，每行一个，无则输出空。",
+                    user_prompt=prompt + text,
+                    temperature=0.1,
+                    max_tokens=150,
+                )
+                for line in (out or "").strip().splitlines():
+                    line = line.strip()
+                    if "|" not in line:
+                        continue
+                    parts = [p.strip() for p in line.split("|", 2)]
+                    if len(parts) >= 3 and parts[0] and parts[1] and parts[2]:
+                        parsed.edges.append((parts[0], parts[1], parts[2]))
+                        parsed.edge_chunk_ids.append(chunk.chunk_id)
+            except Exception:
+                continue
+        if parsed.edges:
+            print(f"图抽取: {len(parsed.edges)} 条边 (来自 {max_chunks} 个chunks)")
+
     def retrieve(
         self,
         query: str,
@@ -744,11 +792,13 @@ class RAGService:
         else:
             search_results = search_results[:top_k]
 
-        # 4. 提取chunks
-        chunks = [r.chunk for r in search_results if r.chunk]
+        # 4. 提取 chunks：第一路向量 Top5，第二路图一度扩展
+        vector_chunks = [r.chunk for r in search_results if r.chunk][:5]
+        graph_chunks = self._graph_expand_chunks(vector_chunks)
+        chunks = vector_chunks + graph_chunks
 
-        # 5. 构建上下文
-        context = self._build_context(chunks)
+        # 5. 构建上下文：区分 [1]-[5] 向量匹配 与 [G1]-[Gk] 图谱扩展
+        context = self._build_context_with_refs(vector_chunks, graph_chunks)
 
         elapsed = (time.time() - start_time) * 1000
 
@@ -759,6 +809,65 @@ class RAGService:
             total_candidates=len(search_results),
             retrieval_time_ms=elapsed,
         )
+
+    def _graph_expand_chunks(self, vector_chunks: List[TextChunk], max_expand: int = 5) -> List[TextChunk]:
+        """基于 edges 一度关联扩展：从向量结果中的 chunk 出发，找到关联的其它 chunk。"""
+        if not vector_chunks or not getattr(self, "parsed_docs", None):
+            return []
+        vector_cids = {c.chunk_id for c in vector_chunks}
+        all_edges = []
+        for parsed in (self.parsed_docs or {}).values():
+            if not getattr(parsed, "edges", None) or not getattr(parsed, "edge_chunk_ids", None):
+                continue
+            for idx, (s, p, o) in enumerate(parsed.edges):
+                cid = parsed.edge_chunk_ids[idx] if idx < len(parsed.edge_chunk_ids) else ""
+                if cid:
+                    all_edges.append((s, p, o, cid))
+        entities_from_vector = set()
+        for s, p, o, cid in all_edges:
+            if cid in vector_cids:
+                entities_from_vector.add(s)
+                entities_from_vector.add(o)
+        related_cids = set()
+        for s, p, o, cid in all_edges:
+            if cid in vector_cids:
+                continue
+            if s in entities_from_vector or o in entities_from_vector:
+                related_cids.add(cid)
+        out = []
+        for cid in list(related_cids)[:max_expand]:
+            if cid in self.chunk_store:
+                out.append(self.chunk_store[cid])
+        return out
+
+    def _build_context_with_refs(
+        self,
+        vector_chunks: List[TextChunk],
+        graph_chunks: List[TextChunk],
+    ) -> str:
+        """构建带 [1]/[G1] 区分的上下文。"""
+        parts = []
+        for i, chunk in enumerate(vector_chunks):
+            source = f"[{i+1}]"
+            if chunk.metadata.doc_title:
+                source += f" {chunk.metadata.doc_title}"
+            if chunk.page_number:
+                source += f" (第{chunk.page_number}页)"
+            if chunk.chunk_type in ("table_semantic", "table_row"):
+                parts.append(f"{source} [表格]\n{chunk.content}")
+            else:
+                parts.append(f"{source}\n{chunk.content}")
+        for i, chunk in enumerate(graph_chunks):
+            source = f"[G{i+1}]"
+            if chunk.metadata.doc_title:
+                source += f" {chunk.metadata.doc_title}"
+            if chunk.page_number:
+                source += f" (第{chunk.page_number}页)"
+            if chunk.chunk_type in ("table_semantic", "table_row"):
+                parts.append(f"{source} [图谱扩展-表格]\n{chunk.content}")
+            else:
+                parts.append(f"{source} [图谱扩展]\n{chunk.content}")
+        return "\n\n---\n\n".join(parts) if parts else ""
 
     def _build_context(self, chunks: List[TextChunk]) -> str:
         """构建LLM上下文"""

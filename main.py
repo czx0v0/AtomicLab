@@ -76,6 +76,7 @@ from tabs.write import (
     handle_download,
     handle_write_search,
     handle_ai_suggest,
+    handle_check_typos,
     handle_polish,
     handle_write_doc_select,
     handle_write_graph_node_click,
@@ -566,6 +567,11 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
         inputs=[wrt["draft_text"], tree_st],
         outputs=[wrt["ai_suggest_out"]],
     )
+    wrt["check_btn"].click(
+        fn=handle_check_typos,
+        inputs=[wrt["draft_text"]],
+        outputs=[wrt["ai_suggest_out"]],
+    )
     wrt["polish_btn"].click(
         fn=handle_polish,
         inputs=[wrt["draft_text"]],
@@ -609,12 +615,12 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
     # 统一使用经典 [[user, bot]] 历史结构，通过 Markdown 模拟多 Agent 组会；引用栏用于跳转 PDF。
     chat["send_btn"].click(
         fn=handle_chat_stream_legacy,
-        inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
+        inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st, read["pdf_selector"]],
         outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"], chat["current_references_ui"]],
     )
     chat["msg_input"].submit(
         fn=handle_chat_stream_legacy,
-        inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
+        inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st, read["pdf_selector"]],
         outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"], chat["current_references_ui"]],
     )
     chat["clear_btn"].click(

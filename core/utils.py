@@ -185,6 +185,15 @@ def inline_images_in_markdown(content: str, base_dir: Path | str) -> str:
             return m.group(0)
         path = (base_dir / path_str).resolve() if not Path(path_str).is_absolute() else Path(path_str)
         data_url = image_path_to_base64_data_url(path)
+        if not data_url and not Path(path_str).is_absolute():
+            for sub in ("images", "figures", "fig", "assets"):
+                path = (base_dir / sub / path_str).resolve()
+                data_url = image_path_to_base64_data_url(path)
+                if data_url:
+                    break
+            if not data_url:
+                path = (base_dir / path_str).resolve()
+                data_url = image_path_to_base64_data_url(path)
         return f"]({data_url})" if data_url else m.group(0)
     content = re.sub(
         r"\]\(([^)]+\.(?:png|jpg|jpeg|gif|webp|svg))\)",

@@ -1,5 +1,51 @@
 # 更新日志
 
+### 2026-03-14 (ultimate-sprint-graph-rag)
+
+#### 🚀 新功能
+
+**1. 轻量级 Graph RAG**
+
+- **数据**：`ParsedDocument` 增加 `edges`（主-谓-宾三元组）与 `edge_chunk_ids`；解析后对前 30 个 chunk 做 LLM 关系抽取并写入文档图。
+- **检索**：第一路向量 Top5，第二路基于 edges 一度关联扩展，合并上下文；引用区分 **[1]-[5]**（向量直接匹配）与 **[G1]-[Gk]**（知识图谱扩展），回答末尾与引用栏同步标注。
+- **标题降级**：若全文仅一个一级标题，则二级标题（##）视作独立 Section 参与摘要生成。
+
+**2. 意图识别与上下文锁定**
+
+- **阅读 Tab 当前文档**：Chat 发送时传入 `read["pdf_selector"]`，将「当前打开的文档」摘要或前 500 字注入 system 上下文，强制优先参考。
+- **翻译摘要**：用户说「翻译摘要」时识别为 TASK_TRANSLATE，直接提取当前文档 Summary/前 500 字调用 Translator 翻译并标注 `[参考本地文献]`。
+- **概念解释 (CONCEPT_EXPLAIN)**：问题含 RAG、知识图谱等学术名词时，要求「本地检索 + 常识」路线，严禁仅回复「未在本地找到」。
+- **引用透明化**：Synthesizer 要求明确标注 `[参考本地文献: 第X页]` 或 `[扩展知识]`。
+
+**3. 写作 Tab 错别字/病句检查**
+
+- 新增「检查」按钮与 `handle_check_typos(draft_text)`，本地正则检测常见错别字与学术病句（的得地、在再、做作、进行了等），结果输出到 AI 建议框。
+
+**4. 图片 Base64 全量**
+
+- `inline_images_in_markdown` 增加相对路径 fallback（`images/`、`figures/`、`fig/`、`assets/`）；`_get_mineru_raw_markdown` 在无 RAG 缓存时从 `lib` 的 `parsed_document.content` / `text` 取内容并做内联，Demo 与展示侧图片统一 Base64，避免云端 404。
+
+#### 🔧 改进
+
+- **Demo 加载**：改为追加策略，不清空当前文献列表，白皮书作为虚拟文档追加并自动选中；移动端「体验 Demo」置于上传组件上方，加载后收起上传并跳转阅读视图。
+- **PDF 高亮**：`ChunkPosition` 支持 `char_offset_start`/`char_offset_end`，bbox 不可用时前端可做 character offset fallback 精准定位。
+- **Zen 模式**：写作区右侧列增加磨砂玻璃（`backdrop-filter: blur(12px)`）与半透明背景。
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `models/parse_result.py` | ParsedDocument 增加 edges、edge_chunk_ids 及 to_dict |
+| `services/rag_service.py` | 标题降级；_extract_relation_edges；retrieve 向量 Top5 + _graph_expand_chunks；_build_context_with_refs |
+| `tabs/chat/__init__.py` | _get_current_doc_content；handle_chat_stream_legacy 增加 active_read_pid、翻译摘要短路、当前文档注入、CONCEPT_EXPLAIN、引用 [1]/[G1] |
+| `tabs/read/__init__.py` | _get_mineru_raw_markdown 从 lib 取内容 + 多 base_dir 内联；Path 导入 |
+| `tabs/write/__init__.py` | handle_check_typos、check_btn |
+| `main.py` | chat 输入增加 read["pdf_selector"]；check_btn 绑定 handle_check_typos |
+| `core/utils.py` | inline_images_in_markdown 相对路径多子目录 fallback |
+| `ui/styles.py` | Zen 模式 #write-right-col 磨砂玻璃样式 |
+
+---
+
 ### 2026-03-14 (readme-structure-env)
 
 #### 📝 文档

@@ -470,9 +470,11 @@ body.write-zen-mode .gradio-container {
   background: #e2e8f0 !important;
 }
 body.write-zen-mode #write-right-col {
-  background: var(--bg-card);
+  background: rgba(255, 255, 255, 0.85);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* ══════════════════════════════════════════════════════════════

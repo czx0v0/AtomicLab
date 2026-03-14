@@ -20,6 +20,7 @@ import os
 import time
 import json
 import gradio as gr
+from pathlib import Path
 
 from core.utils import phash, extract_pdf, read_txt, esc, get_demo_data_path
 from core.state import next_note_id
@@ -638,14 +639,31 @@ def _get_mineru_raw_markdown(pid: str, lib: dict) -> str:
         parsed_doc = None
         if hasattr(rag_service, "get_parsed_document"):
             parsed_doc = rag_service.get_parsed_document(pid)
-        if not parsed_doc or not (parsed_doc.content or "").strip():
+        content = ""
+        if parsed_doc and (parsed_doc.content or "").strip():
+            content = (parsed_doc.content or "").strip()
+        if not content:
+            # Demo / 从 mock 恢复：使用 lib 中已保存的正文或 parsed_document
+            info = lib[pid]
+            pd = info.get("parsed_document") or {}
+            content = (pd.get("content") or info.get("text") or "").strip()
+        if not content:
             return ""
-        content = (parsed_doc.content or "").strip()
-        # 新上传文档：将 ](/file=path) 转为 Base64，避免图片路径失效（与 Demo 策略一致）
-        extra = getattr(parsed_doc.metadata, "extra", None) or {}
-        cache_dir = extra.get("cache_dir", "")
-        if cache_dir:
-            content = inline_images_in_markdown(content, cache_dir)
+        # 新上传文档 / Demo：将图片引用转为 Base64 内联，避免云端 404
+        base_dir = None
+        if parsed_doc:
+            extra = getattr(parsed_doc.metadata, "extra", None) or {}
+            cache_dir = extra.get("cache_dir", "")
+            if cache_dir and Path(cache_dir).is_dir():
+                base_dir = Path(cache_dir)
+        if not base_dir and pid in lib:
+            fp = lib[pid].get("filepath", "")
+            if fp and Path(fp).exists():
+                base_dir = Path(fp).resolve().parent
+        if not base_dir:
+            base_dir = get_demo_data_path()
+        if base_dir:
+            content = inline_images_in_markdown(content, base_dir)
         return content
     except Exception:
         return ""
@@ -957,9 +975,16 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
         else:
             notes_data = []
 
-        new_lib = lib_data.get("lib", lib_data if isinstance(lib_data, dict) else {})
-        new_stats = lib_data.get("stats", stats or {"docs": 0, "notes": 0, "nodes": 0})
-        new_notes = notes_data if isinstance(notes_data, list) else notes
+        demo_lib = lib_data.get("lib", lib_data if isinstance(lib_data, dict) else {})
+        demo_stats = lib_data.get("stats", {"docs": 0, "notes": 0, "nodes": 0})
+        demo_notes = notes_data if isinstance(notes_data, list) else []
+
+        # 追加策略：不清空当前文献列表，将白皮书作为虚拟文档追加并自动选中（避免覆盖冲突）
+        new_lib = dict(lib) if lib else {}
+        for doc_id, info in demo_lib.items():
+            new_lib[doc_id] = dict(info)
+        new_notes = list(notes) if notes else []
+        new_notes.extend(demo_notes)
 
         # 规范化 filepath，避免 mock 数据中残留 Windows 绝对路径在 Linux 环境下失效
         for doc_id, info in new_lib.items():
@@ -973,13 +998,14 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
                 if candidate.exists():
                     info["filepath"] = str(candidate.resolve())
 
-        # 若 stats 中未包含 docs/notes 统计，可基于数据补全
-        if isinstance(new_stats, dict):
-            new_stats.setdefault("docs", len(new_lib))
-            new_stats.setdefault("notes", len(new_notes))
+        new_stats = dict(stats) if stats else {"docs": 0, "notes": 0, "nodes": 0}
+        new_stats["docs"] = len(new_lib)
+        new_stats["notes"] = len(new_notes)
+        if tree and hasattr(tree, "nodes"):
+            new_stats["nodes"] = len(tree.nodes)
 
-        # 选取第一个文献作为当前激活文献
-        active_pid = next(iter(new_lib.keys())) if new_lib else ""
+        # 激活文献：优先选中本次追加的 Demo 文档（即 demo_lib 的第一个 key）
+        active_pid = next(iter(demo_lib.keys()), "") if demo_lib else (next(iter(new_lib.keys()), "") if new_lib else "")
         page = 1
         file_list_html = _render_file_list(new_lib, active_pid)
         # 按当前 view_mode 全量刷新三块视图（文本/PDF嵌入/分块数据库/MinerU Markdown）
@@ -1006,10 +1032,13 @@ def handle_load_demo(lib, stats, notes, tree, rag_service=None, view_mode=None):
             # 加载向量索引
             load_demo_index_from_path(str(demo_dir / "faiss_index"))
 
-            # 恢复 ParsedDocument 到全局 RAG 服务
+            # 恢复 ParsedDocument 到全局 RAG 服务（仅针对本次追加的 Demo 文档，不覆盖已有文档）
             service = rag_service or get_rag_service(RAG_CONFIG)
+            demo_doc_ids = set(demo_lib.keys()) if demo_lib else set()
             if service is not None:
                 for doc_id, info in new_lib.items():
+                    if doc_id not in demo_doc_ids:
+                        continue
                     pd_data = info.get("parsed_document")
                     if not pd_data:
                         continue
@@ -1833,6 +1862,13 @@ def build_read_tab():
     with gr.Row():
         # ── Left: File list ──
         with gr.Column(scale=2, min_width=200):
+            # 移动端优先：Demo 按钮置于上传组件上方，加载后自动选中白皮书
+            demo_btn = gr.Button(
+                "🎁 体验: 加载官方架构白皮书",
+                size="lg",
+                variant="secondary",
+                elem_id="read-demo-btn",
+            )
             with gr.Row():
                 upload_f = gr.File(
                     label="上传文献",
@@ -1840,15 +1876,6 @@ def build_read_tab():
                     file_count="multiple",
                     scale=4,
                 )
-                # Demo 按钮：加载官方架构白皮书的预置体验数据（高且醒目）
-                demo_btn = gr.Button(
-                    "🎁 体验: 加载官方架构白皮书",
-                    scale=2,
-                    size="lg",
-                    variant="secondary",
-                    elem_id="read-demo-btn",
-                )
-                # 重置按钮 - 清空所有状态
                 reset_btn = gr.Button(
                     "🔄 重置", scale=1, size="sm", variant="secondary"
                 )

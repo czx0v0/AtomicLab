@@ -26,7 +26,7 @@ from pathlib import Path
 
 @dataclass
 class ChunkPosition:
-    """Chunk在PDF中的位置信息"""
+    """Chunk在PDF中的位置信息。支持 bbox 与 character_offset 双轨，移动端 bbox 穿透时用 offset fallback。"""
 
     chunk_id: str
     doc_id: str
@@ -36,9 +36,11 @@ class ChunkPosition:
     width: float
     height: float
     text_content: str = ""  # 用于文本匹配验证
+    char_offset_start: int = -1  # 在全文中的字符偏移，用于无 bbox 时 scrollTo 定位
+    char_offset_end: int = -1
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "chunk_id": self.chunk_id,
             "doc_id": self.doc_id,
             "page": self.page,
@@ -47,6 +49,11 @@ class ChunkPosition:
             "width": self.width,
             "height": self.height,
         }
+        if self.char_offset_start >= 0:
+            d["char_offset_start"] = self.char_offset_start
+        if self.char_offset_end >= 0:
+            d["char_offset_end"] = self.char_offset_end
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "ChunkPosition":
@@ -58,6 +65,8 @@ class ChunkPosition:
             y=data.get("y", 0),
             width=data.get("width", 0),
             height=data.get("height", 0),
+            char_offset_start=data.get("char_offset_start", -1),
+            char_offset_end=data.get("char_offset_end", -1),
         )
 
     def contains(self, x: float, y: float) -> bool:
@@ -139,8 +148,16 @@ class CoordinateMapper:
                 else:
                     x, y, w, h = 0, 0, 100, 20
             else:
-                # 无bbox信息，使用估算位置
+                # 无 bbox 时使用估算位置；同时尝试从 metadata 取 character_offset 供前端 fallback
                 x, y, w, h = 50, 50 + len(positions) * 25, 500, 20
+
+            char_start = char_end = -1
+            if hasattr(chunk, "metadata") and chunk.metadata:
+                char_start = getattr(chunk.metadata, "char_offset_start", -1)
+                char_end = getattr(chunk.metadata, "char_offset_end", -1)
+            if isinstance(getattr(chunk, "metadata", None), dict):
+                char_start = chunk.metadata.get("char_offset_start", -1)
+                char_end = chunk.metadata.get("char_offset_end", -1)
 
             pos = ChunkPosition(
                 chunk_id=chunk.chunk_id,
@@ -150,7 +167,9 @@ class CoordinateMapper:
                 y=y,
                 width=w,
                 height=h,
-                text_content=content[:200],  # 保存前200字符用于匹配验证
+                text_content=content[:200],
+                char_offset_start=char_start if isinstance(char_start, int) else -1,
+                char_offset_end=char_end if isinstance(char_end, int) else -1,
             )
 
             positions.append(pos)

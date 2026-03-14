@@ -139,6 +139,9 @@ class ParsedDocument:
     metadata: DocumentMetadata = field(default_factory=DocumentMetadata)
     parse_confidence: float = 1.0  # 解析置信度 0-1
     parse_time: datetime = field(default_factory=datetime.now)
+    # 轻量级 Graph RAG：主-谓-宾三元组；edge_chunk_ids[i] 表示 edges[i] 来自的 chunk_id
+    edges: List[Tuple[str, str, str]] = field(default_factory=list)
+    edge_chunk_ids: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -157,6 +160,8 @@ class ParsedDocument:
             },
             "parse_confidence": self.parse_confidence,
             "parse_time": self.parse_time.isoformat(),
+            "edges": list(self.edges),
+            "edge_chunk_ids": list(self.edge_chunk_ids),
         }
 
     def get_table_by_id(self, table_id: str) -> Optional[ParsedTable]:

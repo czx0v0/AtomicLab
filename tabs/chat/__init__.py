@@ -540,10 +540,28 @@ def handle_chat_stream(message, messages, tree, lib, notes):
         yield messages, "", _build_status("error", "合成失败")
 
 
-def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
+def _get_current_doc_content(active_read_pid: str, lib: dict, tree) -> str:
+    """获取当前打开文档的摘要或前 500 字，用于阅读 Tab 下强制上下文与「翻译摘要」。"""
+    if not active_read_pid or not lib or active_read_pid not in lib:
+        return ""
+    doc = lib[active_read_pid]
+    # 优先：知识树中文档节点的 AI 摘要
+    if tree and hasattr(tree, "find_document_node"):
+        doc_node = tree.find_document_node(active_read_pid)
+        if doc_node and getattr(doc_node, "metadata", None):
+            summary = (doc_node.metadata or {}).get("summary", "")
+            if summary:
+                return summary.strip()
+    # 备选：正文前 500 字
+    text = doc.get("text", "") or ""
+    return (text.strip()[:500] + ("..." if len(text.strip()) > 500 else "")).strip()
+
+
+def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_read_pid=""):
     """
     Agentic RAG 流水线：Reviewer 规划 → Seeker 多路召回 → Reviewer 评估 → Synthesizer 合成。
     经典 [[user, bot]] 历史结构，yield 5 输出：chatbot, msg_input, chat_status, citation_bar, current_references_ui。
+    active_read_pid: 阅读 Tab 当前选中的文档 ID，用于强制注入当前文档上下文与「翻译摘要」。
     """
     from services.rag_service import get_rag_service, optimize_search_query
     from core.config import RAG_CONFIG
@@ -574,6 +592,27 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
 
     def _set_bot_reply(text: str):
         chat_history[-1][1] = text
+
+    # ── 意图：翻译摘要（当前文档 Summary 或前 500 字）──
+    current_doc_content = _get_current_doc_content(active_read_pid or "", lib or {}, tree)
+    if _re.search(r"翻译摘要|摘要翻译", question) and current_doc_content:
+        try:
+            from agents.translator import TranslatorAgent
+            trans_agent = TranslatorAgent()
+            out = trans_agent.execute({"text": current_doc_content}, None)
+            if out.status == "success" and out.data.get("translation"):
+                trans_text = out.data["translation"]
+                doc_name = (lib or {}).get(active_read_pid, {}).get("name", "当前文档")
+                _set_bot_reply(
+                    format_agent_msg("REVIEWER_BOT", "⚖️", "意图: 翻译摘要 | 已提取当前文档内容并翻译")
+                    + format_agent_msg("SEEKER_BOT", "🔍", "未做检索，直接使用当前文档。")
+                    + format_agent_msg("SYNTHESIZER_BOT", "🧠", trans_text + "\n\n---\n[参考本地文献: " + doc_name + "]")
+                )
+                t = _yield(chat_history, "完成", citation_html="", refs_ui="")
+                yield t[0], t[1], t[2], t[3], t[4]
+                return
+        except Exception as e:
+            pass  # 失败则走正常 RAG 流程
 
     # ── Phase 1: Reviewer 规划 ──
     reviewer_plan = format_agent_msg(
@@ -676,32 +715,34 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
     t = _yield(chat_history, "评估完成，准备合成答案...")
     yield t[0], t[1], t[2], t[3], t[4]
 
-    # 构造 RAG 上下文与引用元数据
+    # 构造 RAG 上下文与引用元数据（前 5 为向量 [1]-[5]，之后为图谱 [G1]-[Gk]）
     rag_context = ""
     internal_refs: list[str] = []
     if retrieval and retrieval.chunks:
         parts = []
-        seen_docs: set[str] = set()
-        for idx, chunk in enumerate(retrieval.chunks[:5], start=1):
+        for idx, chunk in enumerate(retrieval.chunks):
+            ref_label = str(idx + 1) if idx < 5 else f"G{idx - 4}"
             title = getattr(chunk.metadata, "doc_title", "") or "未知文献"
             page = getattr(chunk, "page_number", None) or 1
             if page is None:
                 page = 1
             preview = (chunk.content or "").strip()
-            parts.append(f"[{idx}] {title} p.{page}\n{preview}")
+            parts.append(f"[{ref_label}] {title} p.{page}\n{preview}")
             pid = getattr(chunk, "doc_id", "") or ""
             if pid:
                 citation_items.append({
                     "pid": pid,
                     "page": page,
-                    "label": f"引用 {idx}: {title} p.{page}",
+                    "label": f"引用 [{ref_label}]: {title} p.{page}",
                 })
-            if title not in seen_docs:
-                internal_refs.append(f"{idx}. {title} p.{page}")
-                seen_docs.add(title)
+            internal_refs.append(f"[{ref_label}] {title} p.{page}")
         rag_context = "\n\n".join(parts)
 
     full_context = ""
+    # 阅读 Tab 下强制注入当前打开文档，优先参考
+    if current_doc_content:
+        doc_name = (lib or {}).get(active_read_pid, {}).get("name", "当前文档")
+        full_context += f"[当前打开的文档（必须优先参考）] {doc_name}\n{current_doc_content}\n\n"
     if rag_context:
         full_context += f"[本地知识库片段]\n{rag_context}\n\n"
     if arxiv_context:
@@ -709,13 +750,22 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
     if not full_context:
         full_context = "（当前知识库与 ArXiv 检索均未找到高质量上下文，仅能基于一般常识简要回答）"
 
+    is_concept_explain = bool(
+        _re.search(
+            r"RAG|知识图谱|检索增强|向量检索|图检索|原子知识|atomic\s*knowledge",
+            question,
+            _re.I,
+        )
+    )
     system_prompt = """你是一个智能学术助手。请遵循以下回答原则：
 
-如果提供的上下文中包含有用的信息，请优先使用上下文回答，并在句中或句末标注引用，格式如 [Doc_1_Page_5] 或 [ArXiv_1908.123]。
-
-如果上下文为空，或只包含 API 报错/XML 元数据（如 totalResults: 0），不要解释 API 结果或 XML 结构，直接基于常识回答。
-
-如果用户的输入是明确指令（如“翻译”、“总结”、“润色”），请直接执行该任务。"""
+1. 若存在「当前打开的文档」内容，必须优先依据该文档回答。
+2. 引用时请明确标注：[参考本地文献: 第X页] 或 [参考本地文献: 文档名]；若为常识或扩展知识则标注 [扩展知识]。
+3. 如果提供的上下文中包含有用信息，请优先使用并标注来源；上下文为空或仅为 API/XML 时，直接基于常识回答，不要解释 API 结构。
+4. 若用户询问的是概念解释（如 RAG、知识图谱等），必须结合本地检索与常识回答，严禁回复「未在本地找到」；可标注 [参考本地文献: 第X页] 或 [扩展知识]。"""
+    if is_concept_explain:
+        system_prompt += "\n\n当前为概念解释类问题：请规划「本地检索 + 基础常识」路线，严禁仅回复「未在本地找到」。"
+    system_prompt += "\n\n若用户输入为明确指令（如翻译、总结、润色），请直接执行该任务。"
     user_prompt = f"用户问题：{question}\n\n可用上下文：\n{full_context}"
 
     synth_header = "> **🧠 SYNTHESIZER_BOT**\n> \n> "
@@ -731,8 +781,8 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes):
 
         ref_lines: list[str] = []
         if internal_refs:
-            ref_lines.append("本地文献：")
-            ref_lines.extend([f"[{i}] {txt}" for i, txt in enumerate(internal_refs, 1)])
+            ref_lines.append("本地文献（[1]-[5] 向量匹配，[G1] 等为图谱扩展）：")
+            ref_lines.extend(internal_refs)
         if arxiv_refs:
             ref_lines.append("ArXiv 补充：")
             ref_lines.extend([f"[arXiv-{i}] arxiv:{aid}" for i, aid in enumerate(arxiv_refs, 1)])

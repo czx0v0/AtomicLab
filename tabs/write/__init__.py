@@ -322,6 +322,32 @@ def render_search_results(results) -> str:
     return _render_search_results(results, None)
 
 
+def handle_check_typos(draft_text: str) -> str:
+    """简易本地检查：常见错别字与学术病句模式，输出报告到 AI 建议框。"""
+    if not draft_text or not draft_text.strip():
+        return "请先输入一些内容再点击「检查」。\n"
+    import re
+    report = []
+    text = draft_text
+    # 常见错别字/搭配（示例，可扩展）
+    patterns = [
+        (r"的\s*得\s*", "「的得」混用"),
+        (r"地\s*的\s*", "「地/的」混用"),
+        (r"在做", "「在/再」疑似"),
+        (r"作\s*文", "「做/作」疑似"),
+        (r"通过\.\.\.(?:实现|进行)", "「通过…实现/进行」可精简"),
+        (r"进行\s*了\s*", "「进行了」可改为「已」等"),
+        (r"一个\s*非常\s*", "「一个非常」口语化"),
+        (r"(\s)及(\s)", "「及」前后是否并列"),
+    ]
+    for pat, label in patterns:
+        for m in re.finditer(pat, text):
+            report.append(f"· {label}: ...{text[max(0,m.start()-20):m.end()+20]}...")
+    if not report:
+        return "✅ 未发现明显错别字或病句模式；建议仍可结合「语病/润色」做全文优化。\n"
+    return "检查结果（仅供参考）：\n" + "\n".join(report[:15]) + ("\n..." if len(report) > 15 else "")
+
+
 def handle_polish(draft_text: str) -> str:
     """一键语病检查与润色：对写作区全文进行修正并返回润色后的文本。"""
     if not draft_text or not draft_text.strip():
@@ -567,6 +593,7 @@ def build_write_tab():
             )
             with gr.Row():
                 ai_suggest_btn = gr.Button("AI 续写建议", size="sm", scale=1)
+                check_btn = gr.Button("检查", size="sm", scale=1)
                 polish_btn = gr.Button("语病/润色", size="sm", scale=1)
                 download_btn = gr.Button("导出 Markdown", variant="primary", scale=2)
             ai_suggest_out = gr.Textbox(
@@ -591,6 +618,7 @@ def build_write_tab():
         "draft_file": draft_file,
         "download_btn": download_btn,
         "ai_suggest_btn": ai_suggest_btn,
+        "check_btn": check_btn,
         "polish_btn": polish_btn,
         "ai_suggest_out": ai_suggest_out,
     }
