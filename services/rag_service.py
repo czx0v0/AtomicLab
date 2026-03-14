@@ -614,19 +614,38 @@ class RAGService:
         )
 
     def _chunk_document(self, parsed: ParsedDocument) -> List[TextChunk]:
-        """对文档进行分块"""
+        """对文档进行分块。有 sections 且含 page_start 时按章节分块并写入 page_number，避免全为 p.1。"""
         all_chunks = []
 
-        # 1. 文本语义分块
+        # 1. 文本分块（有实质内容的章节时按节分块并写入 page_number，否则全文分块并设 page_number=1）
         if self.chunker and parsed.content:
-            text_chunks = self.chunker.chunk(
-                text=parsed.content,
-                doc_id=parsed.doc_id,
-                doc_title=parsed.title,
-                doc_type="pdf",
-            )
-            all_chunks.extend(text_chunks)
-            print(f"文本分块: {len(text_chunks)} 个chunks")
+            sections_with_page = [
+                s for s in (parsed.sections or [])
+                if getattr(s, "content", None) and len((s.content or "").strip()) > 50
+                and (getattr(s, "page_start", None) or getattr(s, "page_end", None))
+            ]
+            if sections_with_page:
+                for section in sections_with_page:
+                    page_num = getattr(section, "page_start", None) or getattr(section, "page_end", None) or 1
+                    text_chunks = self.chunker.chunk(
+                        text=section.content.strip(),
+                        doc_id=parsed.doc_id,
+                        doc_title=parsed.title,
+                        doc_type="pdf",
+                        page_number=page_num,
+                    )
+                    all_chunks.extend(text_chunks)
+                print(f"文本分块(按章节): {len(sections_with_page)} 节 -> {len(all_chunks)} 个chunks")
+            else:
+                text_chunks = self.chunker.chunk(
+                    text=parsed.content,
+                    doc_id=parsed.doc_id,
+                    doc_title=parsed.title,
+                    doc_type="pdf",
+                    page_number=1,
+                )
+                all_chunks.extend(text_chunks)
+                print(f"文本分块: {len(text_chunks)} 个chunks")
 
         # 2. 表格分块 (双重embedding)
         for table in parsed.tables:

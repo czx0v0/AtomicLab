@@ -87,6 +87,7 @@ from tabs.chat import (
     build_chat_tab,
     handle_chat_send,
     handle_chat_clear,
+    handle_ref_click,
     handle_ai_ask,
     handle_feedback,
     handle_chat_stream,
@@ -616,17 +617,22 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
     chat["send_btn"].click(
         fn=handle_chat_stream_legacy,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st, read["pdf_selector"]],
-        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"], chat["current_references_ui"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"], chat["current_references_ui"], chat["ref_dataframe"], chat["chat_citation_state"]],
     )
     chat["msg_input"].submit(
         fn=handle_chat_stream_legacy,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st, read["pdf_selector"]],
-        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"], chat["current_references_ui"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"], chat["current_references_ui"], chat["ref_dataframe"], chat["chat_citation_state"]],
     )
     chat["clear_btn"].click(
         fn=handle_chat_clear,
         inputs=[],
-        outputs=[chat["chatbot"], chat["msg_input"], chat["citation_bar"], chat["current_references_ui"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"], chat["citation_bar"], chat["current_references_ui"], chat["ref_dataframe"], chat["chat_citation_state"]],
+    )
+    chat["ref_dataframe"].select(
+        fn=handle_ref_click,
+        inputs=[chat["chat_citation_state"]],
+        outputs=[read["jump_request_tb"]],
     )
     # Bridge: "问AI" from reading page popup → auto-send to chat
     chat["ai_ask_input"].change(

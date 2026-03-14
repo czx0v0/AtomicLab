@@ -413,21 +413,25 @@ class SemanticChunker:
         section_name: str = "",
         **kwargs,
     ) -> TextChunk:
-        """创建TextChunk"""
+        """创建TextChunk；kwargs 可传 page_number 以入库正确页码。"""
+        page_num = kwargs.get("page_number")
+        meta = ChunkMetadata(
+            doc_title=doc_title,
+            doc_type=kwargs.get("doc_type", "pdf"),
+            chunk_index=chunk_index,
+            token_count=self._estimate_tokens(content),
+            keywords=kwargs.get("keywords", []),
+            section_name=section_name,
+            page_number=page_num,
+        )
         return TextChunk(
             chunk_id=f"{doc_id}_c{uuid.uuid4().hex[:8]}",
             doc_id=doc_id,
             content=content.strip(),
             chunk_type="semantic",
-            metadata=ChunkMetadata(
-                doc_title=doc_title,
-                doc_type=kwargs.get("doc_type", "pdf"),
-                chunk_index=chunk_index,
-                token_count=self._estimate_tokens(content),
-                keywords=kwargs.get("keywords", []),
-                section_name=section_name,  # 添加章节名称到元数据
-            ),
-            semantic_coherence=coherence,  # 用连贯性作为质量分
+            metadata=meta,
+            page_number=page_num,
+            semantic_coherence=coherence,
             quality_score=coherence,
         )
 

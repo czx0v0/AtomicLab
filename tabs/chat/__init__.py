@@ -568,10 +568,11 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
     import requests
     import re as _re
 
-    def _yield(hist, status_msg, status_ctx=0, citation_html="", refs_ui="", **kwargs):
-        # 允许调用方传入 citation_html/refs_ui 以在流式输出期间保持引用区显示
+    def _yield(hist, status_msg, status_ctx=0, citation_html="", refs_ui="", reference_list=None, citation_items=None, **kwargs):
         citation_html = kwargs.get("citation_html", citation_html)
         refs_ui = kwargs.get("refs_ui", refs_ui)
+        reference_list = kwargs.get("reference_list", reference_list) if reference_list is not None else []
+        citation_items = kwargs.get("citation_items", citation_items) if citation_items is not None else []
         st = "retrieving" if "检索" in status_msg or "召回" in status_msg else "generating" if "评估" in status_msg or "合成" in status_msg else "complete" if "完成" in status_msg else "retrieving"
         return (
             _chat_history_to_messages(hist),
@@ -579,11 +580,13 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
             _build_status(st, status_msg, status_ctx),
             citation_html,
             refs_ui,
+            reference_list,
+            citation_items,
         )
 
     if not message or not message.strip():
         out = _normalize_chat_history_to_pairs(chat_history or [])
-        yield _chat_history_to_messages(out), "", "", "", ""
+        yield _chat_history_to_messages(out), "", "", "", "", [], []
         return
 
     chat_history = _normalize_chat_history_to_pairs(chat_history or [])
@@ -608,8 +611,8 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
                     + format_agent_msg("SEEKER_BOT", "🔍", "未做检索，直接使用当前文档。")
                     + format_agent_msg("SYNTHESIZER_BOT", "🧠", trans_text + "\n\n---\n[参考本地文献: " + doc_name + "]")
                 )
-                t = _yield(chat_history, "完成", citation_html="", refs_ui="")
-                yield t[0], t[1], t[2], t[3], t[4]
+                t = _yield(chat_history, "完成", citation_html="", refs_ui="", reference_list=[], citation_items=[])
+                yield t[0], t[1], t[2], t[3], t[4], t[5], t[6]
                 return
         except Exception as e:
             pass  # 失败则走正常 RAG 流程
@@ -619,8 +622,8 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
         "REVIEWER_BOT", "⚖️", "正在分析意图并规划检索路线..."
     )
     _set_bot_reply(reviewer_plan)
-    t = _yield(chat_history, "正在分析意图并规划检索路线...")
-    yield t[0], t[1], t[2], t[3], t[4]
+    t = _yield(chat_history, "正在分析意图并规划检索路线...", reference_list=[], citation_items=[])
+    yield t[0], t[1], t[2], t[3], t[4], t[5], t[6]
 
     optimized_query = optimize_search_query(question)
     retrieval = None
@@ -628,6 +631,7 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
     arxiv_context = ""
     arxiv_refs: list[str] = []
     citation_items: list[dict] = []
+    reference_list: list = []
     is_skip = optimized_query.strip().upper() == "NONE"
 
     if is_skip:
@@ -641,8 +645,8 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
             f"意图: 学术问答 | 提取实体: [{optimized_query}] | 规划路线: 多路召回 (Vector, Graph, ArXiv)",
         )
     _set_bot_reply(reviewer_plan)
-    t = _yield(chat_history, "规划完成，进入多路召回..." if not is_skip else "跳过检索，直接合成...")
-    yield t[0], t[1], t[2], t[3], t[4]
+    t = _yield(chat_history, "规划完成，进入多路召回..." if not is_skip else "跳过检索，直接合成...", reference_list=[], citation_items=[])
+    yield t[0], t[1], t[2], t[3], t[4], t[5], t[6]
 
     # ── Phase 2: Seeker 多路执行 ──
     if is_skip:
@@ -654,8 +658,8 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
             "SEEKER_BOT", "🔍", "正在执行多路检索..."
         )
     _set_bot_reply(reviewer_plan + seeker_text)
-    t = _yield(chat_history, "正在执行多路检索...")
-    yield t[0], t[1], t[2], t[3], t[4]
+    t = _yield(chat_history, "正在执行多路检索...", reference_list=[], citation_items=[])
+    yield t[0], t[1], t[2], t[3], t[4], t[5], t[6]
 
     n_local, n_graph, n_arxiv = 0, 0, 0
     if not is_skip:
@@ -699,10 +703,8 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
             "SEEKER_BOT", "🔍", "召回完毕：本地原子卡片 (0条) | 知识图谱 (0条) | ArXiv (0条)"
         )
     _set_bot_reply(reviewer_plan + seeker_text)
-    t = _yield(chat_history, "多路召回完成")
-    yield t[0], t[1], t[2], t[3], t[4]
 
-    # ── 引用上下文同步：在 Synthesizer 开始前即构建 citation_items / refs_ui，保证 [1] 与列表一致 ──
+    # ── 引用上下文同步：Seeker 召回后即构建 citation_items + reference_list，并推送到 UI ──
     if retrieval and retrieval.chunks:
         for idx, chunk in enumerate(retrieval.chunks):
             ref_label = str(idx + 1) if idx < 5 else f"G{idx - 4}"
@@ -711,13 +713,19 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
             if page is None:
                 page = 1
             pid = getattr(chunk, "doc_id", "") or ""
-            if pid:
-                citation_items.append({
-                    "pid": pid,
-                    "page": page,
-                    "label": f"引用 [{ref_label}]: {title} p.{page}",
-                })
+            preview = (getattr(chunk, "content", "") or "").strip()[:80]
+            if preview:
+                preview = preview + "..."
+            source_type = "Vector" if idx < 5 else "Graph"
+            reference_list.append([ref_label, source_type, f"Page {page}", preview or "(无预览)"])
+            citation_items.append({
+                "pid": pid,
+                "page": page,
+                "label": f"引用 [{ref_label}]: {title} p.{page}",
+            })
     refs_ui = _render_references_ui(citation_items, arxiv_refs)
+    t = _yield(chat_history, "多路召回完成", refs_ui=refs_ui, reference_list=reference_list, citation_items=citation_items)
+    yield t[0], t[1], t[2], t[3], t[4], t[5], t[6]
 
     # ── Phase 3: Reviewer 评估 ──
     if is_skip or not (retrieval and retrieval.chunks) and not arxiv_refs:
@@ -729,8 +737,8 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
         eval_msg = "质量评估: %d/100，上下文充足，已过滤低质片段，交由合成器。" % score
     reviewer_eval = format_agent_msg("REVIEWER_BOT", "⚖️", eval_msg)
     _set_bot_reply(reviewer_plan + seeker_text + reviewer_eval)
-    t = _yield(chat_history, "评估完成，准备合成答案...", refs_ui=refs_ui)
-    yield t[0], t[1], t[2], t[3], t[4]
+    t = _yield(chat_history, "评估完成，准备合成答案...", refs_ui=refs_ui, reference_list=reference_list, citation_items=citation_items)
+    yield t[0], t[1], t[2], t[3], t[4], t[5], t[6]
 
     # 构造 RAG 上下文（citation_items 已在检索后构建，此处仅 parts / internal_refs）
     rag_context = ""
@@ -807,8 +815,8 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
         for i in range(0, len(answer_full), chunk_size):
             current = answer_full[: i + chunk_size]
             _set_bot_reply(base_text + current)
-            t = _yield(chat_history, "正在合成最终答案...", citation_html=citation_html, refs_ui=refs_ui)
-            yield t[0], t[1], t[2], t[3], t[4]
+            t = _yield(chat_history, "正在合成最终答案...", citation_html=citation_html, refs_ui=refs_ui, reference_list=reference_list, citation_items=citation_items)
+            yield t[0], t[1], t[2], t[3], t[4], t[5], t[6]
             time.sleep(0.05)
 
         _set_bot_reply(base_text + answer_full)
@@ -820,21 +828,34 @@ def handle_chat_stream_legacy(message, chat_history, tree, lib, notes, active_re
             ),
             citation_html,
             refs_ui,
+            reference_list,
+            citation_items,
         )
         yield final_tuple
-        # 强制刷新引用面板：Gradio 6.2 异步下再 yield 一次，确保 current_references_ui 状态一致
         yield final_tuple
     except Exception as e:
         error_msg = format_agent_msg(
             "SYNTHESIZER_BOT", "🧠", f"合成答案时发生错误：{e}"
         )
         _set_bot_reply(reviewer_plan + seeker_text + reviewer_eval + error_msg)
-        yield _chat_history_to_messages(chat_history), "", _build_status("error", "合成失败"), "", ""
+        yield _chat_history_to_messages(chat_history), "", _build_status("error", "合成失败"), "", "", [], []
+
+
+def handle_ref_click(evt, citation_state: list) -> str:
+    """引用表格/列表选中时：根据 index 取 pid 与 page，返回 'pid|page' 以驱动 jump_request_tb 跳转 PDF。"""
+    if not citation_state:
+        return ""
+    idx = evt.index if isinstance(evt.index, int) else (evt.index[0] if isinstance(evt.index, (list, tuple)) else 0)
+    item = citation_state[idx] if 0 <= idx < len(citation_state) else {}
+    pid = item.get("pid") or ""
+    page = item.get("page") or 1
+    return f"{pid}|{page}"
 
 
 def handle_chat_clear():
-    """Clear chat history, citation bar, and current references UI."""
-    return [], "", "", ""
+    """Clear chat history, citation bar, current references UI, ref dataframe, and citation state."""
+    return [], "", "", "", "", [], []
+
 
 
 def handle_feedback(feedback_data):
@@ -983,6 +1004,15 @@ def build_chat_tab():
         elem_id="chat-current-references",
         elem_classes=["chat-references-wrap"],
     )
+    ref_dataframe = gr.Dataframe(
+        headers=["引用", "来源", "页码", "摘要"],
+        value=[],
+        label="引用列表（点击行跳转 PDF）",
+        interactive=False,
+        elem_id="chat-ref-dataframe",
+        visible=True,
+    )
+    chat_citation_state = gr.State([])  # 当前回答的 citation_items，供 ref_dataframe.select 取 pid/page
     with gr.Row():
         msg_input = gr.Textbox(
             label="",
@@ -1038,6 +1068,8 @@ def build_chat_tab():
         "chatbot": chatbot,
         "citation_bar": citation_bar,
         "current_references_ui": current_references_ui,
+        "ref_dataframe": ref_dataframe,
+        "chat_citation_state": chat_citation_state,
         "msg_input": msg_input,
         "send_btn": send_btn,
         "clear_btn": clear_btn,

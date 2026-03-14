@@ -157,11 +157,13 @@ class ParagraphChunker:
         total: int,
         **kwargs,
     ) -> TextChunk:
+        page_num = kwargs.get("page_number")
         meta = ChunkMetadata(
             doc_title=doc_title,
             chunk_index=index,
             total_chunks=total,
             token_count=self._estimate_tokens(content),
+            page_number=page_num,
             **{
                 k: v
                 for k, v in kwargs.items()
@@ -174,5 +176,6 @@ class ParagraphChunker:
             content=content,
             chunk_type="paragraph",
             metadata=meta,
+            page_number=page_num,
             semantic_coherence=1.0,
         )

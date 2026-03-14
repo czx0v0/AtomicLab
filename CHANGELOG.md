@@ -1,5 +1,34 @@
 # 更新日志
 
+### 2026-03-14 (seeker-ui-bridge-dataframe-page)
+
+#### 🚀 新功能
+
+**引用列表表格与点击跳转**
+
+- **reference_list 正式推送**：Seeker 召回后构建 `reference_list`（格式：`[[引用, 来源, 页码, 摘要], ...]`，[1]/Vector 与 [G1]/Graph 区分），与 `citation_items` 一并随每帧 yield 推送到 UI。
+- **ref_dataframe**：Chat 页新增「引用列表（点击行跳转 PDF）」`gr.Dataframe`，展示引用 / 来源 / 页码 / 摘要；`ref_dataframe.select` 绑定 `handle_ref_click`，从 `chat_citation_state` 取 pid、page，写入 `read["jump_request_tb"]`，实现点表格行即跳转阅读 Tab 并翻到对应页。
+- **多路输出**：流式输出扩展为 7 元组（chatbot、msg_input、chat_status、citation_bar、current_references_ui、ref_dataframe、chat_citation_state），每帧均带 reference_list 与 citation_items。
+
+#### 🔧 修复
+
+**Chunk 页码入库（解决「全是 p.1」）**
+
+- **rag_service._chunk_document**：当解析结果存在「有实质内容」(content 长度 > 50) 且含 `page_start`/`page_end` 的 sections 时，按节分块并为每节 chunk 写入 `page_number=section.page_start`；否则全文分块并显式传入 `page_number=1`。
+- **semantic_chunker / paragraph_chunker**：`_create_chunk` / `_make_chunk` 支持 `kwargs["page_number"]`，写入 `ChunkMetadata.page_number` 与 `TextChunk.page_number`，确保 MinerU/Docling 的章节页码正确进入向量库与引用展示。
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `tabs/chat/__init__.py` | reference_list + citation_items 每帧 yield；ref_dataframe、chat_citation_state；handle_ref_click；_yield 返回 7 元组；handle_chat_clear 清空 7 项 |
+| `main.py` | send/submit 输出增加 ref_dataframe、chat_citation_state；clear 输出同步；ref_dataframe.select → handle_ref_click → jump_request_tb |
+| `services/rag_service.py` | _chunk_document 按节分块并传 page_number，全文分块传 page_number=1 |
+| `services/chunking/semantic_chunker.py` | _create_chunk 写入 page_number（metadata + TextChunk） |
+| `services/chunking/paragraph_chunker.py` | _make_chunk 写入 page_number（metadata + TextChunk） |
+
+---
+
 ### 2026-03-14 (ref-context-bridge-and-refresh)
 
 #### 🔧 修复
