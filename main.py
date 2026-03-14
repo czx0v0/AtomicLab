@@ -341,6 +341,10 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
         fn=lambda: "<span class='agent-st success'>✅ 已加载虚拟体验数据（官方架构白皮书 Demo）</span>",
         inputs=[],
         outputs=[org["agent_status"]],
+    ).then(
+        fn=lambda tree: (_render_graph(tree), _render_write_graph(tree, None)),
+        inputs=[tree_st],
+        outputs=[org["global_graph_html"], wrt["write_graph_html"]],
     )
     read["pdf_selector"].change(
         fn=handle_select_pdf,

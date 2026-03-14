@@ -1,14 +1,15 @@
 """
 Knowledge Tree Model
 ====================
-五级联动：Domain -> Document -> Section -> Summary/Note -> Atomic Knowledge.
+五级层级：Domain -> Document -> Section -> Note/Summary -> Atomic Knowledge.
+ECharts 节点带 source_pid/page，点击可 jumpToSource 跳转 PDF。
 
 Tree structure:
     domain (领域，如 AI)
     └── document (论文)
         └── section (章节标题，由 Markdown # 生成)
             └── summary (章节摘要，虚拟节点) / note (原子卡片)
-                └── (原子知识点块)
+                └── atomic (原子知识点块)
 """
 
 from dataclasses import dataclass, field

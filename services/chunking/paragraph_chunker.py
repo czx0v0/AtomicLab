@@ -167,7 +167,7 @@ class ParagraphChunker:
             **{
                 k: v
                 for k, v in kwargs.items()
-                if k in ChunkMetadata.__dataclass_fields__
+                if k in ChunkMetadata.__dataclass_fields__ and k != "page_number"
             },
         )
         return TextChunk(

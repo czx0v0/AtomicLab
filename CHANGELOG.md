@@ -1,5 +1,33 @@
 # 更新日志
 
+### 2026-03-14 (page-number-conflict-and-demo-graph)
+
+#### 🔧 修复
+
+**ChunkMetadata page_number 参数冲突**
+
+- **paragraph_chunker**：实例化 `ChunkMetadata` 时从 `kwargs` 展开字段排除 `page_number`（`k != "page_number"`），避免与显式传入的 `page_number=page_num` 重复，消除 `got multiple values for keyword argument 'page_number'`。
+- **rag_service._recover_chunk_store_from_vector_store**：用变量 `page_num` 统一取用并传入，避免后续若改 `**metadata` 时再次冲突。
+
+**Demo 加载后图谱即时刷新**
+
+- **main.py**：`read["demo_btn"].click` 在更新 `agent_status` 的 `.then` 之后增加一层 `.then`，以 `tree_st` 为输入刷新 `org["global_graph_html"]` 与 `wrt["write_graph_html"]`，确保加载 Demo 后整理页 / 写作页 ECharts 图谱立即与五级层级一致。
+
+#### 📝 文档
+
+- **knowledge/tree_model.py**：模块注释明确五级层级（Domain → Document → Section → Note/Summary → Atomic）及 ECharts 节点含 source_pid/page、点击跳转 PDF。
+
+#### 📝 代码变更
+
+| 文件 | 变更描述 |
+|------|----------|
+| `services/chunking/paragraph_chunker.py` | ChunkMetadata 展开 kwargs 时排除 page_number |
+| `services/rag_service.py` | _recover_chunk_store 用 page_num 变量构造 ChunkMetadata/TextChunk |
+| `main.py` | demo_btn.click 链式 .then 刷新 global_graph_html、write_graph_html |
+| `knowledge/tree_model.py` | 五级层级与 ECharts 跳转说明 |
+
+---
+
 ### 2026-03-14 (seeker-ui-bridge-dataframe-page)
 
 #### 🚀 新功能

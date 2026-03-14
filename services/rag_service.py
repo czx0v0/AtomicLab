@@ -1066,20 +1066,22 @@ class RAGService:
             try:
                 from models.chunk import TextChunk, ChunkMetadata
 
+                page_num = metadata.get("page_number")
+                meta = (
+                    ChunkMetadata(
+                        doc_title=metadata.get("doc_title", ""),
+                        page_number=page_num,
+                    )
+                    if metadata
+                    else ChunkMetadata()
+                )
                 chunk = TextChunk(
                     chunk_id=chunk_id,
                     doc_id=metadata.get("doc_id", ""),
                     content=metadata.get("content", ""),
                     chunk_type=metadata.get("chunk_type", "paragraph"),
-                    page_number=metadata.get("page_number"),
-                    metadata=(
-                        ChunkMetadata(
-                            doc_title=metadata.get("doc_title", ""),
-                            page_number=metadata.get("page_number"),
-                        )
-                        if metadata
-                        else ChunkMetadata()
-                    ),
+                    page_number=page_num,
+                    metadata=meta,
                 )
                 self.chunk_store[chunk_id] = chunk
                 loaded_count += 1
