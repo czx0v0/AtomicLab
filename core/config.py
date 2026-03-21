@@ -10,18 +10,96 @@ from dotenv import load_dotenv
 load_dotenv()  # 本地开发用，魔搭空间通过环境变量配置
 
 # ══════════════════════════════════════════════════════════════
+# HuggingFace镜像配置 - 中国大陆加速
+# ══════════════════════════════════════════════════════════════
+
+# HuggingFace镜像对中国大陆用户都需要（本地和创空间都慢）
+# 统一启用镜像加速
+if "HF_ENDPOINT" not in os.environ:
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+    print("[Config] 已启用HuggingFace镜像加速: hf-mirror.com")
+
+# ══════════════════════════════════════════════════════════════
+# 环境检测 - ModelScope创空间
+# ══════════════════════════════════════════════════════════════
+
+# 检测是否运行在ModelScope创空间环境
+# 关键：只有明确的创空间特征才触发，本地开发不应受影响
+# 本地设置MS_KEY只是用于API调用，不代表是创空间环境
+import sys
+
+IN_MODELSCOPE_SPACE = False  # 默认为本地环境
+
+# 检测方法1: Linux系统 + /mnt/workspace目录存在（创空间特有）
+if sys.platform.startswith("linux") and os.path.exists("/mnt/workspace"):
+    IN_MODELSCOPE_SPACE = True
+    print("[Config] 检测方式1: /mnt/workspace目录存在")
+
+# 检测方法2: 明确的创空间环境变量
+if os.environ.get("MODELSCOPE_ENVIRONMENT", "").lower() == "studio":
+    IN_MODELSCOPE_SPACE = True
+    print("[Config] 检测方式2: MODELSCOPE_ENVIRONMENT=studio")
+
+# ══════════════════════════════════════════════════════════════
+# 模型缓存目录 - 仅ModelScope创空间需要特殊设置
+# ══════════════════════════════════════════════════════════════
+
+# 重要：本地开发不设置任何缓存目录，完全使用HuggingFace默认行为
+# 这样不会影响已有的本地缓存
+if IN_MODELSCOPE_SPACE:
+    # 创空间专用模型缓存目录（持久化存储）
+    MODEL_CACHE_DIR = "/mnt/workspace/.cache/huggingface"
+    # 注意：不要覆盖已有的缓存设置，只在需要时设置
+    if "TRANSFORMERS_CACHE" not in os.environ:
+        os.environ["TRANSFORMERS_CACHE"] = MODEL_CACHE_DIR
+    if "HF_HOME" not in os.environ:
+        os.environ["HF_HOME"] = MODEL_CACHE_DIR
+    print(f"[Config] ModelScope创空间环境")
+    print(f"[Config] 模型缓存目录: {MODEL_CACHE_DIR}")
+else:
+    MODEL_CACHE_DIR = None  # 使用默认
+    # 不打印，避免干扰
+    # print("[Config] 本地开发环境，使用默认模型缓存位置")
+
+# ══════════════════════════════════════════════════════════════
 # API Configuration
 # ══════════════════════════════════════════════════════════════
 MS_KEY = os.environ.get("MS_KEY", "")
-API_BASE = "https://api-inference.modelscope.cn/v1"
-MODEL_NAME = "deepseek-ai/DeepSeek-V3.2"
+API_BASE = os.environ.get("API_BASE", "https://api-inference.modelscope.cn/v1")
 
-# Fallback models when primary model hits rate limit (429)
+# Primary model (user-configurable via env)
+MODEL_NAME = os.environ.get("MODEL_NAME", "deepseek-ai/DeepSeek-V3.2")
+
+# Fallback models (user-configurable via env, comma-separated)
+_default_fallbacks = (
+    "Qwen/Qwen3-235B-A22B,Qwen/Qwen3-32B,MiniMax/MiniMax-M2.5,ZhipuAI/GLM-4.7-Flash"
+)
 FALLBACK_MODELS = [
-    "Qwen/Qwen3-235B-A22B",
-    "Qwen/Qwen3-32B",
-    "ZhipuAI/GLM-4.7-Flash",
+    m.strip()
+    for m in os.environ.get("FALLBACK_MODELS", _default_fallbacks).split(",")
+    if m.strip()
 ]
+
+# Cooldown duration (hours) when a model hits rate limit
+COOLDOWN_HOURS = float(os.environ.get("COOLDOWN_HOURS", "1.0"))
+
+
+def _make_display_name(model_id: str) -> str:
+    """Generate display name from model ID (e.g. 'Qwen/Qwen3-32B' -> 'Qwen3 32B')."""
+    name = model_id.split("/")[-1]  # Take part after /
+    return name.replace("-", " ").replace("_", " ")
+
+
+def _is_thinking_model(model_id: str) -> bool:
+    """Check if model requires enable_thinking=false (Qwen3 series)."""
+    return "Qwen3" in model_id or "qwen3" in model_id.lower()
+
+
+# Display names for UI (auto-generated, can override via code)
+MODEL_DISPLAY_NAMES = {m: _make_display_name(m) for m in [MODEL_NAME] + FALLBACK_MODELS}
+
+# Models requiring thinking mode disabled for non-streaming (auto-detected)
+THINKING_MODELS = {m for m in [MODEL_NAME] + FALLBACK_MODELS if _is_thinking_model(m)}
 
 # ══════════════════════════════════════════════════════════════
 # Access Control
@@ -70,3 +148,50 @@ NODE_SIZES = {
     "note": 25,
     "tag": 15,
 }
+
+# ══════════════════════════════════════════════════════════════
+# RAG Configuration
+# ══════════════════════════════════════════════════════════════
+
+# RAG服务配置
+RAG_CONFIG = {
+    # 模型配置
+    "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
+    "reranker_model": "BAAI/bge-reranker-v2-m3",
+    "device": "cpu",
+    # 分块配置
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    "similarity_threshold": 0.7,
+    # 检索配置
+    "vector_index_type": "HNSW",  # Flat, IVF, HNSW
+    "rrf_k": 60,
+    "semantic_weight": 0.6,
+    "keyword_weight": 0.3,
+    "metadata_weight": 0.1,
+    # 重排序配置
+    "use_reranker": True,
+    "rerank_top_n": 20,
+    # 质量配置
+    "min_parse_confidence": 0.5,
+    "enable_quality_check": True,
+}
+
+# 存储路径配置
+STORAGE_PATHS = {
+    "faiss_index": "storage/faiss/index.faiss",
+    "bm25_index": "storage/bm25/index.pkl",
+    "documents": "storage/documents",
+    "chunks": "storage/chunks",
+}
+
+# Chunk类型配置
+CHUNK_TYPES = [
+    "paragraph",  # 段落分块
+    "semantic",  # 语义分块
+    "section",  # 章节分块
+    "table_semantic",  # 表格语义描述
+    "table_row",  # 表格行
+    "figure",  # 图片描述
+    "formula",  # 公式
+]

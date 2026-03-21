@@ -3,9 +3,17 @@ Read Tab — UI builder and handlers
 ===================================
 Tab 1: Upload PDFs, read extracted text, record notes.
        Single-page view with floating popup menu (WeChat Reading style).
-       Highlight = auto-save note. Translate inline. Copy to clipboard.
-       Dual-mode: text extraction + original PDF rendering.
-       Clickable file list instead of dropdown.
+       Highlight = auto-save note with annotation node support.
+       Translate inline. Copy to clipboard.
+
+v2.0 更新:
+- 批注功能重写，支持 TreeNode(type="annotation")
+- 支持 priority (1-5) 和颜色映射
+- 批注作为章节/文档的子节点存储
+
+v2.3 更新:
+- 添加PDF.js高亮模式（保真渲染 + 高亮交互 + RAG分块）
+- 三种阅读模式：文本模式、PDF原版、PDF高亮(RAG增强)
 """
 
 import os
@@ -19,9 +27,41 @@ from agents.base import call_llm
 from ui.renderers import (
     render_pdf_text,
     render_note_cards,
+    render_annotation_cards,
     render_stats,
     get_total_pages,
 )
+
+# v2.2: Docling渲染器
+try:
+    from services.renderer import DoclingRenderer
+    from ui.docling_styles import get_docling_styles
+    from ui.docling_interactions import wrap_with_interactions
+
+    DOCLING_RENDERER_AVAILABLE = True
+except ImportError as e:
+    print(f"[ReadTab] Docling渲染器不可用: {e}")
+    DOCLING_RENDERER_AVAILABLE = False
+
+# v2.3: PDF.js高亮渲染器
+try:
+    from services.renderer.pdfjs_viewer import PDFJSViewer, HighlightData, PDFCoordinate
+    from services.renderer.coordinate_mapper import get_coordinate_mapper
+
+    PDFJS_VIEWER_AVAILABLE = True
+except ImportError as e:
+    print(f"[ReadTab] PDF.js渲染器不可用: {e}")
+    PDFJS_VIEWER_AVAILABLE = False
+
+# 颜色到优先级映射
+COLOR_PRIORITY_MAP = {
+    "red": 5,  # 核心观点
+    "orange": 4,  # 重要内容
+    "yellow": 3,  # 值得注意
+    "green": 2,  # 参考信息
+    "purple": 1,  # 一般记录
+    "blue": 1,
+}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -30,7 +70,7 @@ from ui.renderers import (
 
 
 def _render_file_list(lib: dict, active_pid: str = "") -> str:
-    """Render clickable file list."""
+    """Render clickable file list with RAG status indicators."""
     if not lib:
         return "<div class='nc-empty'>上传文献后显示</div>"
     h = ""
@@ -39,12 +79,33 @@ def _render_file_list(lib: dict, active_pid: str = "") -> str:
         is_pdf = info.get("filepath", "").lower().endswith(".pdf")
         icon = "&#128196;" if is_pdf else "&#128221;"
         active_cls = " active" if pid == active_pid else ""
+
+        # RAG状态指示器
+        rag_status = ""
+        if is_pdf:
+            rag_indexed = info.get("rag_indexed", False)
+            rag_processing = info.get("rag_processing", False)
+            chunk_count = info.get("chunk_count", 0)
+            rag_msg = info.get("rag_status", "")
+
+            if rag_processing:
+                rag_status = (
+                    f'<span class="rag-status processing" title="{rag_msg}">⏳</span>'
+                )
+            elif rag_indexed:
+                rag_status = f'<span class="rag-status indexed" title="已索引 {chunk_count} 个分块">✓{chunk_count}</span>'
+            elif "失败" in rag_msg:
+                rag_status = (
+                    f'<span class="rag-status failed" title="{rag_msg}">❌</span>'
+                )
+
         # Use JS to set hidden dropdown value
         h += (
             f"<div class='file-item{active_cls}' "
             f"onclick=\"setFileSelection('{pid}')\">"
             f"<span class='file-item-icon'>{icon}</span>"
             f"<span class='file-item-name'>{name}</span>"
+            f"{rag_status}"
             f"</div>"
         )
     return f"<div class='file-list'>{h}</div>"
@@ -69,6 +130,7 @@ def _render_pdf_embed(pid: str, lib: dict) -> str:
         )
 
     import base64
+
     try:
         with open(fp, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("ascii")
@@ -89,13 +151,681 @@ def _render_pdf_embed(pid: str, lib: dict) -> str:
     )
 
 
+def _render_pdfjs_highlight_view(pid: str, lib: dict, notes: list = None) -> str:
+    """
+    Render PDF with PDF.js - supports highlighting and RAG integration.
+
+    v2.3: 统一的保真渲染 + 高亮交互模式
+    - PDF.js保真渲染（公式、表格、图片完整显示）
+    - 文本层选择和高亮
+    - 与RAG chunk坐标映射
+    - 高亮数据持久化
+    """
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，PDF 将在此显示</div>"
+
+    if not PDFJS_VIEWER_AVAILABLE:
+        return "<div class='txt-empty'>PDF.js渲染器未安装，请使用文本模式或PDF原版模式</div>"
+
+    doc_info = lib[pid]
+    fp = doc_info.get("filepath", "")
+
+    if not fp or not fp.lower().endswith(".pdf"):
+        return "<div class='txt-empty'>非 PDF 文件，请切换到文本模式</div>"
+
+    # 检查文件大小
+    try:
+        file_size_mb = os.path.getsize(fp) / (1024 * 1024)
+    except OSError:
+        file_size_mb = 0
+
+    if file_size_mb > 30:
+        return f"<div class='txt-empty'>PDF过大 ({file_size_mb:.1f}MB)，建议使用文本模式</div>"
+
+    # 获取已有高亮笔记
+    highlights = []
+    if notes:
+        for note in notes:
+            if note.get("source_pid") == pid and note.get("type") in (
+                "高亮",
+                "highlight",
+            ):
+                coord_data = note.get("coordinate", {})
+                rects_data = note.get("rects", [])
+
+                # 构建coordinate对象
+                coord = None
+                if coord_data:
+                    coord = PDFCoordinate(
+                        page=coord_data.get("page", 1),
+                        x=coord_data.get("x", 0),
+                        y=coord_data.get("y", 0),
+                        width=coord_data.get("width", 100),
+                        height=coord_data.get("height", 20),
+                    )
+
+                highlights.append(
+                    HighlightData(
+                        highlight_id=note.get("id", ""),
+                        doc_id=pid,
+                        chunk_id=note.get("chunk_id", ""),
+                        content=note.get("content", ""),
+                        color=note.get("color", "yellow"),
+                        annotation=note.get("annotation", ""),
+                        coordinate=coord,
+                        rects=rects_data if rects_data else None,
+                    )
+                )
+
+    # 使用PDF.js渲染器
+    viewer = PDFJSViewer()
+    return viewer.render_viewer(
+        pdf_path=fp,
+        doc_id=pid,
+        highlights=highlights,
+        doc_name=doc_info.get("name", "未命名文档"),
+    )
+
+
+def _render_docling_view(pid: str, lib: dict, notes: list = None) -> str:
+    """Render Docling parsed document view with interactive highlighting.
+
+    v2.2: 使用Docling解析结果渲染结构化文档视图
+    """
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，Docling视图将在此显示</div>"
+
+    if not DOCLING_RENDERER_AVAILABLE:
+        return "<div class='txt-empty'>Docling渲染器未安装</div>"
+
+    # 检查是否有RAG解析结果
+    doc_info = lib[pid]
+
+    # 检查处理状态
+    is_indexed = doc_info.get("rag_indexed", False)
+    is_processing = doc_info.get("rag_processing", False)
+    chunk_count = doc_info.get("chunk_count", 0)
+    rag_status = doc_info.get("rag_status", "")
+
+    # 如果正在处理中
+    if is_processing:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>⏳</div>
+            <h3 style='color: #0369a1;'>Docling解析中...</h3>
+            <p style='color: #4b5563;'>状态: {rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请稍后再试，或切换到"文本模式"查看</p>
+            <div style='margin-top: 20px; padding: 10px; background: white; border-radius: 4px; font-size: 12px; color: #6b7280;'>
+                💡 提示: 解析过程包括PDF提取→语义分块→向量索引，可能需要30-60秒
+            </div>
+        </div>
+        """
+
+    # 如果有状态但失败了
+    if rag_status and "失败" in rag_status:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #fef2f2; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>❌</div>
+            <h3 style='color: #dc2626;'>Docling解析失败</h3>
+            <p style='color: #4b5563;'>{rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请切换到"文本模式"查看，或重新上传</p>
+        </div>
+        """
+
+    # 如果正在处理中（有chunk_count但未标记为indexed）
+    if chunk_count > 0 and not is_indexed:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>⏳</div>
+            <h3 style='color: #0369a1;'>Docling索引中...</h3>
+            <p style='color: #4b5563;'>已生成 {chunk_count} 个文本块，正在建立索引</p>
+            <p style='color: #718096; font-size: 14px;'>请稍后再试，或切换到"文本模式"查看</p>
+        </div>
+        """
+
+    # 尝试从RAG服务获取解析结果
+    try:
+        from services.rag_service import get_rag_service
+        from core.config import RAG_CONFIG
+
+        # 使用全局RAG服务实例
+        rag_service = get_rag_service(RAG_CONFIG)
+
+        # 如果文档已索引，尝试获取chunks
+        if is_indexed:
+            # 获取文档的chunks
+            chunks = []
+            if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
+                chunk_ids = rag_service.doc_chunks[pid]
+                for chunk_id in chunk_ids:
+                    if chunk_id in rag_service.chunk_store:
+                        chunks.append(rag_service.chunk_store[chunk_id])
+
+            if not chunks:
+                # 已标记为indexed但chunks不在内存中，可能是重启后
+                return f"""
+                <div class='docling-status' style='padding: 40px; text-align: center;'>
+                    <div style='font-size: 48px; margin-bottom: 20px;'>🔄</div>
+                    <h3>索引需要重新加载</h3>
+                    <p>文档已解析（{chunk_count} chunks），但索引不在内存中</p>
+                    <p style='color: #718096; font-size: 14px;'>请重新上传PDF或切换到"文本模式"</p>
+                </div>
+                """
+
+            # 构建ParsedDocument-like结构
+            if chunks:
+                # 按chunk_index排序，保持文档顺序
+                sorted_chunks = sorted(
+                    chunks,
+                    key=lambda c: (
+                        c.metadata.chunk_index
+                        if c.metadata and hasattr(c.metadata, "chunk_index")
+                        else 0
+                    ),
+                )
+
+                # 构建内容，保留段落结构
+                content_parts = []
+                for chunk in sorted_chunks:
+                    if chunk.chunk_type in ("paragraph", "semantic", "section", "text"):
+                        content_parts.append(chunk.content)
+
+                parsed_data = {
+                    "title": doc_info.get("name", "未命名文档"),
+                    "content": "\n\n".join(content_parts),
+                    "tables": [],
+                    "metadata": {
+                        "page_count": doc_info.get("chunk_count", 0),
+                        "parse_confidence": doc_info.get("parse_confidence", 0.8),
+                    },
+                }
+
+                # 收集表格 - 从所有chunks中找表格数据
+                for chunk in sorted_chunks:
+                    if chunk.chunk_type in ("table_semantic", "table_row"):
+                        if hasattr(chunk, "table_data") and chunk.table_data:
+                            parsed_data["tables"].append(
+                                {
+                                    "html": (
+                                        chunk.content
+                                        if chunk.content.startswith("<table")
+                                        else f"<table><tr><td>{chunk.content}</td></tr></table>"
+                                    ),
+                                    "caption": (
+                                        f"Table from page {chunk.page_number}"
+                                        if chunk.page_number
+                                        else "Table"
+                                    ),
+                                }
+                            )
+                        elif hasattr(chunk, "metadata") and chunk.metadata:
+                            table_data = getattr(chunk.metadata, "table_data", None)
+                            if table_data:
+                                parsed_data["tables"].append(table_data)
+
+                # 准备高亮
+                highlights = []
+                if notes:
+                    for note in notes:
+                        if note.get("source_pid") == pid and note.get("type") == "高亮":
+                            highlights.append(
+                                {
+                                    "id": note.get("id", ""),
+                                    "content": note.get("content", ""),
+                                    "color": note.get("color", "yellow"),
+                                    "annotation": note.get("annotation", ""),
+                                    "page": note.get("page", 1),
+                                }
+                            )
+
+                # 渲染
+                renderer = DoclingRenderer()
+                renderer.set_highlights(highlights)
+                html_content = renderer.render(parsed_data)
+
+                # 包装交互功能
+                return wrap_with_interactions(html_content)
+
+    except Exception as e:
+        print(f"[DoclingView] 渲染失败: {e}")
+
+    # 降级到普通文本
+    return (
+        "<div class='txt-empty'>Docling解析结果不可用，请先上传PDF并等待解析完成</div>"
+    )
+
+
+def _render_docling_structure_view(pid: str, lib: dict, notes: list = None) -> str:
+    """Render Docling structure view showing hierarchical sections.
+
+    v2.4: Docling结构显示模式
+    - 显示章节层级结构
+    - 显示标题层级关系
+    - 辅助文本分块功能
+    """
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，Docling结构将在此显示</div>"
+
+    doc_info = lib[pid]
+
+    # 检查处理状态
+    is_indexed = doc_info.get("rag_indexed", False)
+    is_processing = doc_info.get("rag_processing", False)
+    chunk_count = doc_info.get("chunk_count", 0)
+    rag_status = doc_info.get("rag_status", "")
+
+    # 如果正在处理中
+    if is_processing:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>⏳</div>
+            <h3 style='color: #0369a1;'>Docling解析中...</h3>
+            <p style='color: #4b5563;'>状态: {rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请稍后再试，或切换到"文本模式"查看</p>
+        </div>
+        """
+
+    # 如果有状态但失败了
+    if rag_status and "失败" in rag_status:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #fef2f2; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>❌</div>
+            <h3 style='color: #dc2626;'>Docling解析失败</h3>
+            <p style='color: #4b5563;'>{rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请切换到"文本模式"查看，或重新上传</p>
+        </div>
+        """
+
+    # 尝试从RAG服务获取解析结果
+    try:
+        from services.rag_service import get_rag_service
+        from core.config import RAG_CONFIG
+        from ui.renderers import render_docling_structure
+
+        # 使用全局RAG服务实例
+        rag_service = get_rag_service(RAG_CONFIG)
+
+        # 如果文档已索引，尝试获取chunks
+        if is_indexed:
+            # 获取文档的chunks
+            chunks = []
+            if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
+                chunk_ids = rag_service.doc_chunks[pid]
+                for chunk_id in chunk_ids:
+                    if chunk_id in rag_service.chunk_store:
+                        chunks.append(rag_service.chunk_store[chunk_id])
+
+            if not chunks:
+                # 已标记为indexed但chunks不在内存中
+                return f"""
+                <div class='docling-status' style='padding: 40px; text-align: center;'>
+                    <div style='font-size: 48px; margin-bottom: 20px;'>🔄</div>
+                    <h3>索引需要重新加载</h3>
+                    <p>文档已解析（{chunk_count} chunks），但索引不在内存中</p>
+                    <p style='color: #718096; font-size: 14px;'>请重新上传PDF或切换到"文本模式"</p>
+                </div>
+                """
+
+            # 构建ParsedDocument结构
+            if chunks:
+                # 构建内容
+                parsed_data = {
+                    "title": doc_info.get("name", "未命名文档"),
+                    "content": "",
+                    "sections": [],
+                    "metadata": {
+                        "page_count": chunk_count,
+                        "parse_confidence": doc_info.get("parse_confidence", 0.8),
+                    },
+                }
+
+                # 按chunk_index排序
+                sorted_chunks = sorted(
+                    chunks,
+                    key=lambda c: (
+                        c.metadata.chunk_index
+                        if c.metadata and hasattr(c.metadata, "chunk_index")
+                        else 0
+                    ),
+                )
+
+                # 提取章节结构 - 改进的混合策略
+                # 同时使用元数据和Markdown标题提取章节
+                section_dict = {}
+                import re
+
+                # 多模式章节提取 - 增强版
+                # 模式1: 标准Markdown标题
+                heading_pattern_md = re.compile(
+                    r"(?:^|\n)\s*(#{1,6})\s+(.+?)\s*$", re.MULTILINE
+                )
+
+                # 模式2: 编号章节 (如 "1. INTRODUCTION", "Task 1: Peak Prediction")
+                heading_pattern_numbered = re.compile(
+                    r"(?:^|\n)\s*(?:(\d+)\.|Task\s+(\d+):?)\s+([A-Z][A-Za-z\s]+)",
+                    re.MULTILINE,
+                )
+
+                # 模式3: 大写章节名 (如 "INTRODUCTION", "RELATED WORK", "ACKNOWLEDGEMENT")
+                heading_pattern_caps = re.compile(
+                    r"(?:^|\n)\s{0,4}([A-Z][A-Z\s]{3,50})\s*$", re.MULTILINE
+                )
+
+                # 模式4: 特定章节关键词
+                section_keywords = [
+                    "references",
+                    "introduction",
+                    "related work",
+                    "acknowledgements",
+                    "acknowledgement",
+                    "appendix",
+                    "abstract",
+                    "methods",
+                    "method",
+                    "results",
+                    "result",
+                    "discussion",
+                    "conclusions",
+                    "conclusion",
+                    "background",
+                    "task 1",
+                    "task 2",
+                    "task 3",
+                    "web server",
+                    "experimental validation",
+                ]
+
+                # 调试：检查前几个chunk的内容
+                print(f"[DEBUG] 总共 {len(sorted_chunks)} 个chunks")
+                for i, chunk in enumerate(sorted_chunks[:5]):
+                    chunk_content = chunk.content if hasattr(chunk, "content") else ""
+                    print(f"[DEBUG] Chunk {i} 前150字符: {repr(chunk_content[:150])}")
+                    md_matches = list(heading_pattern_md.finditer(chunk_content))
+                    numbered_matches = list(
+                        heading_pattern_numbered.finditer(chunk_content)
+                    )
+                    caps_matches = list(heading_pattern_caps.finditer(chunk_content))
+                    print(
+                        f"[DEBUG] Chunk {i} Markdown标题: {len(md_matches)}, 编号章节: {len(numbered_matches)}, 大写章节: {len(caps_matches)}"
+                    )
+                    if md_matches:
+                        for j, match in enumerate(md_matches[:2]):
+                            print(
+                                f"[DEBUG]   Markdown匹配 {j}: {repr(match.group(0)[:80])}"
+                            )
+                    if numbered_matches:
+                        for j, match in enumerate(numbered_matches[:2]):
+                            print(
+                                f"[DEBUG]   编号章节匹配 {j}: {repr(match.group(0)[:80])}"
+                            )
+                    if caps_matches:
+                        for j, match in enumerate(caps_matches[:2]):
+                            print(
+                                f"[DEBUG]   大写章节匹配 {j}: {repr(match.group(0)[:80])}"
+                            )
+
+                # 用于跟踪当前章节（当chunk没有明确章节时）
+                current_section_key = None
+
+                for i, chunk in enumerate(sorted_chunks):
+                    section_name = ""
+                    level = 2  # 默认层级
+                    chunk_content = chunk.content if hasattr(chunk, "content") else ""
+
+                    # ========== 多模式章节提取 ==========
+                    # 策略1: 标准Markdown标题 (## Chapter)
+                    md_matches = list(heading_pattern_md.finditer(chunk_content))
+
+                    if md_matches:
+                        first_match = md_matches[0]
+                        level = len(first_match.group(1))
+                        heading_text = first_match.group(2).strip()
+
+                        # 跳过参考文献格式
+                        if heading_text and not re.match(
+                            r"^\d+\.\s*[A-Z][a-z]+,", heading_text
+                        ):
+                            section_name = heading_text
+                            print(
+                                f"[DEBUG] Chunk {i} Markdown章节: '{heading_text[:50]}' (level={level})"
+                            )
+
+                    # 策略2: 编号章节 (1. INTRODUCTION, Task 1: Peak)
+                    if not section_name:
+                        numbered_matches = list(
+                            heading_pattern_numbered.finditer(chunk_content)
+                        )
+
+                        if numbered_matches:
+                            match = numbered_matches[0]
+                            # 提取章节名
+                            if match.group(3):  # "1. INTRODUCTION" 格式
+                                section_name = match.group(3).strip()
+                                level = 2
+                            elif match.group(2):  # "Task 1:" 格式
+                                section_name = (
+                                    f"Task {match.group(2)}: {match.group(3).strip()}"
+                                )
+                                level = 2
+                            print(
+                                f"[DEBUG] Chunk {i} 编号章节: '{section_name[:50]}' (level={level})"
+                            )
+
+                    # 策略3: 大写章节名 (INTRODUCTION, RELATED WORK)
+                    if not section_name:
+                        caps_matches = list(
+                            heading_pattern_caps.finditer(chunk_content)
+                        )
+
+                        if caps_matches:
+                            heading_text = caps_matches[0].group(1).strip()
+                            # 过滤太短的标题
+                            if len(heading_text) >= 5:
+                                section_name = heading_text
+                                level = 2
+                                print(
+                                    f"[DEBUG] Chunk {i} 大写章节: '{heading_text[:50]}' (level={level})"
+                                )
+
+                    # 策略4: 关键词匹配 (references, introduction, etc.)
+                    if not section_name:
+                        chunk_lower = chunk_content.lower()
+                        for keyword in section_keywords:
+                            if keyword in chunk_lower[:200]:  # 只检查前200字符
+                                # 提取包含关键词的行
+                                lines = chunk_content.split("\n")[:5]  # 只检查前5行
+                                for line in lines:
+                                    line_stripped = line.strip()
+                                    if (
+                                        keyword in line_stripped.lower()
+                                        and len(line_stripped) < 80
+                                    ):
+                                        section_name = line_stripped
+                                        level = 2
+                                        print(
+                                            f"[DEBUG] Chunk {i} 关键词章节: '{section_name[:50]}' (level={level})"
+                                        )
+                                        break
+                                if section_name:
+                                    break
+
+                    # 策略5: 检查metadata（过滤参考文献格式）
+                    if not section_name:
+                        if chunk.metadata and hasattr(chunk.metadata, "section_name"):
+                            meta_section = chunk.metadata.section_name
+                            if meta_section and not re.match(
+                                r"^\d+\.\s*[A-Z][a-z]+,", meta_section
+                            ):
+                                section_name = meta_section
+                                level = 2
+                                print(
+                                    f"[DEBUG] Chunk {i} Metadata章节: '{section_name[:50]}' (level={level})"
+                                )
+
+                    # 如果找到章节，创建或更新
+                    if section_name:
+                        if section_name not in section_dict:
+                            section_dict[section_name] = {
+                                "section_id": f"sec-{hash(section_name)}",
+                                "heading": section_name,
+                                "level": level,
+                                "content": chunk_content,
+                                "page_start": chunk.page_number,
+                                "page_end": chunk.page_number,
+                            }
+                        else:
+                            # 章节已存在，追加内容
+                            section_dict[section_name]["content"] += (
+                                "\n\n" + chunk_content
+                            )
+                            # 更新页码范围
+                            if chunk.page_number:
+                                section_dict[section_name][
+                                    "page_end"
+                                ] = chunk.page_number
+
+                        current_section_key = section_name
+                    else:
+                        # 如果没有章节名，归入当前章节
+                        if current_section_key and current_section_key in section_dict:
+                            section_dict[current_section_key]["content"] += (
+                                "\n\n" + chunk_content
+                            )
+                            if chunk.page_number:
+                                section_dict[current_section_key][
+                                    "page_end"
+                                ] = chunk.page_number
+
+                # 转换为列表
+                parsed_data["sections"] = list(section_dict.values())
+
+                # 调试输出
+                print(
+                    f"[DoclingStructureView] 提取到 {len(parsed_data['sections'])} 个章节:"
+                )
+                for sec in parsed_data["sections"]:
+                    print(f"  - {sec['heading'][:50]}... (level={sec['level']})")
+
+                # 渲染结构视图
+                return render_docling_structure(
+                    parsed_data=parsed_data,
+                    chunks=chunks,
+                    doc_name=doc_info.get("name", ""),
+                )
+
+    except Exception as e:
+        print(f"[DoclingStructureView] 渲染失败: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+    # 降级提示
+    return (
+        "<div class='txt-empty'>Docling结构视图不可用，请先上传PDF并等待解析完成</div>"
+    )
+
+
+def _render_chunk_database_view(pid: str, lib: dict) -> str:
+    """Render chunk database view showing text chunks.
+
+    v2.4: 分块数据库显示模式
+    - 显示文本分块数据库
+    - 展示分块层级关系
+    - 按章节分组显示
+    """
+    if not pid or pid not in lib:
+        return "<div class='txt-empty'>选择文献后，分块数据库将在此显示</div>"
+
+    doc_info = lib[pid]
+
+    # 检查处理状态
+    is_indexed = doc_info.get("rag_indexed", False)
+    is_processing = doc_info.get("rag_processing", False)
+    chunk_count = doc_info.get("chunk_count", 0)
+    rag_status = doc_info.get("rag_status", "")
+
+    # 如果正在处理中
+    if is_processing:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #f0f9ff; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>⏳</div>
+            <h3 style='color: #0369a1;'>文本分块处理中...</h3>
+            <p style='color: #4b5563;'>状态: {rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请稍后再试</p>
+        </div>
+        """
+
+    # 如果有状态但失败了
+    if rag_status and "失败" in rag_status:
+        return f"""
+        <div class='docling-status' style='padding: 40px; text-align: center; background: #fef2f2; border-radius: 8px; margin: 20px;'>
+            <div style='font-size: 48px; margin-bottom: 20px;'>❌</div>
+            <h3 style='color: #dc2626;'>分块处理失败</h3>
+            <p style='color: #4b5563;'>{rag_status}</p>
+            <p style='color: #718096; font-size: 14px;'>请重新上传PDF</p>
+        </div>
+        """
+
+    # 尝试从RAG服务获取chunks
+    try:
+        from services.rag_service import get_rag_service
+        from core.config import RAG_CONFIG
+        from ui.renderers import render_chunk_database_tree
+
+        # 使用全局RAG服务实例
+        rag_service = get_rag_service(RAG_CONFIG)
+
+        # 如果文档已索引，尝试获取chunks
+        if is_indexed:
+            # 获取文档的chunks
+            chunks = []
+            if hasattr(rag_service, "doc_chunks") and pid in rag_service.doc_chunks:
+                chunk_ids = rag_service.doc_chunks[pid]
+                for chunk_id in chunk_ids:
+                    if chunk_id in rag_service.chunk_store:
+                        chunks.append(rag_service.chunk_store[chunk_id])
+
+            if not chunks:
+                # 已标记为indexed但chunks不在内存中
+                return f"""
+                <div class='docling-status' style='padding: 40px; text-align: center;'>
+                    <div style='font-size: 48px; margin-bottom: 20px;'>🔄</div>
+                    <h3>索引需要重新加载</h3>
+                    <p>文档已解析（{chunk_count} chunks），但索引不在内存中</p>
+                    <p style='color: #718096; font-size: 14px;'>请重新上传PDF</p>
+                </div>
+                """
+
+            # 渲染分块数据库视图
+            return render_chunk_database_tree(
+                chunks=chunks,
+                doc_name=doc_info.get("name", ""),
+            )
+
+    except Exception as e:
+        print(f"[ChunkDatabaseView] 渲染失败: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+    # 降级提示
+    return (
+        "<div class='txt-empty'>分块数据库视图不可用，请先上传PDF并等待解析完成</div>"
+    )
+
+
 # ══════════════════════════════════════════════════════════════
 # HANDLERS
 # ══════════════════════════════════════════════════════════════
 
 
-def handle_upload(files, lib, stats, tree):
-    """Handle file upload — also auto-creates knowledge tree nodes."""
+def handle_upload(files, lib, stats, tree, rag_service=None):
+    """Handle file upload — also auto-creates knowledge tree nodes.
+
+    v2.1: 集成RAG服务，自动进行高级PDF解析和向量化索引
+
+    Returns tuple including gr.update(value=None) for upload_f to clear it after processing.
+    """
     if not files:
         return (
             lib,
@@ -106,6 +836,7 @@ def handle_upload(files, lib, stats, tree):
             1,
             _render_file_list(lib),
             tree,
+            gr.update(),  # Don't clear upload_f if no files
         )
 
     for f in files:
@@ -117,7 +848,14 @@ def handle_upload(files, lib, stats, tree):
             continue
 
         text = extract_pdf(fp) if fp.lower().endswith(".pdf") else read_txt(fp)
-        lib[pid] = {"name": fn, "text": text, "notes": [], "filepath": fp}
+        lib[pid] = {
+            "name": fn,
+            "text": text,
+            "notes": [],
+            "annotations": [],  # v2.0: 存储批注节点数据
+            "filepath": fp,
+            "rag_indexed": False,  # v2.1: RAG索引状态
+        }
         stats["docs"] += 1
 
         # Auto-create knowledge tree: domain → document node
@@ -130,24 +868,88 @@ def handle_upload(files, lib, stats, tree):
             tree.create_document_node(fn, pid, domain_node.id)
         stats["nodes"] = len(tree.nodes)
 
-    choices = [(v["name"], k) for k, v in lib.items()]
-    last_pid = choices[-1][1] if choices else None
+        # v2.1: RAG高级解析和索引 (异步处理，不阻塞UI)
+        if rag_service and fp.lower().endswith(".pdf"):
+            # 先标记为处理中状态
+            lib[pid]["rag_processing"] = True
+            lib[pid]["rag_status"] = "📋 解析中..."
+            lib[pid]["rag_progress"] = 0  # 进度百分比
+
+            try:
+                import threading
+
+                def process_with_rag():
+                    try:
+                        print(f"[RAG] 开始处理: {fn}")
+                        lib[pid]["rag_status"] = "📄 PDF提取中..."
+                        lib[pid]["rag_progress"] = 10
+
+                        result = rag_service.process_document(fp, pid)
+
+                        if result.success:
+                            lib[pid]["rag_progress"] = 90
+                            lib[pid]["rag_status"] = "🔍 建立索引中..."
+
+                            lib[pid]["rag_indexed"] = True
+                            lib[pid]["rag_processing"] = False
+                            lib[pid]["rag_status"] = "✅ 已完成"
+                            lib[pid]["chunk_count"] = result.chunk_count
+                            lib[pid]["parse_confidence"] = result.confidence
+                            lib[pid]["rag_progress"] = 100
+                            print(f"[RAG] 完成: {fn} ({result.chunk_count} chunks)")
+                        else:
+                            lib[pid]["rag_processing"] = False
+                            lib[pid]["rag_status"] = f"❌ 失败: {result.error[:30]}"
+                            lib[pid]["rag_progress"] = 0
+                            print(f"[RAG] 失败: {fn} - {result.error}")
+                    except Exception as e:
+                        lib[pid]["rag_processing"] = False
+                        lib[pid]["rag_status"] = f"❌ 异常: {str(e)[:30]}"
+                        lib[pid]["rag_progress"] = 0
+                        print(f"[RAG] 异常: {fn} - {e}")
+
+                # 在后台线程中处理，避免阻塞UI
+                thread = threading.Thread(target=process_with_rag)
+                thread.daemon = True
+                thread.start()
+            except Exception as e:
+                lib[pid]["rag_processing"] = False
+                lib[pid]["rag_status"] = f"❌ 启动失败: {str(e)[:30]}"
+                lib[pid]["rag_progress"] = 0
+                print(f"[RAG] 启动失败: {fn} - {e}")
+
+    last_pid = list(lib.keys())[-1] if lib else None
 
     return (
         lib,
         stats,
-        gr.update(choices=choices, value=last_pid),
+        gr.update(value=last_pid or ""),
         render_stats(stats),
         render_pdf_text(last_pid, lib, 1),
         1,
         _render_file_list(lib, last_pid),
         tree,
+        gr.update(value=None),  # Clear upload_f after processing
     )
 
 
-def handle_select_pdf(pid, lib):
-    """Handle PDF selection — reset to page 1."""
-    return 1, render_pdf_text(pid, lib, 1), _render_file_list(lib, pid)
+def handle_select_pdf(pid, lib, notes):
+    """Handle PDF selection — reset to page 1 and filter notes.
+
+    Args:
+        pid: Document ID
+        lib: Document library
+        notes: All notes list
+
+    Returns:
+        (page, pdf_html, file_list_html, notes_html)
+    """
+    return (
+        1,
+        render_pdf_text(pid, lib, 1),
+        _render_file_list(lib, pid),
+        render_note_cards(notes, filter_pid=pid),
+    )
 
 
 def handle_page_prev(page_st, pid, lib):
@@ -163,76 +965,561 @@ def handle_page_next(page_st, pid, lib):
     return new_page, render_pdf_text(pid, lib, new_page)
 
 
-def handle_mode_switch(mode, pid, lib, page_st):
-    """Switch between text and PDF view modes."""
-    if mode == "PDF模式":
+def handle_mode_switch(mode, pid, lib, page_st, notes=None):
+    """Switch between text, PDF, and PDF highlight view modes.
+
+    v2.3: PDF高亮模式为默认，移除了Docling模式（解析功能已整合到RAG服务中）
+    v2.4: 新增Docling结构模式和分块数据库模式
+    """
+    if mode == "PDF原版":
         return (
             gr.update(visible=False),
             gr.update(value=_render_pdf_embed(pid, lib), visible=True),
         )
+    elif mode == "PDF高亮":
+        # PDF高亮模式：保真渲染 + 高亮交互（默认模式）
+        pdfjs_html = _render_pdfjs_highlight_view(pid, lib, notes or [])
+        return (
+            gr.update(visible=False),
+            gr.update(value=pdfjs_html, visible=True),
+        )
+    elif mode == "Docling结构":
+        # Docling结构模式：显示章节层级结构
+        docling_html = _render_docling_structure_view(pid, lib, notes or [])
+        return (
+            gr.update(visible=False),
+            gr.update(value=docling_html, visible=True),
+        )
+    elif mode == "分块数据库":
+        # 分块数据库模式：显示文本分块数据库
+        chunk_db_html = _render_chunk_database_view(pid, lib)
+        return (
+            gr.update(visible=False),
+            gr.update(value=chunk_db_html, visible=True),
+        )
     else:
+        # 文本模式
         return (
             gr.update(visible=True),
             gr.update(visible=False),
         )
 
 
-def handle_highlight_action(payload_str, notes, pid):
-    """Handle highlight / translate-note action from popup — auto-save as note."""
+def handle_highlight_action(payload_str, notes, pid, tree, lib):
+    """
+    Handle highlight / translate-note action from popup.
+
+    v2.0 更新:
+    - 创建 annotation TreeNode 存储批注
+    - 支持 priority 和 color 映射
+    - 批注作为文档的子节点
+    - **高亮笔记存储到 lib[pid]["notes"] 以支持持久化显示**
+
+    v3.0 更新:
+    - **立即创建 KnowledgeNode 到 tree**，实现笔记实时可见
+    - 不依赖 AI 处理即可在知识树/图谱中显示
+
+    Args:
+        payload_str: JSON 格式的操作数据
+        notes: 现有笔记列表
+        pid: 当前文献 ID
+        tree: 知识树实例
+        lib: 文献库
+
+    Returns:
+        (notes, notes_html, tree, pdf_text_html, lib)
+    """
     if not payload_str or not payload_str.strip():
-        return notes, render_note_cards(notes)
+        return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
 
     try:
         data = json.loads(payload_str)
     except (json.JSONDecodeError, TypeError):
-        return notes, render_note_cards(notes)
+        return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
 
     action = data.get("action", "")
     text = data.get("text", "")
     page = data.get("page", "1")
-    color = data.get("color", "")
+    color = data.get("color", "yellow")  # 默认黄色
 
     if action == "highlight" and text:
+        text_content = text.strip()
+        annotation_text = data.get("annotation", "")
+
+        # 检查是否已存在相同内容的笔记（防重复）
+        existing_note = None
+        for n in notes:
+            if (
+                n.get("content", "").strip() == text_content
+                and n.get("source_pid") == pid
+            ):
+                existing_note = n
+                break
+
+        if existing_note:
+            # 更新已有笔记的批注（如果有新批注）
+            if annotation_text:
+                existing_note["annotation"] = annotation_text
+                # 同步到 tree
+                if tree:
+                    tree_node = tree.find_note_by_original_id(
+                        existing_note.get("id", "")
+                    )
+                    if tree_node:
+                        tree_node.metadata["annotation"] = annotation_text
+                # 同步到 lib
+                if pid and pid in lib:
+                    for ln in lib[pid].get("notes", []):
+                        if ln.get("id") == existing_note.get("id"):
+                            ln["annotation"] = annotation_text
+                            break
+            current_page = int(page) if str(page).isdigit() else 1
+            pdf_html = render_pdf_text(pid, lib, current_page)
+            return notes, render_note_cards(notes, filter_pid=pid), tree, pdf_html, lib
+
+        # 创建新笔记
         nid = next_note_id()
-        annotation = data.get("annotation", "")
+        priority = COLOR_PRIORITY_MAP.get(color, 3)
+
         note = {
             "id": nid,
             "type": "高亮",
-            "content": text.strip(),
-            "annotation": annotation.strip() if annotation else "",
+            "content": text_content,
+            "annotation": annotation_text.strip() if annotation_text else "",
+            "translation": "",
+            "tags": [],
             "page": int(page) if str(page).isdigit() else 1,
             "color": color,
+            "priority": priority,
             "ts": time.strftime("%H:%M"),
             "source_pid": pid or "",
+            # PDF.js特有字段（跨行高亮支持）
+            "rects": data.get("rects", []),
+            "coordinate": data.get("coordinate"),
+            "pdfjs": data.get("pdfjs", False),
         }
         notes.append(note)
+
+        # 同时保存到 lib 以支持持久化高亮显示
+        if pid and pid in lib:
+            if "notes" not in lib[pid]:
+                lib[pid]["notes"] = []
+            lib[pid]["notes"].append(note)
+
+        # v3.0: 立即创建 KnowledgeNode 到 tree（不依赖AI）
+        if tree and pid and pid in lib:
+            # 确保文档节点存在
+            doc_node = tree.find_document_node(pid)
+            if not doc_node:
+                # 创建默认 domain 和 document 节点
+                domain_node = tree.find_domain_node("未分类")
+                if not domain_node:
+                    domain_node = tree.create_domain_node("未分类", pid)
+                doc_name = lib[pid].get("name", "未知文献")
+                doc_node = tree.create_document_node(doc_name, pid, domain_node.id)
+
+            # 创建 note 节点（category 暂时为空，等AI分类后更新）
+            tree.create_note_node(
+                note=note,
+                category="",  # 初始无分类
+                doc_node_id=doc_node.id,
+            )
+
+        # 重新渲染 PDF 文本以显示持久化高亮
+        current_page = int(page) if str(page).isdigit() else 1
+        pdf_html = render_pdf_text(pid, lib, current_page)
+        return notes, render_note_cards(notes, filter_pid=pid), tree, pdf_html, lib
+
     elif action == "translate_note" and text:
         from urllib.parse import unquote
 
         orig = unquote(text)
         translation = unquote(data.get("translation", ""))
+        color = data.get("color", "yellow")  # 默认黄色
+
         # Find existing highlight note for this text and attach translation
         attached = False
         for existing_note in notes:
-            if existing_note.get("content", "").strip() == orig.strip() and existing_note.get("type") == "高亮":
+            if (
+                existing_note.get("content", "").strip() == orig.strip()
+                and existing_note.get("type") == "高亮"
+            ):
                 existing_note["translation"] = translation
                 attached = True
+                # Also update tree node if exists
+                if tree:
+                    tree_node = tree.find_note_by_original_id(
+                        existing_note.get("id", "")
+                    )
+                    if tree_node:
+                        tree_node.metadata["translation"] = translation
+                # Also update lib
+                if pid and pid in lib:
+                    for ln in lib[pid].get("notes", []):
+                        if ln.get("id") == existing_note.get("id"):
+                            ln["translation"] = translation
+                            break
                 break
+
         if not attached:
-            # Create standalone translation note
+            # Create new highlight note WITH translation (not standalone translation)
             nid = next_note_id()
+            priority = COLOR_PRIORITY_MAP.get(color, 3)
             note = {
                 "id": nid,
-                "type": "翻译",
+                "type": "高亮",
                 "content": orig,
                 "translation": translation,
+                "annotation": "",
                 "page": int(page) if str(page).isdigit() else 1,
+                "color": color,
+                "priority": priority,
                 "ts": time.strftime("%H:%M"),
                 "source_pid": pid or "",
             }
             notes.append(note)
 
-    return notes, render_note_cards(notes)
+            # Save to lib
+            if pid and pid in lib:
+                if "notes" not in lib[pid]:
+                    lib[pid]["notes"] = []
+                lib[pid]["notes"].append(note)
+
+            # Create tree node
+            if tree and pid and pid in lib:
+                doc_node = tree.find_document_node(pid)
+                if not doc_node:
+                    domain_node = tree.find_domain_node("未分类")
+                    if not domain_node:
+                        domain_node = tree.create_domain_node("未分类", pid)
+                    doc_name = lib[pid].get("name", "未知文献")
+                    doc_node = tree.create_document_node(doc_name, pid, domain_node.id)
+                tree.create_note_node(note=note, category="", doc_node_id=doc_node.id)
+
+        current_page = int(page) if str(page).isdigit() else 1
+        pdf_html = render_pdf_text(pid, lib, current_page)
+        return notes, render_note_cards(notes, filter_pid=pid), tree, pdf_html, lib
+
+    elif action == "screenshot":
+        # v2.3: 截图笔记保存
+        image_data = data.get("image", "")
+        screenshot_page = data.get("page", "1")
+        annotation_text = data.get("annotation", "")
+        doc_id = data.get("doc_id", pid)
+        ocr_text = data.get("ocr_text", "")  # OCR识别的文字
+
+        if not image_data:
+            return (
+                notes,
+                render_note_cards(notes, filter_pid=pid),
+                tree,
+                gr.update(),
+                lib,
+            )
+
+        # 创建截图笔记
+        nid = next_note_id()
+        # 如果有OCR文字，使用OCR文字作为content
+        content_text = (
+            ocr_text.strip() if ocr_text.strip() else f"[截图] 第{screenshot_page}页"
+        )
+        note = {
+            "id": nid,
+            "type": "截图",  # 截图类型
+            "content": content_text,  # OCR文字或默认文本
+            "annotation": annotation_text.strip() if annotation_text else "",
+            "image": image_data,  # base64图片数据
+            "page": int(screenshot_page) if str(screenshot_page).isdigit() else 1,
+            "color": "blue",  # 截图默认蓝色
+            "priority": 3,
+            "ts": time.strftime("%H:%M"),
+            "source_pid": doc_id or pid or "",
+            "ocr": bool(ocr_text.strip()),  # 标记是否有OCR
+        }
+        notes.append(note)
+
+        # 保存到 lib
+        if pid and pid in lib:
+            if "notes" not in lib[pid]:
+                lib[pid]["notes"] = []
+            lib[pid]["notes"].append(note)
+
+        # 创建知识树节点
+        if tree and pid and pid in lib:
+            doc_node = tree.find_document_node(pid)
+            if not doc_node:
+                domain_node = tree.find_domain_node("未分类")
+                if not domain_node:
+                    domain_node = tree.create_domain_node("未分类", pid)
+                doc_name = lib[pid].get("name", "未知文献")
+                doc_node = tree.create_document_node(doc_name, pid, domain_node.id)
+            tree.create_note_node(note=note, category="图像", doc_node_id=doc_node.id)
+
+        return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
+
+    return notes, render_note_cards(notes, filter_pid=pid), tree, gr.update(), lib
+
+
+def handle_read_note_action(action_data, notes, pid, tree, lib):
+    """Handle action button click on note card in read tab.
+
+    action_data format: "action:note_id" or "annotate:note_id:annotation_text"
+    Actions: translate, tag, annotate, ask
+
+    Returns: (status_message, notes, notes_html, tree)
+    """
+    if not action_data or ":" not in action_data:
+        return "<span class='agent-st'>等待操作...</span>", notes, gr.update(), tree
+
+    parts = action_data.split(":", 2)
+    action = parts[0]
+    note_id = parts[1] if len(parts) > 1 else ""
+
+    # Find the note
+    note = None
+    for n in notes:
+        if n.get("id") == note_id:
+            note = n
+            break
+
+    if not note:
+        return (
+            f"<span class='agent-st'>笔记未找到: {note_id[:20]}</span>",
+            notes,
+            gr.update(),
+            tree,
+        )
+
+    content = note.get("content", "")
+
+    if action == "translate":
+        from agents.translator import TranslatorAgent
+
+        translator = TranslatorAgent()
+        result = translator.execute(
+            payload={"text": content}, context={"target_lang": "zh"}
+        )
+        if result.status == "success":
+            translated = result.data.get("translation", "")
+            # Update note
+            note["translation"] = translated
+            # Sync to tree
+            if tree:
+                tree_node = tree.find_note_by_original_id(note_id)
+                if tree_node:
+                    tree_node.metadata["translation"] = translated
+            # Sync to lib
+            if pid and pid in lib:
+                for ln in lib[pid].get("notes", []):
+                    if ln.get("id") == note_id:
+                        ln["translation"] = translated
+                        break
+            return (
+                "<span class='agent-st'>翻译完成</span>",
+                notes,
+                render_note_cards(notes, filter_pid=pid),
+                tree,
+            )
+        return (
+            f"<span class='agent-st'>翻译失败: {esc(str(result.error)[:40])}</span>",
+            notes,
+            gr.update(),
+            tree,
+        )
+
+    elif action == "tag":
+        from agents.crusher import CrusherAgent
+
+        crusher = CrusherAgent()
+        result = crusher.execute(
+            payload={"notes": [{"content": content, "page": 0}]},
+            context={"doc_context": ""},
+        )
+        if result.status == "success":
+            data = result.data
+            new_tags = data.get("notes", [{}])[0].get("tags", [])
+            # Update note (use ai_tags field)
+            if "ai_tags" not in note:
+                note["ai_tags"] = []
+            note["ai_tags"].extend([t for t in new_tags if t not in note["ai_tags"]])
+            # Sync to tree
+            if tree:
+                tree_node = tree.find_note_by_original_id(note_id)
+                if tree_node:
+                    for tag_text in new_tags:
+                        if not any(
+                            c.label == tag_text
+                            for c in tree.get_children(tree_node.id)
+                            if c.type == "tag"
+                        ):
+                            tree.create_tag_node(tag_text, tree_node.id)
+            # Sync to lib
+            if pid and pid in lib:
+                for ln in lib[pid].get("notes", []):
+                    if ln.get("id") == note_id:
+                        if "ai_tags" not in ln:
+                            ln["ai_tags"] = []
+                        ln["ai_tags"].extend(
+                            [t for t in new_tags if t not in ln["ai_tags"]]
+                        )
+                        break
+            return (
+                f"<span class='agent-st'>已添加标签: {', '.join(new_tags[:3])}</span>",
+                notes,
+                render_note_cards(notes, filter_pid=pid),
+                tree,
+            )
+        return (
+            "<span class='agent-st'>标签生成失败</span>",
+            notes,
+            gr.update(),
+            tree,
+        )
+
+    elif action == "annotate":
+        annotation_text = parts[2].strip() if len(parts) > 2 else ""
+        if not annotation_text:
+            return (
+                "<span class='agent-st'>请输入批注内容</span>",
+                notes,
+                gr.update(),
+                tree,
+            )
+        # Update note
+        note["annotation"] = annotation_text
+        # Sync to tree
+        if tree:
+            tree_node = tree.find_note_by_original_id(note_id)
+            if tree_node:
+                tree_node.metadata["annotation"] = annotation_text
+        # Sync to lib
+        if pid and pid in lib:
+            for ln in lib[pid].get("notes", []):
+                if ln.get("id") == note_id:
+                    ln["annotation"] = annotation_text
+                    break
+        return (
+            "<span class='agent-st'>已添加批注</span>",
+            notes,
+            render_note_cards(notes, filter_pid=pid),
+            tree,
+        )
+
+    elif action == "manual_tag":
+        tag_text = parts[2].strip() if len(parts) > 2 else ""
+        if not tag_text:
+            return (
+                "<span class='agent-st'>请输入标签文本</span>",
+                notes,
+                gr.update(),
+                tree,
+            )
+        # Update note (use manual_tags field)
+        if "manual_tags" not in note:
+            note["manual_tags"] = []
+        if tag_text not in note["manual_tags"]:
+            note["manual_tags"].append(tag_text)
+        # Sync to tree
+        if tree:
+            tree_node = tree.find_note_by_original_id(note_id)
+            if tree_node:
+                if not any(
+                    c.label == tag_text
+                    for c in tree.get_children(tree_node.id)
+                    if c.type == "tag"
+                ):
+                    tree.create_tag_node(tag_text, tree_node.id)
+        # Sync to lib
+        if pid and pid in lib:
+            for ln in lib[pid].get("notes", []):
+                if ln.get("id") == note_id:
+                    if "manual_tags" not in ln:
+                        ln["manual_tags"] = []
+                    if tag_text not in ln["manual_tags"]:
+                        ln["manual_tags"].append(tag_text)
+                    break
+        return (
+            f"<span class='agent-st'>已添加标签: {tag_text}</span>",
+            notes,
+            render_note_cards(notes, filter_pid=pid),
+            tree,
+        )
+
+    elif action == "ask":
+        return (
+            "<span class='agent-st'>已发送到AI助手</span>",
+            notes,
+            gr.update(),
+            tree,
+        )
+
+    return (
+        f"<span class='agent-st'>未知操作: {action}</span>",
+        notes,
+        gr.update(),
+        tree,
+    )
+
+
+def handle_save_annotation(
+    doc_id: str,
+    section_id: str,
+    selected_text: str,
+    note: str,
+    priority: int,
+    tree,
+    lib,
+):
+    """
+    保存批注到章节 (API 接口)
+
+    Args:
+        doc_id: 文献 ID
+        section_id: 章节节点 ID（可选，为空则挂到文档下）
+        selected_text: 选中的原文
+        note: 用户批注内容
+        priority: 重要性 (1-5)
+        tree: 知识树实例
+        lib: 文献库
+
+    Returns:
+        创建的 annotation TreeNode 或 None
+    """
+    if not selected_text or not doc_id:
+        return None
+
+    try:
+        from models.tree_node import TreeNode, PRIORITY_COLORS
+
+        # 确定父节点
+        parent_id = section_id
+        if not parent_id and tree:
+            doc_node = tree.find_document_node(doc_id)
+            parent_id = doc_node.id if doc_node else None
+
+        # 获取颜色
+        color = PRIORITY_COLORS.get(priority, "#FFE66D")
+
+        # 创建批注节点
+        annotation_node = TreeNode.create_annotation(
+            doc_id=doc_id,
+            parent_id=parent_id,
+            selected_text=selected_text,
+            note=note,
+            priority=priority,
+            color=color,
+        )
+
+        # 存储到 lib
+        if doc_id in lib:
+            if "annotations" not in lib[doc_id]:
+                lib[doc_id]["annotations"] = []
+            lib[doc_id]["annotations"].append(annotation_node.to_dict())
+
+        return annotation_node
+
+    except ImportError:
+        return None
 
 
 def handle_popup_translate(text):
@@ -263,10 +1550,20 @@ def handle_popup_translate(text):
 
 
 def build_read_tab():
-    """Build the Read tab UI — file list + reader + visible notes."""
+    """Build the Read tab UI — file list + reader + visible notes.
+
+    v2.3: PDF高亮模式为默认显示模式
+    """
+    # 上传提示
+    gr.HTML("""
+    <div class='upload-notice' style='background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:0.85em;color:#92400e;'>
+    ⚠️ <strong>提示：</strong>上传的文件仅在当前会话中使用，不会永久保存。刷新页面后需要重新上传。
+    </div>
+    """)
+    
     gr.HTML(
         "<div class='tip'>"
-        "选中文字自动弹出工具栏：高亮标记 · 一键翻译 · 复制 · 问AI | 左右翻页浏览"
+        "PDF高亮模式：选择文字弹出工具栏，或切换到截图模式框选区域 | 支持高亮·翻译·批注保存到知识图谱"
         "</div>"
     )
 
@@ -280,18 +1577,19 @@ def build_read_tab():
             )
             gr.Markdown("### 文献列表")
             file_list_html = gr.HTML("<div class='nc-empty'>上传文献后显示</div>")
-            # Hidden selector for programmatic value setting (CSS-hidden, not visible=False)
-            pdf_selector = gr.Dropdown(
-                choices=[],
-                label="",
-                visible=True,
-                allow_custom_value=True,
+            # Hidden textbox for programmatic value setting
+            # visible=True but CSS-hidden to ensure DOM is rendered
+            pdf_selector = gr.Textbox(
+                value="",
+                label="选择文献",
                 elem_id="pdf-selector-hidden",
+                show_label=False,
             )
             view_mode = gr.Radio(
-                choices=["文本模式", "PDF模式"],
-                value="文本模式",
+                choices=["PDF高亮", "文本模式", "PDF原版", "Docling结构", "分块数据库"],
+                value="PDF高亮",  # v2.3: PDF高亮模式为默认
                 label="查看模式",
+                info="PDF高亮:保真+高亮+截图 | 文本:可高亮 | PDF原版:保真 | Docling:章节结构 | 分块:数据库视图",
             )
 
         # ── Center: Reader ──
@@ -299,10 +1597,15 @@ def build_read_tab():
             with gr.Row():
                 prev_btn = gr.Button("◀ 上一页", scale=1, size="sm")
                 next_btn = gr.Button("下一页 ▶", scale=1, size="sm")
+            # v2.3: PDF高亮模式为默认，所以pdf_text_html初始隐藏，pdf_embed_html初始显示
             pdf_text_html = gr.HTML(
-                "<div class='txt-empty'>选择文献后，文本将在此显示</div>"
+                "<div class='txt-empty'>选择文献后，文本将在此显示</div>",
+                visible=False,  # 默认隐藏，因为PDF高亮模式是默认
             )
-            pdf_embed_html = gr.HTML(visible=False)
+            pdf_embed_html = gr.HTML(
+                "<div class='txt-empty'>选择文献后，PDF 将在此显示</div>",
+                visible=True,  # 默认显示，PDF高亮模式
+            )
 
         # ── Right: Notes (always visible) ──
         with gr.Column(scale=3, min_width=240):
@@ -314,19 +1617,22 @@ def build_read_tab():
     highlight_action_tb = gr.Textbox(
         elem_id="highlight-action-input",
         visible=True,
-        show_label=False,
         container=False,
     )
     translate_action_tb = gr.Textbox(
         elem_id="translate-action-input",
         visible=True,
-        show_label=False,
         container=False,
     )
     translate_result_tb = gr.Textbox(
         elem_id="translate-result-input",
         visible=True,
-        show_label=False,
+        container=False,
+    )
+    # Hidden textbox for note card action buttons (translate, tag, annotate)
+    note_action_tb = gr.Textbox(
+        elem_id="note-action-input",
+        visible=True,
         container=False,
     )
 
@@ -343,4 +1649,5 @@ def build_read_tab():
         "highlight_action_tb": highlight_action_tb,
         "translate_action_tb": translate_action_tb,
         "translate_result_tb": translate_result_tb,
+        "note_action_tb": note_action_tb,
     }

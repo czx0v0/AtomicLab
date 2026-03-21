@@ -2,7 +2,11 @@
 __pycache__/
 *.pyc
 .qoder/
-doc/
 .vscode/
 nul
 image/
+data/*
+.gradio
+docs/*
+logs/*
+storage/*

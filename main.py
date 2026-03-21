@@ -11,11 +11,37 @@ Architecture:
 - tabs/:      Tab UI builders and handlers (Read, Organize, Write, Chat)
 """
 
+import os
+import shutil
 import gradio as gr
 
-from core.config import APP_TITLE, ENABLE_AUTH, AUTH_PASSWORD
+from core.config import APP_TITLE, ENABLE_AUTH, AUTH_PASSWORD, MODEL_DISPLAY_NAMES
+
+
+# ══════════════════════════════════════════════════════════════
+# STARTUP CLEANUP
+# ══════════════════════════════════════════════════════════════
+
+
+def _cleanup_storage():
+    """启动时清理storage文件夹，避免旧索引数据干扰。"""
+    storage_path = os.path.join(os.path.dirname(__file__), "storage")
+    if os.path.exists(storage_path):
+        try:
+            shutil.rmtree(storage_path)
+            print(f"[Startup] 已清理旧storage文件夹: {storage_path}")
+        except Exception as e:
+            print(f"[Startup] 清理storage失败: {e}")
+    else:
+        print(f"[Startup] storage文件夹不存在，无需清理")
+
+
+# 执行清理
+_cleanup_storage()
+from core.model_state import cooldown_manager
 from ui.styles import CSS, HEADER_HTML
 from ui.global_js import ECHARTS_HEAD, GLOBAL_JS
+from ui.renderers import render_note_cards
 from knowledge.tree_model import KnowledgeTree
 
 from tabs.read import (
@@ -27,23 +53,91 @@ from tabs.read import (
     handle_mode_switch,
     handle_highlight_action,
     handle_popup_translate,
+    handle_read_note_action,
 )
 from tabs.organize import (
     build_organize_tab,
-    handle_generate,
+    handle_refresh_tree,
+    handle_generate_summary,
     handle_search,
+    handle_note_action,
     handle_node_select,
-    handle_node_edit,
+    handle_org_doc_select,
+    handle_atomic_decompose,
+    handle_extract_citations,
     _render_graph,
-    _render_doc_graph,
 )
 from tabs.write import (
     build_write_tab,
     handle_download,
     handle_write_search,
     handle_ai_suggest,
+    handle_write_doc_select,
+    handle_write_graph_node_click,
+    get_doc_choices,
+    _render_write_graph,
 )
 from tabs.chat import build_chat_tab, handle_chat_send, handle_chat_clear, handle_ai_ask
+
+# RAG服务集成
+from services.rag_service import get_rag_service
+from core.config import RAG_CONFIG
+
+# 初始化RAG服务（使用全局单例）
+rag_service = get_rag_service(RAG_CONFIG)
+# 每次启动清空索引重新加载（避免旧索引损坏问题）
+rag_service.load(clear_existing=True)
+
+# OCR服务集成
+from services.ocr_service import get_ocr_service
+
+ocr_service = get_ocr_service()
+
+
+# ══════════════════════════════════════════════════════════════
+# MODEL SELECTOR HELPERS
+# ══════════════════════════════════════════════════════════════
+
+
+def _get_model_choices():
+    """Return dropdown choices for model selector."""
+    models = cooldown_manager.get_all_models()
+    return [(MODEL_DISPLAY_NAMES.get(m, m), m) for m in models]
+
+
+def _get_model_status_html():
+    """Generate HTML badges showing model status."""
+    status = cooldown_manager.get_status()
+    available = sum(1 for s in status if not s["in_cooldown"])
+    total = len(status)
+
+    badges = []
+    for s in status:
+        name = s["display_name"]
+        if s["in_cooldown"]:
+            mins = s["cooldown_remaining_secs"] // 60
+            badges.append(f'<span class="model-badge cooldown">{name} ({mins}m)</span>')
+        elif s["is_preferred"]:
+            badges.append(f'<span class="model-badge preferred">{name} ★</span>')
+        else:
+            badges.append(f'<span class="model-badge available">{name}</span>')
+
+    return f"""<div class="model-status">
+        <span class="model-label">{available}/{total} 可用</span>
+        {"".join(badges)}
+    </div>"""
+
+
+def _handle_model_switch(model_id):
+    """Handle model preference change."""
+    cooldown_manager.set_preferred(model_id if model_id else None)
+    return _get_model_status_html()
+
+
+def _handle_reset_cooldowns():
+    """Reset all model cooldowns."""
+    cooldown_manager.reset_all()
+    return _get_model_status_html()
 
 
 # ══════════════════════════════════════════════════════════════
@@ -63,7 +157,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
     with gr.Tabs():
         with gr.Tab("阅读"):
             read = build_read_tab()
-        with gr.Tab("知识图谱"):
+        with gr.Tab("整理"):
             org = build_organize_tab()
         with gr.Tab("写作"):
             wrt = build_write_tab()
@@ -76,7 +170,9 @@ with gr.Blocks(title=APP_TITLE) as demo:
 
     # ── Tab 1: Read ──
     read["upload_f"].change(
-        fn=handle_upload,
+        fn=lambda files, lib, stats, tree: handle_upload(
+            files, lib, stats, tree, rag_service
+        ),
         inputs=[read["upload_f"], lib_st, stats_st, tree_st],
         outputs=[
             lib_st,
@@ -87,16 +183,47 @@ with gr.Blocks(title=APP_TITLE) as demo:
             page_st,
             read["file_list_html"],
             tree_st,
+            read["upload_f"],  # Clear upload area after processing
         ],
     ).then(
-        fn=lambda t: (_render_graph(t), _render_doc_graph(t)),
+        fn=lambda t: _render_graph(t),
         inputs=[tree_st],
-        outputs=[org["graph_html"], org["doc_graph_html"]],
+        outputs=[org["global_graph_html"]],
+    ).then(
+        # Update write tab, organize tab, and chat tab document selectors
+        fn=lambda lib, tree: (
+            gr.update(choices=get_doc_choices(lib)),
+            _render_write_graph(tree, None),
+            gr.update(choices=get_doc_choices(lib)),
+            gr.update(choices=get_doc_choices(lib)),  # chat doc selector
+        ),
+        inputs=[lib_st, tree_st],
+        outputs=[
+            wrt["write_doc_selector"],
+            wrt["write_graph_html"],
+            org["org_doc_selector"],
+            chat["doc_selector"],
+        ],
     )
     read["pdf_selector"].change(
         fn=handle_select_pdf,
-        inputs=[read["pdf_selector"], lib_st],
-        outputs=[page_st, read["pdf_text_html"], read["file_list_html"]],
+        inputs=[read["pdf_selector"], lib_st, notes_st],
+        outputs=[
+            page_st,
+            read["pdf_text_html"],
+            read["file_list_html"],
+            read["notes_html"],
+        ],
+    ).then(
+        # Sync to organize tab (convert empty to __all__)
+        fn=lambda pid: gr.update(value=pid if pid else "__all__"),
+        inputs=[read["pdf_selector"]],
+        outputs=[org["org_doc_selector"]],
+    ).then(
+        # Sync to write tab
+        fn=lambda pid: gr.update(value=pid if pid else "__all__"),
+        inputs=[read["pdf_selector"]],
+        outputs=[wrt["write_doc_selector"]],
     )
     read["prev_btn"].click(
         fn=handle_page_prev,
@@ -110,14 +237,25 @@ with gr.Blocks(title=APP_TITLE) as demo:
     )
     read["view_mode"].change(
         fn=handle_mode_switch,
-        inputs=[read["view_mode"], read["pdf_selector"], lib_st, page_st],
+        inputs=[read["view_mode"], read["pdf_selector"], lib_st, page_st, notes_st],
         outputs=[read["pdf_text_html"], read["pdf_embed_html"]],
     )
-    # Popup: highlight action → auto-save note
+    # Popup: highlight action → auto-save note (v2.0: also creates annotation node + refresh PDF view)
     read["highlight_action_tb"].change(
         fn=handle_highlight_action,
-        inputs=[read["highlight_action_tb"], notes_st, read["pdf_selector"]],
-        outputs=[notes_st, read["notes_html"]],
+        inputs=[
+            read["highlight_action_tb"],
+            notes_st,
+            read["pdf_selector"],
+            tree_st,
+            lib_st,
+        ],
+        outputs=[notes_st, read["notes_html"], tree_st, read["pdf_text_html"], lib_st],
+    ).then(
+        # Auto-refresh graph after highlight
+        fn=lambda t: _render_graph(t),
+        inputs=[tree_st],
+        outputs=[org["global_graph_html"]],
     )
     # Popup: translate action → return result to hidden textbox
     read["translate_action_tb"].change(
@@ -125,10 +263,47 @@ with gr.Blocks(title=APP_TITLE) as demo:
         inputs=[read["translate_action_tb"]],
         outputs=[read["translate_result_tb"]],
     )
+    # Note card action buttons (translate, tag, annotate) in read tab
+    read["note_action_tb"].change(
+        fn=handle_read_note_action,
+        inputs=[
+            read["note_action_tb"],
+            notes_st,
+            read["pdf_selector"],
+            tree_st,
+            lib_st,
+        ],
+        outputs=[org["agent_status"], notes_st, read["notes_html"], tree_st],
+    ).then(
+        # Refresh organize tab views after read tab action
+        fn=lambda t: _render_graph(t),
+        inputs=[tree_st],
+        outputs=[org["global_graph_html"]],
+    )
 
     # ── Tab 2: Organize ──
-    org["gen_btn"].click(
-        fn=handle_generate,
+    org["refresh_btn"].click(
+        fn=handle_refresh_tree,
+        inputs=[
+            read["pdf_selector"],
+            lib_st,
+            stats_st,
+            tree_st,
+        ],
+        outputs=[
+            org["doc_tree_html"],
+            wrt["ref_tree_html"],
+            org["global_graph_html"],
+            org["stats_html"],
+            org["agent_status"],
+        ],
+    ).then(
+        fn=lambda tree: _render_write_graph(tree, None),
+        inputs=[tree_st],
+        outputs=[wrt["write_graph_html"]],
+    )
+    org["summary_btn"].click(
+        fn=handle_generate_summary,
         inputs=[
             notes_st,
             read["pdf_selector"],
@@ -137,37 +312,82 @@ with gr.Blocks(title=APP_TITLE) as demo:
             tree_st,
         ],
         outputs=[
-            org["classified_cards_out"],
             lib_st,
             stats_st,
             org["stats_html"],
             org["agent_status"],
-            org["notes_overview"],
-            org["graph_html"],
+            org["doc_tree_html"],
             tree_st,
             wrt["ref_tree_html"],
-            org["doc_graph_html"],
+            org["global_graph_html"],
         ],
+    ).then(
+        # Also update write tab graph
+        fn=lambda tree: _render_write_graph(tree, None),
+        inputs=[tree_st],
+        outputs=[wrt["write_graph_html"]],
+    )
+
+    # 原子知识解构按钮
+    org["atomic_btn"].click(
+        fn=handle_atomic_decompose,
+        inputs=[read["pdf_selector"], notes_st, lib_st, tree_st],
+        outputs=[org["agent_status"], tree_st, org["atomic_result_html"]],
+    )
+
+    # 引用关系提取按钮
+    org["citation_btn"].click(
+        fn=handle_extract_citations,
+        inputs=[read["pdf_selector"], lib_st, notes_st],
+        outputs=[org["agent_status"], org["citation_result_html"]],
+    )
+    # Organize document selector - syncs with other tabs
+    org["org_doc_selector"].change(
+        fn=handle_org_doc_select,
+        inputs=[org["org_doc_selector"], tree_st, lib_st],
+        outputs=[org["doc_tree_html"], org["global_graph_html"]],
+    ).then(
+        # Sync to write tab
+        fn=lambda pid: gr.update(value=pid),
+        inputs=[org["org_doc_selector"]],
+        outputs=[wrt["write_doc_selector"]],
+    ).then(
+        # Sync to read tab (if not __all__)
+        fn=lambda pid: gr.update(value=pid if pid != "__all__" else ""),
+        inputs=[org["org_doc_selector"]],
+        outputs=[read["pdf_selector"]],
     )
     org["search_btn"].click(
-        fn=handle_search,
+        fn=lambda query, tree, lib: handle_search(query, tree, lib, rag_service),
         inputs=[org["search_input"], tree_st, lib_st],
-        outputs=[org["search_result_html"], org["graph_html"]],
+        outputs=[org["search_result_html"], org["global_graph_html"]],
     )
     org["search_input"].submit(
-        fn=handle_search,
+        fn=lambda query, tree, lib: handle_search(query, tree, lib, rag_service),
         inputs=[org["search_input"], tree_st, lib_st],
-        outputs=[org["search_result_html"], org["graph_html"]],
+        outputs=[org["search_result_html"], org["global_graph_html"]],
+    )
+    org["note_action_tb"].change(
+        fn=handle_note_action,
+        inputs=[org["note_action_tb"], tree_st, lib_st, notes_st],
+        outputs=[
+            org["agent_status"],
+            tree_st,
+            org["doc_tree_html"],
+            org["global_graph_html"],
+            org["node_detail_html"],
+            notes_st,
+        ],
+    ).then(
+        # Sync read tab notes display after organize actions
+        fn=lambda notes, pid: render_note_cards(notes, filter_pid=pid),
+        inputs=[notes_st, read["pdf_selector"]],
+        outputs=[read["notes_html"]],
     )
     org["selected_node_id"].change(
         fn=handle_node_select,
         inputs=[org["selected_node_id"], tree_st],
-        outputs=[org["node_detail_html"], org["edit_content"], org["edit_tags"]],
-    )
-    org["save_node_btn"].click(
-        fn=handle_node_edit,
-        inputs=[org["selected_node_id"], org["edit_content"], org["edit_tags"], tree_st],
-        outputs=[tree_st, org["graph_html"], org["node_detail_html"], org["doc_graph_html"], wrt["ref_tree_html"]],
+        outputs=[org["node_detail_html"]],
     )
 
     # ── Tab 3: Write ──
@@ -178,12 +398,12 @@ with gr.Blocks(title=APP_TITLE) as demo:
     )
     wrt["write_search_btn"].click(
         fn=handle_write_search,
-        inputs=[wrt["write_search"], tree_st],
+        inputs=[wrt["write_search"], tree_st, lib_st],
         outputs=[wrt["ref_tree_html"]],
     )
     wrt["write_search"].submit(
         fn=handle_write_search,
-        inputs=[wrt["write_search"], tree_st],
+        inputs=[wrt["write_search"], tree_st, lib_st],
         outputs=[wrt["ref_tree_html"]],
     )
     wrt["ai_suggest_btn"].click(
@@ -191,17 +411,44 @@ with gr.Blocks(title=APP_TITLE) as demo:
         inputs=[wrt["draft_text"], tree_st],
         outputs=[wrt["ai_suggest_out"]],
     )
+    # Document selector change - update tree and graph view + sync to other tabs
+    wrt["write_doc_selector"].change(
+        fn=handle_write_doc_select,
+        inputs=[wrt["write_doc_selector"], tree_st, lib_st],
+        outputs=[wrt["ref_tree_html"], wrt["write_graph_html"]],
+    ).then(
+        # Sync to organize tab
+        fn=lambda pid: gr.update(value=pid),
+        inputs=[wrt["write_doc_selector"]],
+        outputs=[org["org_doc_selector"]],
+    ).then(
+        # Sync to read tab (if not __all__)
+        fn=lambda pid: gr.update(value=pid if pid != "__all__" else ""),
+        inputs=[wrt["write_doc_selector"]],
+        outputs=[read["pdf_selector"]],
+    )
+    # Graph node click - show detail and optionally switch document
+    wrt["write_graph_node_id"].change(
+        fn=handle_write_graph_node_click,
+        inputs=[wrt["write_graph_node_id"], tree_st, lib_st],
+        outputs=[
+            wrt["write_doc_selector"],
+            wrt["ref_tree_html"],
+            wrt["write_graph_html"],
+            wrt["write_node_detail"],
+        ],
+    )
 
     # ── Tab 4: Chat ──
     chat["send_btn"].click(
         fn=handle_chat_send,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
-        outputs=[chat["chatbot"], chat["msg_input"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"]],
     )
     chat["msg_input"].submit(
         fn=handle_chat_send,
         inputs=[chat["msg_input"], chat["chatbot"], tree_st, lib_st, notes_st],
-        outputs=[chat["chatbot"], chat["msg_input"]],
+        outputs=[chat["chatbot"], chat["msg_input"], chat["chat_status"]],
     )
     chat["clear_btn"].click(
         fn=handle_chat_clear,
@@ -215,10 +462,69 @@ with gr.Blocks(title=APP_TITLE) as demo:
         outputs=[chat["chatbot"], chat["msg_input"]],
     )
 
+    # ── Chat Tab Model Selector Events ──
+    # 初始化chat tab的模型选择器
+    chat["model_selector"].change(
+        fn=_handle_model_switch,
+        inputs=[chat["model_selector"]],
+        outputs=[chat["model_status"]],
+    )
+    # 文献选择器同步
+    chat["doc_selector"].change(
+        fn=lambda pid: (
+            gr.update(value=pid if pid != "__all__" else ""),  # read tab
+            gr.update(value=pid),  # organize tab
+            gr.update(value=pid),  # write tab
+        ),
+        inputs=[chat["doc_selector"]],
+        outputs=[
+            read["pdf_selector"],
+            org["org_doc_selector"],
+            wrt["write_doc_selector"],
+        ],
+    )
+
+    # ── Page Load Initialization ──
+    # 初始化chat tab的模型选择器（必须在with demo:上下文内）
+    def _init_chat_model_selector():
+        """Initialize chat tab model selector after demo is built."""
+        model_choices = _get_model_choices()
+        preferred = cooldown_manager.get_preferred()
+        status_html = _get_model_status_html()
+        return gr.update(choices=model_choices, value=preferred), status_html
+
+    demo.load(
+        fn=_init_chat_model_selector,
+        inputs=[],
+        outputs=[chat["model_selector"], chat["model_status"]],
+    )
+
 
 # ══════════════════════════════════════════════════════════════
 # LAUNCH
 # ══════════════════════════════════════════════════════════════
+
+# OCR API端点
+import json
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+
+@demo.app.post("/api/ocr")
+async def api_ocr(request: Request):
+    """OCR识别API"""
+    try:
+        body = await request.json()
+        image_data = body.get("image", "")
+        if not image_data:
+            return JSONResponse({"text": "", "error": "No image data"})
+
+        result = ocr_service.recognize(image_data)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"text": "", "error": str(e)})
+
+
 if __name__ == "__main__":
     launch_kwargs = {
         "server_name": "0.0.0.0",
@@ -227,6 +533,7 @@ if __name__ == "__main__":
         "css": CSS,
         "js": GLOBAL_JS,
         "head": ECHARTS_HEAD,
+        "allowed_paths": ["image"],
     }
     if ENABLE_AUTH:
         launch_kwargs["auth"] = ("admin", AUTH_PASSWORD)
