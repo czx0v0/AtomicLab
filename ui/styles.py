@@ -90,6 +90,29 @@ CSS = """
   font-family:var(--font-pixel)!important;font-size:.45em;
   color:var(--accent-orange);margin-top:2px;letter-spacing:1px;
 }
+.lab-hdr-actions{
+  margin-top:12px;text-align:center;display:flex;justify-content:center;flex-wrap:wrap;
+}
+.lab-atomiclab-btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 18px;
+  font-family:var(--font-body);
+  font-size:.82em;font-weight:600;
+  color:#fff!important;
+  background:linear-gradient(135deg,var(--accent-blue) 0%,#4a7ae0 100%);
+  border-radius:var(--radius-sm);
+  text-decoration:none!important;
+  box-shadow:var(--shadow-sm);
+  border:1px solid rgba(91,141,239,.35);
+  transition:transform .12s ease,box-shadow .12s ease;
+}
+.lab-atomiclab-btn:hover{
+  transform:translateY(-1px);
+  box-shadow:0 4px 14px rgba(91,141,239,.3);
+}
+.lab-atomiclab-btn:focus-visible{
+  outline:2px solid var(--accent-blue);outline-offset:2px;
+}
 
 /* ══════════════════════════════════════════════════════════════
    Pixel scan line (decorative)
@@ -994,6 +1017,9 @@ HEADER_HTML = """
 <div class='lab-hdr'>
   <div class='lab-title'><img src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAAAXNSR0IArs4c6QAAAT5JREFUeJzt2sFNw0AQQFGDKIADJaQwDi6DI2XkQCkUkhLSA9wRlrIk1rfJe2cLLfpaaTSbaQIAAADgXjzUB7jU28fpa+T799fDLv63x/oA906AmAAxAWICxASICRATICZATICYALHN7UuOp993PvNhbLdzq7+zNjcgJkBMgJgAMQFiq08Ea7xkXTPhbO1lzQ2ICRATICZATIDYU32Av9jaPucabkBMgJgAMQFiAsT+zTTxkxcxLiJATICYADEBYrvZBR2P56GXrPnwsqlpZ4kbEBMgJkBMgJgAMQFiAsQEiAkQEyAmQGxzu6Dll6x97HZGuQExAWICxASICRBbfQq61UvW6O98lr6fPp9HjjPN87rTlxsQEyAmQEyAmACxHe2Cxqadxe8Hp7K1uQExAWICxASICQAAAAAAAMD6C5L271yLTzjdsgAAAABJRU5ErkJggg==' alt='logo'><span>Atomic</span> Lab</div>
   <div class='lab-sub'>Read &middot; Organize &middot; Write</div>
+  <div class='lab-hdr-actions'>
+    <a class='lab-atomiclab-btn' href='https://modelscope.cn/studios/czx0v0/AtomicLab2' target='_blank' rel='noopener noreferrer' title='在魔搭 ModelScope 打开原子科研2'>打开原子科研2（AtomicLab2）</a>
+  </div>
   <div class='pixel-scan-line'></div>
 </div>
 """
