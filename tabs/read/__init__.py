@@ -940,8 +940,14 @@ def _sync_tree_from_demo_sections(tree, lib: dict, demo_doc_ids: set):
                 domain_node = tree.create_domain_node("Demo", doc_id)
             doc_node = tree.create_document_node(doc_name, doc_id, domain_node.id)
         for sec in sections:
-            heading = sec.get("heading", "未知章节")
-            if not heading:
+            heading = (sec.get("heading") or "").strip() or "未命名章节"
+            # 避免重复：若该文档下已有同名 section 则跳过创建，只补 summary（如之前未写入）
+            existing = tree.find_section_node(doc_node.id, heading)
+            if existing:
+                if sec.get("summary") and not existing.metadata.get("summary"):
+                    existing.metadata["summary"] = sec["summary"]
+                if sec.get("key_points") and not existing.metadata.get("key_points"):
+                    existing.metadata["key_points"] = sec.get("key_points", [])
                 continue
             section_node = tree.create_section_node(
                 section_heading=heading,

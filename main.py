@@ -43,7 +43,7 @@ _cleanup_storage()
 from core.model_state import cooldown_manager
 from ui.styles import CSS, HEADER_HTML
 from ui.global_js import ECHARTS_HEAD, GLOBAL_JS
-from ui.renderers import render_note_cards, render_stats
+from ui.renderers import render_note_cards, render_stats, render_doc_note_tree
 from knowledge.tree_model import KnowledgeTree
 
 from tabs.read import (
@@ -346,6 +346,14 @@ with gr.Blocks(title=APP_TITLE, head=mathjax_head) as demo:
         fn=lambda tree: (_render_graph(tree), _render_write_graph(tree, None)),
         inputs=[tree_st],
         outputs=[org["global_graph_html"], wrt["write_graph_html"]],
+    ).then(
+        # 刷新整理页文档树并选中 Demo 文献，使章节摘要立即可见
+        fn=lambda pid, tree, lib: (
+            render_doc_note_tree(tree, pid if pid else None),
+            gr.update(value=pid if pid else "__all__"),
+        ),
+        inputs=[read["pdf_selector"], tree_st, lib_st],
+        outputs=[org["doc_tree_html"], org["org_doc_selector"]],
     )
     read["pdf_selector"].change(
         fn=handle_select_pdf,
