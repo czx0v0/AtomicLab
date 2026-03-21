@@ -141,7 +141,7 @@ class ParagraphChunker:
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """估算 token 数（中文按字符数，英文按词数的 1.3 倍）。"""
+        """估算 token 数（中文按字符数，非中文字符数乘以 0.4）。"""
         if not text:
             return 0
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
